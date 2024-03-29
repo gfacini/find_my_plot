@@ -1,172 +1,167 @@
+"""
+get_mentions.py
+
+This script is designed to process a collection of experimental high-energy physics papers, extracting references to figures and tables along with their captions and mentions within the text. It operates by searching through LaTeX and metadata files in specified directories, identifying patterns that denote figure and table references. For each paper, it extracts the paper name, figures and tables mentioned, and constructs a structured JSON output containing these details along with URLs to the original papers (if available).
+
+Usage:
+    python get_mentions.py [dataDir] [outputDir]
+
+Arguments:
+- dataDir: Directory containing subdirectories for each paper's data, including LaTeX and metadata files.
+- outputDir: Directory where the generated JSON file containing the extracted data will be saved.
+
+The script also configures logging to 'log_mentions.txt', capturing important events and errors encountered during execution.
+
+Requirements:
+- Python 3.x
+- Required Python packages: re, os, json, argparse, logging
+
+This tool is part of the "Find My Plot" project aimed at enhancing accessibility to scientific figures and tables for research and review.
+"""
 
 import os
 import re
 import json
 import logging
+import argparse
 from collections import defaultdict
 
-# Patterns to identify figure and table references in the text files, precompiled for performance
+# Setup logging to file
+logging.basicConfig(filename='log_mentions.txt', level=logging.INFO, 
+                    format='%(asctime)s:%(levelname)s:%(message)s')
+
 figPattern = re.compile(r"[Ff]ig. (\d+)|[Ff]igures* (\d+)")
 tablePattern = re.compile(r"[Tt]able (\d+)")
-
-# Identifiers to prepend to the figure and table numbers for naming
 figIdentifier = "Figure "
 tableIdentifier = "Table "
-
-# Constant filenames
 LATEX_FILE = "latex.txt"
 META_FILE = "meta_info.txt"
 
-def snipSentence(line,m):
-    """
-
-    Given a pagraph and its match object return the senctence containing that match
-
-    Inputs:
-    - line: The line that the match is in
-    - m: The match object
-
-    Returns:
-    - A sentence
-    """
+def snipSentence(line, m):
     sentenceBefore = line[:m.start()].split(". ")[-1]
     sentenceAfter = line[m.end():].split(". ")[0]
     return sentenceBefore + m.group(0) + sentenceAfter 
 
 def getLinesFromFile(folderLoc, file):
-    """
-    Read all lines from a file located in a specified directory.
-    
-    Parameters:
-    - folderLoc: Path of the directory containing the file.
-    - file: Name of the file to read.
-    
-    Returns:
-    - A list of lines from the file.
-    """
     fileLoc = os.path.join(folderLoc, file)
     with open(fileLoc, encoding="utf8") as f:
         return f.readlines()
 
 def extractImageNamesAndMentions(allLines, pattern, identifier):
-    """
-    Search through a list of lines for mentions of images (figures/tables) based on provided pattern, then group and label them.
-    
-    Parameters:
-    - allLines: List of strings to search through.
-    - pattern: Regex pattern to identify image mentions.
-    - identifier: String to prepend to image numbers for naming.
-    
-    Returns:
-    - A dictionary mapping image names to lists of lines in which they are mentioned.
-    """
     mentions = defaultdict(list)
     for line in allLines:
-        # For all lines iterate through all match objects found in the line
-        for m in re.finditer(pattern,line):
+        for m in re.finditer(pattern, line):
             index = next(g for g in m.groups() if g is not None)
-            # If the line is figurelike then add to captions and add placeholder in mentions, else add to mentions#
-            mentions[identifier + index].append(snipSentence(line,m))
+            mentions[identifier + index].append(snipSentence(line, m))
     return dict(mentions)
 
 def extractPaperName(metaLinesList):
-    """
-    Extracts the paper name from the meta info file.
-    
-    Parameters:
-    - metaLinesList: List of strings, each representing a line from the meta_info.txt file.
-    
-    Returns:
-    - The paper name as a string. Returns None if the paper name can't be found.
-    """
     paperNameLines = []
     capture = False
     for line in metaLinesList:
         if 'PAPER NAME :' in line:
             capture = True
             paperName = line.split('PAPER NAME :', 1)[1].strip()
-            paperNameLines.append(paperName)  # Capture the rest of the line after 'PAPER NAME :'
+            paperNameLines.append(paperName)
         elif 'LAST MODIFICATION DATE :' in line and capture:
-            # Stop capturing after 'LAST MODIFICATION DATE :'
             capture = False
             break
         elif capture:
-            # If we are in capture mode, append lines to paperNameLines
             paperNameLines.append(line.strip())
-    
     return ' '.join(paperNameLines) if paperNameLines else None
 
+def process_directories(dataDir, outputDir, outputFile):
+    figures = []
 
-# Define input and output directories
-dataDir = "C:\workspace\git-repos\physics-project\paper data\CMS-papers\CDS_doc"
-outputDir = "C:\workspace\git-repos\physics-project"
+    # Process each subdirectory in the input directory
+    for f in os.listdir(dataDir):
+        folderDir = os.path.join(dataDir, f)
 
-# Check if the input directory exists, exit if not
-if not os.path.isdir(dataDir):
-    print(f"Input directory not found: {dataDir}")
-    exit(1)
+        # Skip if is not a directory
+        if not os.path.isdir(folderDir):
+            continue
+        
+        # Attempt to read the latex and metadata files, skip the folder if either file is missing
+        try:
+            latexLinesList = getLinesFromFile(folderDir, LATEX_FILE)
+        except FileNotFoundError:
+            logging.error(f"{LATEX_FILE} not found in: {folderDir}")
+            continue
 
-# Check if the output directory exists, create it if not
-if not os.path.isdir(outputDir):
-    print(f"Output directory not found, trying to create: {outputDir}")
-    try:
-        os.makedirs(outputDir)
-    except OSError as error:
-        print(f"Failed to create output directory: {error}")
+        try:
+            metaLinesList = getLinesFromFile(folderDir, META_FILE)
+        except FileNotFoundError:
+            logging.error(f"{META_FILE} not found in: {folderDir}")
+            continue
+
+        # Extract the paper name from the metadata file
+        paperName = extractPaperName(metaLinesList)
+
+        # Extract the URL from the last line of the metadata file
+        atlusUrl = max(metaLinesList[-1].split(), key=len)
+
+        # Extract mentions of figures and tables from the latex file
+        figMentionDic = extractImageNamesAndMentions(latexLinesList, figPattern, figIdentifier)
+        tableMentionDic = extractImageNamesAndMentions(latexLinesList, tablePattern, tableIdentifier)
+
+        # Combine figure and table mentions into a single dictionary
+        combinedMentionDic = {**figMentionDic, **tableMentionDic}
+
+        # Compile the data for each figure/table into a list of dictionaries
+        for key, mentions in combinedMentionDic.items():
+            figures.append({
+                "name": key, 
+                "mentions": mentions, 
+                "atlusUrl": atlusUrl, 
+                "paper": f, 
+                "paperName": paperName
+            })
+
+    # Define the path for the output JSON file
+    outputFilePath = os.path.join(outputDir, outputFile)
+
+    # Write the compiled data to the output JSON file
+    with open(outputFilePath, "w", encoding="utf-8") as outfile:
+        json.dump(figures, outfile, indent=4, ensure_ascii=False)
+
+def ensure_trailing_slash(path):
+    return path if path.endswith("/") else path + "/"
+
+def main():
+    parser = argparse.ArgumentParser(description='Process paper directories.')
+
+    # default values assume running from base directory of repo
+    parser.add_argument('dataDir', type=str, help='Input directory containing paper data',
+                        default='paper data\CMS-papers\CDS_doc', nargs='?')
+    parser.add_argument('outputDir', type=str, help='Output directory for the generated data',
+                        default='./output/', nargs='?')
+    parser.add_argument('outputFile', type=str, help='Output file for the generated data',
+                        default='generated-data.json', nargs='?')
+
+    args = parser.parse_args()
+
+    print("Running get-metions.py with args:")
+    print(f"\t--dataDir:    {args.dataDir}")
+    print(f"\t--outputDir:  {args.outputDir}")
+    print(f"\t--outputFile: {args.outputFile}")
+
+    # Rest of the main function remains the same
+    if not os.path.isdir(args.dataDir):
+        logging.error(f"Input directory not found: {args.dataDir}")
         exit(1)
 
-figures = []
-# Process each subdirectory in the input directory
-for f in os.listdir(dataDir):
-    folderDir = os.path.join(dataDir, f)
-    
-    # Skip if 'f' is not a directory
-    if not os.path.isdir(folderDir):
-        continue
-    
-    # Attempt to read the latex and metadata files, skip the folder if either file is missing
-    try:
-        latexLinesList = getLinesFromFile(folderDir, LATEX_FILE)
-    except FileNotFoundError:
-        logging.error(f"{LATEX_FILE} not found in: {folderDir}")
-        continue
+    if not os.path.isdir(args.outputDir):
+        logging.info(f"Output directory not found, trying to create: {args.outputDir}")
+        try:
+            os.makedirs(args.outputDir)
+        except OSError as error:
+            logging.error(f"Failed to create output directory: {error}")
+            exit(1)
 
-    try:
-        metaLinesList = getLinesFromFile(folderDir, META_FILE)
-    except FileNotFoundError:
-        logging.error(f"{META_FILE} not found in: {folderDir}")
-        continue
+    process_directories(ensure_trailing_slash(args.dataDir), 
+                        ensure_trailing_slash(args.outputDir),
+                        args.outputFile)
 
-    # Extract the paper name from the metadata file
-    paperName = extractPaperName(metaLinesList)
-    
-    # Extract the URL from the last line of the metadata file
-    atlusUrl = max(metaLinesList[-1].split(), key=len)
+if __name__ == "__main__":
+    main()
 
-    # Extract mentions of figures and tables from the latex file
-    figMentionDic = extractImageNamesAndMentions(latexLinesList, figPattern, figIdentifier)
-    tableMentionDic = extractImageNamesAndMentions(latexLinesList, tablePattern, tableIdentifier)
-
-    # Combine figure and table mentions into a single dictionary
-    combinedMentionDic = {**figMentionDic, **tableMentionDic}
-
-    # Compile the data for each figure/table into a list of dictionaries
-    for key, mentions in combinedMentionDic.items():
-        figures.append({
-            "name": key, 
-            "mentions": mentions, 
-            "atlusUrl": atlusUrl, 
-            "paper": f, 
-            "paperName": paperName  # Include the extracted paper name here
-        })
-
-# Define the path for the output JSON file
-outputFilePath = os.path.join(outputDir, "generated-data.json")
-
-# Write the compiled data to the output JSON file
-with open(outputFilePath, "w",encoding="utf-8") as outfile:
-    json.dump(figures, outfile, indent=4, ensure_ascii=False)
-
-
-
-# %%
