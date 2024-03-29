@@ -1,281 +1,436 @@
 """
-author = Runze Li
-email = runze.li@yale.edu
+Scrapes CDS documents from specified URLs and processes the documents to extract metadata, download PDFs, and convert content to markdown.
+This script is designed for batch processing of documents from the CERN Document Server (CDS).
+
+Requirements: nougat package from META, PyPDF2 and BeautifulSoup. See README in base directory for venv setup.
+
+Original Author: Runze Li
+Email: runze.li@yale.edu
+
+Mar 2023 G.Facini (UCL)
+ - Modified to take args, main
+ - Flags for overwriting
+ - Allow for pdf downloads and nougat running sepately
+ - Write plot URLS to meta_info
+
+Usage:
+    python cds_scrape.py --base_url <CDS Base URL> --depth <Depth> --output_dir <Output Directory>
 """
+
 import os
-import subprocess
-import numpy as np
 import re
 import subprocess
 import shutil
-import sys
-
 from bs4 import BeautifulSoup
 import PyPDF2
 import requests
-import time
+import argparse
+from datetime import datetime
 
-
-# retrieve the name liek CDS_Record_12345 from url
 def url_to_folder_name(url):
-    # Regular expression to extract the record number
+    """
+    Converts a CDS document URL to a standardized folder name based on the record number.
+
+    Args:
+        url (str): The URL of the CDS document.
+
+    Returns:
+        str: A folder name in the format "CDS_Record_<record_number>" or "Invalid_URL" if the URL pattern doesn't match.
+    """
     match = re.search(r'record/(\d+)', url)
     if match:
-        record_number = match.group(1)
-        folder_name = f"CDS_Record_{record_number}"
-        return folder_name
+        return f"CDS_Record_{match.group(1)}"
     else:
         return "Invalid_URL"
 
-# find the minimal value in input sequence, used to check the min between
-# page num of Author list and page num of Acknowledgement to determine where we stop
 def min_of_list(values):
-    # Filter out None values
+    """
+    Finds the minimum value in a list, ignoring None values.
+
+    Args:
+        values (list): A list of values which can include None.
+
+    Returns:
+        int: The minimum value in the list, or -1 if the list is empty or contains only None values.
+    """
     filtered_values = [v for v in values if v is not None]
-    
-    if not filtered_values:  # Check if the list is empty
-        return -1
-    else:
-        return min(filtered_values)
+    return min(filtered_values) if filtered_values else -1
 
+def is_atlas_link(link):
+    """Check if the link is a ATLAS link."""
+    return 'atlas.web.cern.ch/Atlas' in link
 
-# get the pdf link from the paper's cds url and download it
-def download_pdf(url):
-    # Get the content from the URL
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content, 'html.parser')
+def is_cms_link(link):
+    """Check if the link is a CMS link."""
+    return 'cms-results.web.cern.ch/cms-results' in link
 
-    # Find the PDF link in the meta tags
+def is_cds_Figure_link(link):
+    return 'cds.cern.ch/record' in link and "Figure" in link
+
+def get_plot_location(soup, url):
+    """
+    Look for location of plots webpage. 
+     - For recent papers it is in the CDS notes field
+     - For recent ATLAS PUB and CONF it is also in the notes field
+     - For CMS PAS, they are linked to CDS directly - looking for a "cds link"
+     - For older things, return None
+
+     Input:
+      soup from BeautifulSoup of CDS Record
+      url in case the answer is CDS
+     """
+
+    # first look for a url in the Note of the cds record
+    note_item = soup.find('td', class_='formatRecordLabel', string='Note')
+    if note_item:
+        note_row = note_item.find_parent('tr')
+        if note_row:
+            link_tag = note_row.find('a')
+            if link_tag:
+                url = link_tag.get('href')
+                return url
+
+    # if not, do a generic look for atlas links
+    atlas_link = soup.find('a', href=lambda href: href and is_atlas_link(href))
+    if atlas_link:
+        return atlas_link['href']
+
+    # if not, do a generic look for cms links
+    cms_link = soup.find('a', href=lambda href: href and is_cms_link(href))
+    if cms_link:
+        return cms_link['href']
+
+    # Look for CDS links
+    # Find all <meta> tags with property="og:image" or property="og:image:secure_url" that contain the desired links
+    figure_links = [meta['content'] for meta in soup.find_all('meta', attrs={'property': lambda x: x in ['og:image', 'og:image:secure_url']}) if is_cds_Figure_link(meta.get('content', ''))]
+    if len(figure_links) > 0:
+        return url
+
+    # check if ATLAS paper without link in notes but name of PDF tells us it is a paper
     meta_tag = soup.find('meta', attrs={'name': 'citation_pdf_url'})
-    pdf_name = ""
-
     if meta_tag:
         pdf_url = meta_tag['content']
-        pdf_name = pdf_url.split("/")[-1][:-4]
+        pdf_name = pdf_url.split("/")[-1][:-4] # cut off .pdf
+        if "PAPER" in pdf_name: # then has form with something like: ANA-EXOT-2019-01-PAPER.pdf
+            pdf_name = pdf_name.replace("ANA-","")
+            pdf_name = pdf_name.replace("-PAPER.pdf","")
+            maybe_url = f"https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/{pdf_name}"
+            response = requests.get(maybe_url)
+            if response.status_code == 200: return maybe_url
 
-        # Download the PDF
-        response_pdf = requests.get(pdf_url)
-        if response_pdf.status_code == 200:   # get the pdf file
-            with open(f"./{pdf_name}.pdf", 'wb') as f:
-                f.write(response_pdf.content)
-        else:
-            print(f'Failed to download PDF from {pdf_url}')  # then we do not care about images
-            return 1  # PDF download failed
+    return "None"
 
+
+def download_pdf(url, paper_folder, overwrite=False):
+    """
+    Downloads the PDF from a given paper's CDS record URL
+    It also parses the meta data in the url for the technical report number(s) and plot location
+    If the file exists and overwrite is False, the pdf is not downloaded
+
+    Args:
+        url (str)   : The URL of the paper on CDS.
+        paper_folder: Path to directory where paper is downloaded (assumed to exist) 
+        overwrite   : T/F. If false and pdf exists locally, return the name like it was downloaded
+
+    Returns: 
+        str : The full path of the (downloaded) PDF file, or None if download fails or the meta tag is not found.
+        list: technical report number
+        str : plot location will be URL for experiment page that holds all PDFs, URL to CDS if all listed there, or None if noe of those are satisfied
+        
+    """
+    print("Downloading document")
+    print(f"\t url: {url}")
+    #print(f"\t out: {paper_folder}")
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'html.parser')
+    meta_tag = soup.find('meta', attrs={'name': 'citation_pdf_url'})
+
+    tech_report_num = []
+    plot_loc = "None"
+
+    if not meta_tag:
+        print('No citation_pdf_url meta tag found.')
+        return None, tech_report_num, plot_loc 
+
+    pdf_url = meta_tag['content']
+    pdf_name = pdf_url.split("/")[-1][:-4] # cut off .pdf
+    full_path = f"{paper_folder}/{pdf_name}.pdf"
+    print(f"\t out: {full_path}")
+   
+    # get technical report
+    # sometimes there are multiple
+    meta_numbers = soup.find_all('meta', attrs={'name': 'citation_technical_report_number'})
+    tech_report_num = [meta['content'] for meta in meta_numbers if meta and meta.get('content')]
+
+    # get plot location
+    plot_loc = get_plot_location(soup, url)
+
+    # check if pdf exists
+    if os.path.exists(full_path):
+        if overwrite: # clean the existing pdf
+            os.remove(full_path)
+        else: # don't overwrite so return name and proceed
+            print("PDF exists, and not overwriting")
+            return full_path, tech_report_num, plot_loc
+
+    response_pdf = requests.get(pdf_url) # get the pdf
+    if response_pdf.status_code == 200:
+        with open(full_path, 'wb') as f:
+            f.write(response_pdf.content)
+            f.close()
+            print("Wrote file")
     else:
-        print('No citation_pdf_url meta tag found.') # then we do not care about images
-        return 1  # No meta tag found
+        print(f'Failed to download PDF from {pdf_url}')
+        return None, tech_report_num, plot_loc
 
-    # Return the results
-    return pdf_name
-    
-# get the last modification date metadata from cds paper page
+    return full_path, tech_report_num, plot_loc
+
 def get_modification_date(url):
-    # Get the content from the URL
+    """
+    Extracts the last modification date from a paper's CDS page.
+
+    Args:
+        url (str): The URL of the paper on CDS.
+
+    Returns:
+        str: The last modification date as a string, or None if not found.
+    """
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
-
-    # Find the element containing the last modification date
     modification_div = soup.find("div", class_="recordlastmodifiedbox")
-    
-    # Extract the text and clean it up
+
     if modification_div:
-        modification_text = modification_div.get_text(strip=True)
-        # Extracting the last modified date from the text
-        last_modified_date = modification_text.split("last modified")[-1].strip()
-        return last_modified_date
+        return modification_div.get_text(strip=True).split("last modified")[-1].strip()
     else:
         return None
 
-# use nougat to extract text
-def extract_text(file_dir, output_directory, page_to_stop):
+def extract_text(file, output_directory, page_to_stop):
+    """
+    Uses the nougat tool to extract text from a PDF file.
+
+    Args:
+        file (str): The full path of the PDF file.
+        output_directory (str): The directory where the extracted text should be saved.
+        page_to_stop (int): The last page number to include in the extraction.
+    """
+    cmd = ["nougat", file, "-o", output_directory]
+    if page_to_stop != -1:
+        cmd += ["-p", f"1-{page_to_stop}"]
+
     try:
-        # Build the command
-        if page_to_stop == -1:   # if we cannot find an early stopping page defined by Author list or etc
-            cmd = ["nougat", file_dir + ".pdf", "-o", output_directory]
-        else:  # if we do find that, we only scrape page 1 to that page
-            cmd = ["nougat", file_dir + ".pdf", "-o", output_directory, "-p", "1-" + str(page_to_stop)]
-
-        print(cmd)
-
-        # Start the subprocess
         process = subprocess.Popen(cmd)
-
-        # Wait for the process to complete (with or without a timeout)
         process.wait()
-
-        # Check the exit code of the process
-        if process.returncode != 0:
-            print(f"Process ended with an error code: {process.returncode}")
-            # Handle error case as needed
+        # rename? no - pdf name corresponds to the arXiv
+        if process.returncode == 0:
+            #os.rename(output_directory + file_dir + ".mmd", output_directory + "document.mmd")
+            print("NOUGAT ended successfully")
         else:
-            # Rename the file as needed if the process completed successfully
-            os.rename(output_directory + file_dir + ".mmd", output_directory +"latex.txt")
-
-    except subprocess.CalledProcessError as e:
-        print("An error occurred while reading the pdf.")
-        print(e)
+            print(f"Process ended with an error code: {process.returncode}")
     except Exception as e:
-        print("An unexpected error occurred.")
-        print(e)
+        print("An error occurred during text extraction:", e)
 
+def find_key_in_pdf(file, keyword):
+    """
+    Searches for a keyword in a PDF file and returns the page number where it's found.
 
-# look for key word in the pdf, such as Author list or etc
-def find_key_in_pdf(file_path, keyword):
+    Args:
+        file_path (str): The path to the PDF file.
+        keyword (str): The keyword to search for.
+
+    Returns:
+        int: The 1-indexed page number where the keyword is found, or None if not found.
+    """
     try:
-        # Open the PDF file
-        with open(file_path + ".pdf", 'rb') as file:
+        with open(file, 'rb') as file:
             reader = PyPDF2.PdfReader(file)
-    
-            # Iterate through each page, starting from the last page
             for page_num in range(len(reader.pages) - 1, -1, -1):
-                page = reader.pages[page_num]
-                text = page.extract_text()
-    
+                text = reader.pages[page_num].extract_text()
                 if text and keyword in text:
-                    return page_num + 1  # Return page number (1-indexed)
-    
-        return None
-    except:
-        return None
+                    return page_num + 1
+    except Exception as e:
+        print("Error searching PDF:", e)
+    return None
 
-
-# get links to all papers and their titles in main url (paper list)
 def get_paper_links(url):
-    paper_links = []
-    paper_titles = []
+    """
+    Retrieves all paper links and their titles from a CDS search page.
+
+    Args:
+        url (str): The URL of the CDS search page.
+
+    Returns:
+        tuple: Two lists, one with paper links and one with their corresponding titles.
+    """
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
-    
+    paper_links, paper_titles = [], []
+
     for titlelink in soup.find_all('a', class_='titlelink'):
-
-        # Print or process the title and the description
         title = titlelink.text
-
-        url = titlelink['href']
-
-        # Normalize the URL by removing the query string for language
-        if url.endswith("?ln=en"):
-            url = url[:-6]
-
+        link = titlelink['href']
         if "[...]" not in title:
-            paper_links.append(url)
+            paper_links.append(link[:-6] if link.endswith("?ln=en") else link)
             paper_titles.append(title)
     
     return paper_links, paper_titles
 
 
-"""
-Starting from base url, find all links on this page, and go to the next page
-each page in main url like https://cds.cern.ch/search?cc=CERN+Preprints&jrec=1 contains 10 papers, so we go as
-jrec = 1, 11, 21, ... until what is defined by depth
-depth * 10 is the total amount of papers we loop through
+def write_to_db(collection, depth, db_dir, run_nougat, overwrite=False):
+    """
+    Scrapes CDS documents based on a base URL and depth, downloads PDFs, extracts metadata, and saves data to a database.
 
-then read pdf url from paper's url, and write the paper to database
-"""
-def write_to_db(base_url, depth, db_dir):
+    Args:
+        collection (str): The CDS search collection. Use spaces
+        depth (int): How many pages deep to scrape.
+        db_dir (str): The directory where the scraped data should be stored.
+        run_nougat (T/F): run nougat or not
+        overwrite (T/F): overwrite existing files, but only if the pdf has been updated
+    """
 
-    # instead of stop at fixed depth, may want to change into while loop and stop when no file found (reach the end)
-    
-    for i in range(depth):
-        print("curr depth "  + str(i) + " in " + str(depth))
+    # build url to get 10 results per results page
+    base_url = "https://cds.cern.ch/search?cc=" + collection.replace(" ","+") + "&rg=10" + "m1=a&jrec={page_index}"
 
-        fail_file = open("./failed_list.txt", 'a')
+    # output directory
+    base_dir = db_dir + "/" + collection.replace(" ","_")
+    if not os.path.exists(base_dir):
+        os.mkdir(base_dir)
+
+    fail_file = open(base_dir+"/failed_list.txt", 'a')
+
+    get_more = True # flag to control if go to next results page or not
+    result_page = 0 
+    while get_more:
+        if depth >= 0 and result_page > depth:
+            print("Reached depth. Ending the scraping process.")
+            break
+
+        print("Results page "  + str(result_page) + " (depth= " + str(depth) + ")")
 
         # so depth is n, then i is 1, 11, ..., 10*(n-1) + 1
-        page_index = i * 10 + 1
+        page_index = result_page * 10 + 1
 
         # get the url of this page
         url = base_url.format(page_index=page_index)
 
-        # loop through all links on this page, should find 10 paper links, only keep those with "ATLAS" keyword
+        # loop through all links on this results page, 
+        # should find 10 paper links
         links, titles = get_paper_links(url)
+
+        # Check if no links were found, indicating we might have reached the end
+        if not links:
+            print("No more papers found. Ending the scraping process.")
+            break
 
         for link, title in zip(links, titles):
 
+            print("\nwork on link " + link)
             folder_name = url_to_folder_name(link)
-
-            # may need to change if we want to update rather than just collect
-            if os.path.exists(db_dir + "/" + folder_name + "/latex.txt") and os.path.exists(db_dir + "/" + folder_name + "/meta_info.txt"):
-                continue # already exist
-                
-            print("\n\n\nwork on link " + link)
-            # have to download it before nougat can read it in locally
-            pdf_name = download_pdf(link)
-
             last_modification_date = get_modification_date(link)
-    
-            if pdf_name != 1:
-                
-                if not os.path.exists(db_dir + "/" + folder_name + "/"):
-                    os.mkdir(db_dir + "/" + folder_name + "/")
-    
-                else:
-                    try:
-                        shutil.rmtree(db_dir + "/" + folder_name + "/temp/")
-                    except:
-                        pass
-    
-                
-                last_page_num_References = find_key_in_pdf(pdf_name, "References")
-                #last_page_num_The_ATLAS_Collaboration = find_key_in_pdf(pdf_name, "The ATLAS Collaboration")  
-                #remove this because sometimes it shows up in the very beginning :(
-                last_page_num_acknowledgement = find_key_in_pdf(pdf_name, "ACKNOWLEDGMENT")
-    
-                page_to_stop = min_of_list([last_page_num_References, last_page_num_acknowledgement])
-    
-                print("last reference at " + str(last_page_num_References) + " last acknowledge at " + str(last_page_num_acknowledgement))
-                print("end at " + str(page_to_stop))
-    
+
+            paper_folder = base_dir + "/" + folder_name
+            if not os.path.exists(paper_folder): os.mkdir(paper_folder)
+
+            # check if updated since late write
+            updated = True # default to true in case first time looking at entry
+            if os.path.exists(paper_folder + "/meta_info.txt"):
+                saved_date = None
+                with open(paper_folder + "/meta_info.txt", "r") as meta_info:
+                    for line in meta_info:
+                        if line.startswith("LAST MODIFICATION DATE :"):
+                            saved_date = line.split(":")[1].strip()  # Extract the date part and strip whitespace
+                            break  # Exit the loop once the date is found
+                if saved_date is not None:
+                    print("Saved date:", saved_date)
+
+                    # Convert both date strings to datetime objects
+                    saved_date_dt = datetime.strptime(saved_date, "%Y-%m-%d")
+                    new_date_dt = datetime.strptime(last_modification_date, "%Y-%m-%d")
+
+                    # Now can compare, if new date later, need to updated
+                    if saved_date_dt < new_date_dt:
+                        print(f"PDF has been updated! Overwrite set to {overwrite}")
+                    else:
+                        updated = False
+
+            # Get the PDF
+            pdf_overwrite = overwrite 
+            if overwrite and not updated: pdf_overwrite = False # don't download if wasn't changed
+            pdf_name, tech_rep_num, plot_loc = download_pdf(link,paper_folder,pdf_overwrite)
+
+            if pdf_name == None:
+                fail_file.write(link + "\n")
+                print("\n fail to read " + link + "\n")
+                continue
+
+            if updated or overwrite:
+                print("\tWriting metadata")
+                meta_info = open(paper_folder + "/meta_info.txt", 'w')
+                meta_info.write("PAPER NAME : ")
+                meta_info.write(title.replace("\n", "")+"\n")
+                meta_info.write("LAST MODIFICATION DATE : ")
+                meta_info.write(last_modification_date + "\n")
+                meta_info.write("URL : ")
+                meta_info.write(link.replace("\n", "") + "\n")
+                meta_info.write("COLLECTION : ")
+                meta_info.write(collection.replace(" ", "_") + "\n")
+                meta_info.write("TECH REP NUM: ")
+                meta_info.write(', '.join(tech_rep_num))
+                meta_info.write("\n")
+                meta_info.write(f"PLOT LOC: {plot_loc}\n")
+                meta_info.close()
+
+            mmd_update = run_nougat # start with if user asked to run_nougat
+            # if it exits, check overwrite and updated
+            if os.path.exists(paper_folder + "/document.mmd"):
+                mmd_update = run_nougat and overwrite
+                if mmd_update:
+                    os.remove(paper_folder + "/document.mmd")
+            if mmd_update: 
                 try:
-                    extract_text(pdf_name, db_dir + "/" + folder_name + "/", page_to_stop)
-                    meta_info = open(db_dir + "/" + folder_name + "/meta_info.txt", 'w')
-                    meta_info.write("PAPER NAME : ")
-                    meta_info.write(title.replace("\n", "")+"\n")
-                    meta_info.write("LAST MODIFICATION DATE : ")
-                    meta_info.write(last_modification_date + "\n")
-                    meta_info.write("URL : ")
-                    meta_info.write(link.replace("\n", "") + "\n")
-                    meta_info.close()
+                    last_page_num_References = find_key_in_pdf(pdf_name, "References")
+                    #last_page_num_The_ATLAS_Collaboration = find_key_in_pdf(pdf_name, "The ATLAS Collaboration")  
+                    #remove this because sometimes it shows up in the very beginning :(
+                    last_page_num_acknowledgement = find_key_in_pdf(pdf_name, "ACKNOWLEDGMENT")
+                    page_to_stop = min_of_list([last_page_num_References, last_page_num_acknowledgement])
+                    # control with flag TODO
+                    #print("last reference at " + str(last_page_num_References) + " last acknowledge at " + str(last_page_num_acknowledgement))
+                    #print("end at " + str(page_to_stop))
+                    extract_text(pdf_name, paper_folder + "/", page_to_stop)
                 except:
-                    fail_file_after_nougat.write(link + "\n")
-    
+                    fail_file.write(link + "\n")
                     print("\n fail to read " + link + "\n")
     
-            
-                if os.path.exists(pdf_name + ".pdf"):
-                    os.remove(pdf_name + ".pdf")
+            # add flag to remove pdf
+            #if os.path.exists(pdf_name):
+            #    os.remove(pdf_name)
     
-            else:
-                fail_file_after_nougat.write(link + "\n")
-    
-                print("\n fail to read " + link + "\n")
-    
-        fail_file.close()
+        result_page = result_page + 1
+        # end while
 
+    fail_file.close()
 
-# Change this to your path
-db_dir = "./"
+def main():
+    parser = argparse.ArgumentParser(description="Scrapes CDS documents and processes them.")
+    parser.add_argument("--collection", type=str, help="CDS Collection i.e. 'ATLAS Papers'", required=True)
+    parser.add_argument("--depth", type=int, help="Depth to scrape.", required=True)
+    parser.add_argument("--output_dir", type=str, help="Directory to store output.", required=True)
+    parser.add_argument("--run_nougat", action='store_true', help="Flag to control execution of nougat on the PDFs.")
 
-if not os.path.exists(db_dir + "CDS_doc"):
-    os.mkdir(db_dir + "CDS_doc")
+    args = parser.parse_args()
+    print("Running scrapeCDS.py with args:")
+    print(f"\t collection  : {args.collection}")
+    print(f"\t depth       : {args.depth}")
+    print(f"\t output_dir  : {args.output_dir}")
+    print(f"\t run_nougat  : {args.run_nougat}")
 
-# around 1200 pdfs
-base_url_ATLAS_paper = "https://cds.cern.ch/search?cc=ATLAS+Papers&jrec={page_index}"
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
 
-# around 2560 pdfs
-base_url_ATLAS_preprint = "https://cds.cern.ch/search?cc=ATLAS+Preprints&m1=a&jrec={page_index}"
-
-base_url_ATLAS_pub_notes = "https://cds.cern.ch/search?cc=ATLAS+PUB+Notes&m1=a&jrec={page_index}"
-
-base_url_ATLAS_internal_notes = "https://cds.cern.ch/search?cc=ATLAS+Internal+Notes&m1=a&jrec={page_index}"
-
-write_to_db(base_url_ATLAS_pub_notes, 10, db_dir + "CDS_doc")
-
-
+    # Call the write_to_db function with the additional flags
+    write_to_db(args.collection, args.depth, args.output_dir, args.run_nougat, True)
 
 
 
-
-
+if __name__ == "__main__":
+    main()
 

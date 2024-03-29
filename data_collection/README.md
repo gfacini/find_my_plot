@@ -65,3 +65,21 @@ For any questions or feedback, please open an issue on the GitHub repository, or
 
 Thank you for supporting the "Find My Plot" project!
 
+
+## Mount eos
+I found success running on a local desktop at CERN and needed to mount eos. 
+ - [CERN EOS page](https://eos-docs.web.cern.ch/diopside/manual/hardware-installation.html#installation)
+ - [This page was useful for commands](https://abpcomputing.web.cern.ch/guides/eos_on_mac/)
+ - [Permissions](https://github.com/macfuse/macfuse/wiki/Getting-Started) need to be changed to mount and the getting started guide helps.
+To mount the altaslocalgroupdisk
+ ```
+export EOS_MGM_URL=root://eosatlas/
+kinit
+eos fuse mount /Users/gfacini/Documents_Local/eos/
+ ```
+Now can do, `ls /Users/gfacini/Documents_Local/eos/atlas/atlascerngroupdisk/phys-mlf/Chatlas/`
+
+To unmount
+```
+eos fuse umount /Users/gfacini/Documents_Local/eos/
+```
