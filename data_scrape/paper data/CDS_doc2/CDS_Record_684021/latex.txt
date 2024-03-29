@@ -1,0 +1,169 @@
+**PixTrig: a LVL2 track finding algorithm based on pixel detector**
+
+**A. Baratella, P. Morettini, M. Dameri, F. Parodi GENOVA University and I.N.F.N.**
+
+**Abstract**
+
+This note describes an algorithm for track search at LVL2 based on pixel detector. Using three pixel clusters a reconstruction of the track parameters in both Z and R\(\Phi\) plane is produced. These track segments can be used as seed for more sophisticated track finding algorithms or used directly, especially when impact parameter resolution is crucial. The algorithm efficiency is close to 95% for \(\rm p_{T}>\) 1 GeV/c and the processing time is small enough to allow a complete detector reconstruction (non RoI guided) within the LVL2 processing.
+
+## 1 Introduction
+
+The basic idea of PixTrig is to provide a fast track reconstruction algorithm to be used at Level 2 in the context of the B-physics selection. Since the impact parameter and the three-dimensional reconstruction of the track parameters are important, the choice to use the pixel detector [1] space-points is natural. Moreover, using a single detector gives the largest flexibility in terms of implementation; in fact, beside the pure software implementation in a farm of fast processors, it is possible to consider hardware solutions, implemented at the level of the ROBs, that would become almost unfeasible if the data coming from different detector where required. This is the reason why originally PixTrig has been implemented using only the three layers of the barrel pixel detector.
+
+Having just three points it is possible to use a fast combinatorial algorithm, and extract the track parameters without performing any fit (see Figure 1): all the points in the innermost layer (B-layer) are connected to the points of the second layer; if the line obtained has an impact parameter (\(\Delta\)R\(\Phi_{\rm ext}\), \(\Delta\)Z\({}_{\rm ext}\)) below a given cut, it is extrapolated to the third layer; if a point sufficiently close (\(\Delta\)R\(\Phi_{3}\), \(\Delta\)Z\({}_{3}\)) is found, the triplet obtained is taken as a track candidate. The equation of the circle connecting the points in the R\(\Phi\) plane gives an estimate of the p\({}_{\rm T}\) of the track and of the transverse impact parameter.
+
+Beside the advantage of the simplicity the drawback of limiting the algorithm to the pixel is that the sensitivity to the detector efficiency is high. For this reason, in the present implementation, a "logical layer", i.e. a collection of detector modules to be looked at when searching for space points to be used to build a track, replaced the physical detector layer. This approach allowed the extension of the algorithm to the end-cap region (where the pixel detector has five disks) and, in the future, will support a simple integration of space points from other detectors to improve the overall efficiency.
+
+PixTrig is written in C\({}^{++}\), and it is part of CTrig [2], a package for trigger simulation in the framework of the B-physics. In this way the tracks produced by PixTrig can be easily compared with those produced by other algorithm or even used as seed for a complete track reconstruction in the Inner Detector.
+
+Figure 1: Schematic view of the track finding algorithm.
+
+## 2 Description of the algorithm
+
+This section describes the main steps of the track reconstruction algorithm. At the end of the processing the reconstructed tracks can be passed to another algorithm for refinement or used in a specific analysis module (b-jet tagging, exclusive b decay selection...).
+
+### Building of the geometry table
+
+As already mentioned, PixTrig performs the reconstruction of the tracks using three "logical layers". These layers are actually an arbitrary collection of modules ordered in radius so that the first layer is the innermost. The program is not limited to a single triplet of layers, but can treat many triplets at the same time. The different logical layers can overlap, and modules can belong to several logical layers and also to different layers inside the same triplet. This large flexibility in the definition of the layers has been implemented to give the possibility of adapting the algorithm to a wide range of detector geometries. In the specific case of the pixel detector, it has been decided to use every module in the innermost barrel layer (the b-layer) as logical first layer. This choice is motivated by the fact that the b-layer gives the most important point for the impact parameter reconstruction and offers full \(\eta\) coverage up to 2.5. For each of the 221 logical first layers, the second and third layers are then defined by an automatic procedure looking at the montecarlo information on the space-points associated to the tracks; this means that a module is included in the definition of a second (third) layer if there is at least one track having a space-point in that module as second (third) point. The actual size of the layers (in the R-phi plane) depends on the \(\rm p_{T}\) cut applied at the reconstruction level. Since the dimension of the triplets largely affect the performance of the reconstruction algorithm (in the sense that smaller regions have fewer points, so the combinatorial search is faster and the rate of fake track reconstruction is lower) it is important to use the correct geometry definition for the particular \(\rm p_{T}\) cut applied. The geometry definition is stored on a file and loaded by PixTrig at the beginning of each run.
+
+### Space points preparation
+
+The hits produced by the detector have to be prepared before they can be used in a track finding algorithm. This preparation mainly consists in clustering together hits presumably produced by the same track and compute a correct set of coordinates for the resulting space-point.
+
+In the present implementation the space point preparation is not a part of PixTrig, but is performed by the CTrig core, outside of any track reconstruction module. This approach corresponds to the idea that the preprocessing of the detector space-points is somehow external to the LVL2 processing, and could eventually be performed at the ROB level by a module of the detector acquisition software or by some specific hardware.
+
+PixTrig however is relatively sensitive to the clustering algorithm used, in the sense that an imperfect clustering can produce many space-points per plane corresponding to a single track, leading to an increase of the processing time and to a reduction of performance due the increased number of fake tracks produced. The default clustering algorithms available inside the CTrig package, that will implicitly used in the following, gives acceptable results. Different algorithms will be studied in the future.
+
+### Track finding
+
+The first operation performed by PixTrig for every event is to load the space-points and classify them according to the definition of the logical planes loaded. PixTrig can run in RoI mode or in Full Scan mode; in the first case only the space points falling inside the RoI will be loaded, while in the second case the points of the entire pixel detector will be read.
+
+The track finding proceeds then independently for every triplet of layers; in the current version the processing is sequential, but could be easily parallelized. The line connecting every couple of points in layer 1 and 2 is extrapolated back to the beam line, and accepted if the condition
+
+\[Z_{12}=\mid Z_{\rm beam}-Z_{\rm vertex}\mid<\Delta Z_{\rm ext}\quad\quad R \Phi_{12}=\mid r\phi_{\rm beam}-r\phi_{\rm vertex}\mid<\Delta R\Phi_{\rm ext}\]
+
+is satisfied. \(z_{\rm beam}\) and \(r\phi_{\rm beam}\) are the coordinates of the point on the line closest to the vertex while \(z_{\rm vertex}\) and \(r\phi_{\rm vertex}\) are the coordinates of the primary vertex. If no information on the vertex is available, \(z_{\rm vertex}=r\phi_{\rm vertex}=0\) is taken and \(\Delta Z_{\rm ext}\) is set to 15 cm to cope with the uncertainty on the position of the interaction point along the beam line.
+
+The accepted lines are extrapolated to every point in the third layer; if the point is in the barrel part the extrapolation is done at the given R, while in the end-caps it is done at the given Z. The set of three points is finally accepted as a candidate track if
+
+\[R\Phi_{3}{}^{2}=\mid x_{\rm extrap}-x_{3}\mid^{2}+\mid y_{\rm extrap}-y_{3}\mid^ {2}<\Delta R\Phi_{3}{}^{2}\qquad Z_{3}=\mid z_{\rm extrap}-z_{3}\mid<\Delta Z_{3}\]
+
+where \(x_{\rm extrap}\), \(y_{\rm extrap}\) and \(z_{\rm extrap}\) are the coordinate of the extrapolated point and \(x_{3}\), \(x_{3}\) and \(z_{3}\) are the coordinates of the point in the third layer. The \(\Delta Z_{3}\) cut is performed only if the third point is in the barrel part, because otherwise \(z_{\rm extrap}=z_{3}\) by construction.
+
+The optimization of the four cuts is discussed in section 4. In general \(\Delta Z_{3}\) depends essentially on the detector resolution; \(\Delta Z_{\rm ext}\) depends on the knowledge of the position of the primary vertex along the beam line; \(\Delta R\Phi_{\rm ext}\) and \(\Delta R\Phi_{3}\) depend mainly on the \(p_{\rm T}\) acceptance required.
+
+### Treatment of the overlaps
+
+At the end of the track finding phase there is no guarantee that every space-point is used by a single track. For this reason it is necessary to remove the assignment ambiguities and terminate the processing with an unambiguous use of the clusters.
+
+The procedure for the removal of the overlaps consists in grouping the tracks sharing at least one space-point; this grouping is performed following an associative rule, so that two tracks in the same group can be non overlapping if both share a cluster with a third track. The tracks in a group are then ordered according to the variable
+
+\[D=\mid x_{\rm extrap}-x_{3}\mid^{2}+\mid y_{\rm extrap}-y_{3}\mid^{2}+\mid z_{ \rm extrap}-z_{3}\mid^{2}.\]
+
+The track with the smallest value of D is retained, those sharing a space-point with the first are discarded and the others are regrouped and the procedure is iterated.
+
+This method for removing the overlaps works relatively well; it has the obvious drawback that high \(p_{\rm T}\) tracks (having small values of D) are generally preferred. This can be a problem in some analysis; for this reason, especially when using PixTrig as a seedfor other algorithms, it is possible to switch off the ambiguities removal and keep all the candidate tracks.
+
+### Track reconstruction
+
+The three points collected by the finding algorithm identify a circle in the R-\(\Phi\) plane from which the values of \(p_{T}\), of the impact parameter in the transverse plane (d\({}_{0}\)) and of the initial direction \(\phi\) are extracted; d\({}_{0}\) is signed geometrically, in such a way that it is positive if the beginning of the track come along the trajectory after the perigee point. To extract the impact parameter in the Z direction (z\({}_{0}\)) and the initial direction \(\theta\) a straight-line fit to the three points in the R-Z plane is performed.
+
+## 3 Reconstruction of the Z position of the primary vertex
+
+The cut in the variable Z\({}_{12}\) is very effective in removing spurious combinations, which are not pointing to the interaction vertex; moreover it can rejects tracks which are not originating from the vertex under study but are coming from a pile-up event. Beside the reduction of the fraction of fake tracks, this clean-up has two positive effects: it reduces the computing time, since it allows to discard non pointing combinations in layers 1-2 without performing any extrapolation to layer 3, and increases the reconstruction efficiency since it prevents clusters used in wrong associations to become unavailable for good tracks. However, the cut in Z\({}_{12}\) is only possible if the position in Z of the interaction vertex is known with some precision.
+
+In all the events triggered at LVL1 by a muon PixTrig itself can provide some information on the position of the primary vertex. The idea is to perform a track search inside the muon RoI, using a relatively high \(p_{T}\) cut (the LVL1 muon has a \(p_{T}\) of at least 6 GeV/c) and with the additional requirement that the direction of the line connecting the first two point matches the direction of the \(\mu\) within the tolerances. This reconstruction can be performed in a very short time at the beginning of LVL2 processing, and then used by PixTrig (and by other trigger components if needed).
+
+The LVL1 muon system can provide at the beginning of LVL2 the direction of the \(\mu\) relative to the nominal detector center (\(Z=R\phi=0\)) with a precision of 0.1x0.1 in \(\eta\)x\(\phi\). When calculating the RoI the 15 cm incertitude in the position of the interaction point (not known at LVL1) should be taken into account; to simplify the calculations, no cut in \(\eta\) is performed, and a \(\phi\) slice of \(\pm 0.05\) around the muon direction is taken as RoI. When checking the combinations between the first and the second logical layer (with \(\Delta Z_{12}=15\) cm) the additional requirement is made that the \(\eta\) direction differs less than \(\pm 0.05\) from that of the muon. Among all the reconstructed tracks, the one with the largest \(p_{T}\) is taken as reconstructed \(\mu\), and its z\({}_{0}\) as position of the primary vertex; the candidate \(\mu\) must have a \(p_{T}\) of at least 3 GeV/c. This procedure applied to a sample of inclusive \(b\rightarrow\mu\)(6 GeV/c) + X events (with 2 pile-up events) finds a candidate muon in 95.7% of the triggers and runs in 0.5 ms on a Pentium III 500 MHz processor. Fig. 2 shows the number of tracks reconstructed in the muon RoI and difference between the reconstructed Z position of the vertex and the actual one; the resolution is 670 \(\mu\)m, and in 99% of the cases the z\({}_{0}\) of the selected track differs from less than 5 mm from the actual primary vertex. In this study the direction of the LVL1 reconstructed \(\mu\) is taken from the montecarlo, since no LVL1 muon simulation is available for the moment in the CTrig framework.
+
+When the LVL1 muon is not available, for example during the processing of a calorimetric RoI, it is still possible to reconstruct the vertex "a posteriori", making an average of the \(z_{0}\) of the reconstructed tracks. This operation can not improve the timing performance, but provides a useful clean-up of the final sample. For more details, see [3].
+
+## 4 Tuning of the parameters
+
+The optimization of the cuts used in the track finding phase is preformed looking at the distributions of the corresponding parameters for the tracks correctly reconstructed and for the fakes when very wide cuts are used. Here and in the following, a "correctly reconstructed" track is a candidate track in which at least two out of three points where actually generated by the same montecarlo track. These distributions are shown in Fig. 3, 4 and 5 for \(p_{\mathrm{T}}\) cuts corresponding respectively to 0.5, 1 and 1,5 GeV/c; they have been obtained running on a sample of b\(\rightarrow\)\(\mu\)X events in full-scan mode with the preliminary reconstruction of the Z position of the vertex using the LVL1 muon. As already noticed, R\(\Phi_{12}\) and R\(\Phi_{3}\) strongly depend on the \(p_{\mathrm{T}}\) cut. The cuts are optimized independently in the barrel and in the end-cap region to take into account the differences in geometry and resolution (here what actually matters is where the second or third points are: the first point is always in the barrel region).
+
+Figure 2: Number of tracks reconstructed in the muon RoI (a) and resolution on the z position of the primary vertex (b).
+
+Figure 3: **- Distributions of the variables used in the track finding phase for good (solid line) and fake (dashed line) combinations of points. The p\({}_{\rm T}\) cut is set to 0.5 GeV/c.**
+
+Figure 4: Distributions of the variables used in the track finding phase for good (solid line) and fake (dashed line) combinations of points. The \(\rm p_{T}\) cut is set to 1 GeV/c.
+
+Figure 5: Distributions of the variables used in the track finding phase for good (solid line) and fake (dashed line) combinations of points. The p\({}_{\rm T}\) cut is set to 1.5 GeV/c.
+
+The resulting values for the cuts corresponding to the different \(\rm p_{T}\) acceptances are resumed in Table 1. As a general remark, it can be noticed that the cuts in Z are more effective in reducing the background level than the cuts in \(\rm R\Phi\). This is particularly true in the end caps, where the cut in \(\rm R\Phi_{3}\) is relatively weak especially at low \(\rm p_{T}\).
+
+Additional selection strategies are currently under study to improve the level of fake tracks in the end-caps when no primary vertex (thus no \(Z_{12}\) cut) is available.
+
+## 5 Performance and timing
+
+The performances of PixTrig will be illustrated in two different usage conditions. The first situation corresponds to the processing of B-physics channels at low luminosity; here PixTrig is required to scan the entire detector and produce track segment to be used as seed for a full reconstruction in the SCT. The events are always triggered at LVL1 by a muon of at least 6 GeV/c. The reference sample is the generic background to the B-physics processes, i.e. a set of inclusive b quark events passing the LVL1 cuts with the addition of 2 minimum bias events. The second situation is the b-jet tagging scenario, where a calorimetric LVL1 RoI is analyzed to test if it has been generated by a b quark or not. In this case the sample used is a set of b-jets produced in the decay of an 100 GeV Higgs; design luminosity conditions are simulated adding 24 minimum bias events to the jets.
+
+### Full Scan on \(\rm b\rightarrow\mu X\) events at low luminosity
+
+Figure 6 shows the efficiency and the fraction of fake tracks as a function of \(\rm p_{T}\) and \(\eta\) when running full scan with a \(\rm p_{T}\) cut of 0.5 GeV/c and using the vertex reconstruction with the LVL1 \(\mu\). Here and in the following the efficiency is the pure algorithm efficiency, i.e. no detector inefficiency is taken into account. The number is calculated as the fraction between the "good" reconstructed tracks and the montecarlo tracks having hits in at least three detector layers. As before, "good" tracks means tracks with at least
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \cline{2-4} \multicolumn{1}{c|}{} & \(\rm p_{T}\) \(>\) 0.5 GeV/c & \(\rm p_{T}\) \(>\) 1 GeV/c & \(\rm p_{T}\) \(>\) 1.5 GeV/c \\ \hline \(\Delta Z_{\rm ext}\)**Barrel** & 0.4 cm & 0.4 cm & 0.4 cm \\ \hline \(\Delta R\Phi_{\rm ext}\)**Barrel** & 0.3 cm & 0.2 cm & 0.12 cm \\ \hline \(\Delta Z_{3}\)**Barrel** & 0.06 cm & 0.05 cm & 0.04 cm \\ \hline \(\Delta R\Phi_{3}\)**Barrel** & 0.2 cm & 0.1 cm & 0.07 cm \\ \hline \(\Delta Z_{\rm ext}\)**End-Caps** & 0.4 cm & 0.4 cm & 0.4 cm \\ \hline \(\Delta R\Phi_{\rm ext}\)**End-Caps** & 0.4 cm & 0.2 cm & 0.18 cm \\ \hline \(\Delta R\Phi_{3}\)**End-Caps** & 0.5 cm & 0.3 cm & 0.2 cm \\ \hline \end{tabular}
+\end{table}
+Table 1: Default values of the track search algorithm parameter for different values of the \(\rm p_{T}\) cut.
+
+two points generated by the same kine. In the efficiency plot as a function of \(\eta\), only the montecarlo tracks with \(\rm p_{T}\) larger than the chosen cut are considered. The fraction of fakes is simply the ratio of non "good" tracks over the total reconstructed.
+
+The average efficiency is around 95% and it is nicely flat. The fraction of fakes is below 5% in the barrel and around 30% in the end-caps. This effect is related partly to weakness of the selection cuts discussed in Section 2.3 and partly to the fact that in the end-caps the hits multiplicity is high and the present clustering algorithm not always associates correctly all the points produced by a track in a single cluster.
+
+Figure 7 shows the resolution for the different track parameters reconstructed. It can be seen that the quality of the perigee parameters decreases at low \(\rm p_{T}\); this is due to the relevant error in the extrapolation to the primary vertex coming from the poor \(\rm p_{T}\) resolution. In this sense it is an unavoidable drawback of the exclusive use of the pixel detector, which has a limited lever arm.
+
+Figure 6: **Efficiency and fraction of fake tracks (Full Scan mode, \(\rm p_{T}\)\(>\) 0.5 GeV/c, \(\rm\mu\) vtx)**
+
+Figure 7: - Track parameters resolutions (Full Scan mode, \(\rm p_{T}>0.5\) GeV/c, \(\rm\mu\) vtx). The right column gives the resolutions as a function of \(\rm p_{T}\), the left one the average resolution for \(\rm p_{T}>1\) GeV/c in the barrel (black) and end-caps (gray) region.
+
+Anyhow the values of the average resolutions for \(\rm p_{T}>1\) GeV/c (listed in Table 2) are not too bad; only the resolution in \(Z_{0}\) is significantly degraded in the end-caps.
+
+The resolutions are strictly related to the detector geometry, and do not change in a relevant way varying the algorithm parameters of the background conditions.
+
+Figure 8 gives the total processing time on a Intel Pentium III 500 MHz processor with 128 Mb of RAM running under Linux. The processing time shown does not include I/O and histogramming nor the time needed for clustering and space-points preparation.
+
+The average processing time is 35.3 ms; the dependence of the processing time from the average number of clusters per logical layer is expected to follow a cubic law, given the combinatorial nature of the algorithm. However in this case the parameter of the cubic term (P4) is negligible thanks to the suppression of the extrapolations to the third layer obtained using the reconstructed \(Z\) position of the primary vertex.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline
+**Track** & **\(\sigma\) (\(\rm p_{T}\)\(>\)1 GeV/c - Barrel)** & **\(\sigma\) (\(\rm p_{T}\)\(>\) 1GeV/c - End-caps)** \\ \hline \(\rm d_{0}\) & 68 \(\rm\upmu m\) & 85 \(\rm\upmu m\) \\ \hline \(\rm z_{0}\) & 135 \(\rm\upmu m\) & 324 \(\rm\upmu m\) \\ \hline \(\rm\theta\) & 1.8 10\({}^{-3}\) & 2.2 10\({}^{-3}\) \\ \hline \(\rm\phi\) & 1.3 10\({}^{-3}\) & 1.9 10\({}^{-3}\) \\ \hline \(\rm 1/p_{T}\) & 30 10\({}^{-3}\) GeV/c\({}^{-1}\) & 34 10\({}^{-3}\) GeV/c\({}^{-1}\) \\ \hline \end{tabular}
+\end{table}
+Table 2: Resolutions for the track parameters (\(\rm p_{T}>1\) GeV/c).
+
+Figure 8: Total processing time (a) and processing time as a function of the average number of clusters per layer (b) (Full Scan mode, \(\rm p_{T}>0.5\) GeV/c, \(\rm\upmu\) vtx)
+
+Figure 9 shows the efficiency and the number of fakes obtained running the algorithm with a \(\rm p_{T}\,cut\) of 1.5 GeV/c. The efficiency remains stable while the fraction of fakes gets reduced by a factor 1.5. Also in this case the rate of fake tracks significantly higher in the end-caps region. The average processing time decreases to 27 ms because less combinations in the first two layers needs to be extrapolated to the third.
+
+Figure 10 and Figure 11 illustrate the performances of PixTrig when no reconstruction of the \(Z\) coordinate of the vertex is used. The efficiency remains close to 95%, but the fraction of fake traces increases substantially, reaching 60% in the end-caps. Also the processing time increases up to an average of 73 ms; in this case a sizeable cubic contribution in the parameterization of the processing time as a function of the average number of clusters per layer is present. This contribution is however small if compared to the quadratic term.
+
+Figure 9: **Efficiency and fraction of fake tracks as a function of \(\eta\) and \(\rm p_{T}\) (Full Scan mode, \(\rm p_{T}>1.5\) GeV/c, \(\rm\mu\,vtx\))**
+
+Figure 11: - Total processing time (a) and processing time as a function of the average number of clusters per layer (b) (Full Scan mode, \(\rm p_{T}>1\) GeV/c, without \(\rm\mu\) vtx)
+
+Figure 10: - Efficiency and fraction of fake tracks as a function of \(\rm\eta\) and \(\rm p_{T}\) (Full Scan mode, \(\rm p_{T}>1\) GeV/c, without \(\rm\mu\) vtx)
+
+[MISSING_PAGE_FAIL:16]
+
+Figure 14: - Efficiency and fraction of fake tracks as a function of \(\eta\) and \(p_{T}\) (RoI guided mode, \(p_{T}>2\) GeV/c, 24 pile-up events added)
+
+Figure 13: - Total processing time (a) and processing time as a function of the average number of clusters per layer in the RoI (b) (RoI guided mode, \(p_{T}>2\) GeV/c, no pile-up)
+
+## 6 Development plans
+
+The work done so far on PixTrig demonstrates the feasibility of a fast LVL2 track finding algorithm based on the pixel detector. Many points however need to be studied in more detail:
+
+* The sensitivity to misalignments and to imperfect geometry databases. It can be expected that the running at LVL2 will use approximated version of the final alignment; so it is important to check how robust the algorithm is and eventually to identify the most dangerous types of misalignments.
+* The clustering algorithm. It is necessary to optimize the clustering, especially in the end-cap region where the pixel multiplicity is higher; also the feasibility of clustering at ROB level is to be studied.
+* The impact of detector inefficiencies. The inefficiencies of one layer of the pixel detector are critical, especially in the barrel region where there is no redundancy. It is technically very easy to include one or two layers of strips in the PixTrig logical layers definition; however the impact of this addition on the processing time and on the rate of fakes has to be studied.
+* The combinatorial background in the end-cap region. Some effort will be devoted in optimizing the selection strategy in the end-caps in order to reduce the rate of fake tracks. This job has large overlaps with the study of new clustering algorithms.
+* The fine tuning of the algorithm. The implementation details will be reviewed in order to achieve the best possible performance and trying to exploit all the potentiality of the LVL2 processing farm (and eventually with the aim of giving indications on which hardware solutions in the domain of data movement and interprocessor communications are most effective).
+
+Figure 15: - Total processing time (a) and processing time as a function of the average number of clusters per layer in the RoI (b) (RoI guided mode, \(\mathbf{p_{r}}>2\) GeV/c, 24 pile-up events added)
+
+## References
+
+* [1] ATLAS Collaboration, _ATLAS Pixel Detector Technical Design Report_, CERN-LHCC/98-13 (1998)
+* [2] ATLAS Collaboration, _ATLAS High Level Triggers, DAQ and DCS Technical Proposal_, CERN-LHCC/2000-17 (2000)
+* [3]_b-tagging Event Selection for the ATLAS High Level Trigger_, ATLAS internal note, ATL-DAQ-2000-023 (2000)
+* [4]_B-Physics Event Selection for the ATLAS High-Level Trigger_, ATLAS internal note, ATL-DAQ-2000-031 (2000)

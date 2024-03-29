@@ -1,0 +1,151 @@
+# A Fixed-Frequency-Trigger Veto for the ATLAS SCT
+
+Alan Barr
+
+ Martin Postranecky
+
+ Matthew Warren
+
+###### Abstract
+
+Although the risks for the SCT were found to be low: the wire-bonds are oriented parallel to the magnetic field on the barrel and are short enough on the end-caps not to resonate within the trigger frequency range, protection from fixed-frequency triggers is still thought to benefit the life-time of the detector.
+
+The Fixed Frequency Trigger Veto (FFTV) firmware module has been tasked with identifying these types of triggers, and stopping them. Although Fast Fourier Transforms seem ideally suited to the task, the large amount of logic resources required and the complexity of the system led us toward a simpler approach.
+
+A single TTC Interface Module (TIM) in a Read-Out Driver (ROD) crate distributes triggers to \(\sim\)12 ROD modules. This corresponds to \(\sim\)400 front-end modules, all located in the same sub-detector partition. A TIM is also able to generate triggers, including those at fixed-frequencies from a trigger oscillator. This, coupled with a TIM being responsible for sending a busy to the Central Trigger Processor (CTP) that can inhibit triggers, makes it an ideal place to locate the sub-detector specific
+
+## 1 Introduction
+
+The Semi-Conductor Tracker (SCT) forms part of the ATLAS Inner-Detector and, as such, must perform in a strong magnetic field. SCT modules make use of wire-bonds to connect communications electronics to the unit. Triggers initiate increased activity in these parts of the front-end electronics as they transfer data, leading to large variations in the current flowing through the wire-bonds between read-out and idle times. As these currents flow through a magnetic field, the wire-bond experiences a force. At CDF trigger rates close to the mechanical resonant frequency have been seen to cause wire-bonds to oscillate to destruction[1].
+
+Physics triggers are random, with a very low risk of damaging a wire-bond[2], but calibration and test runs often use fixed trigger rates. To understand this problem in the context of the SCT, studies have been undertaken with test wire-bonds. Figure 1 shows the resonant effects seen in these studies[2].
+
+Although the risks for the SCT were found to be low: the wire-bonds are oriented parallel to the magnetic field on the barrel and are short enough on the end-caps not to resonate within the trigger frequency range, protection from fixed-frequency triggers is still thought to benefit the life-time of the detector.
+
+The Fixed Frequency Trigger Veto (FFTV) firmware module has been tasked with identifying these types of triggers, and stopping them. Although Fast Fourier Transforms seem ideally suited to the task, the large amount of logic resources required and the complexity of the system led us toward a simpler approach.
+
+A single TTC Interface Module (TIM) in a Read-Out Driver (ROD) crate distributes triggers to \(\sim\)12 ROD modules. This corresponds to \(\sim\)400 front-end modules, all located in the same sub-detector partition. A TIM is also able to generate triggers, including those at fixed-frequencies from a trigger oscillator. This, coupled with a TIM being responsible for sending a busy to the Central Trigger Processor (CTP) that can inhibit triggers, makes it an ideal place to locate the sub-detector specific
+
+Figure 1: **Photographs of a wire-bonds: left) off resonance; right) on resonance (17kHz).**FFTV module. However the ROD is also capable of autonomously sending triggers, suggesting that the FFTV module also needs to be located at this level. In the (more probable) case where fixed-frequency triggers are sent via the TIM, this would lead to all RODs engaging their FFTV's at the same time - generating a more confusing situation that if a single TIM was responsible.
+
+The safest solution is to locate the module in both the TIM and ROD. The TIM will have the additional monitoring and logging tasks needed for global trigger operation, with the ROD FFTV providing the same protection, but with less resources consumed by monitoring logic.
+
+## 2 Fixed-Frequency-Trigger Veto Operation Context
+
+For event synchronisation reasons, arbitrarily ignoring triggers during non-standalone runs cannot be tolerated in ATLAS. Therefore, when TIM is using external TTC triggers (_Run-mode_), if fixed-frequency triggers are detected the only means of stopping them is by asserting the _ROD-Busy_ signal and relying on systems upstream to stop sending triggers. To ensure the effects of this autonomous busy decision are understood, clock periods will be counted while TIM asserts _ROD-Busy_ for FFTV reasons. An additional counter will log total busy time on TIM for comparison and allowing the veto contribution to dead-time to be monitored. In stand-alone mode TIM can veto triggers prior to generating trigger numbers, keeping the IDs in sync without busy feedback. This configuration is detailed in
+
+Figure 2. Schematic showing difference between _Standalone-mode_ and _Run-mode_ (TTC) FFTV operation.
+
+In the case where triggers are received by TIM (or ROD) after the Veto has been asserted, a Local Emergency Action must prevent these triggers reaching the modules. In this case triggers will be discarded, the _ROD-Busy_ will be set for an indefinite period, and flags raised to signal the run should be terminated. To allow for the round-trip time from sending the _ROD-Busy_ signal to the CTP and triggers stopping, a short delay between Veto and Emergency Action is allowed for (\(\sim\)2\(\upmu\)s). To ensure the FFTV is not accidentally disabled, TIM users are required to insert a jumper _and_ set a bit in software before trigger vetoing is inhibited.
+
+For the Pixel detector, which uses the same physical RODs and TIMs as the SCT, but is not susceptible to fixed-frequency trigger damage, different firmware on the former and different software/jumper on the latter allow it to be disabled.
+
+It is very likely that early tests at the LHC will operate with only one bunch in the machine with a trigger rate of approximately 11.2kHz. As rates around 17kHz have been seen to be destructive1, a lower frequency limit of 15kHz has been incorporated into the FFTV algorithm.
+
+Footnote 1: This frequency was observed for 3 mm bond wires, orientated so that the oscillations were out of the plane of the loop. In the SCT the bond wires will either be orientated so that oscillations would be in the plane of the loop (barrel) or to have much shorter bond wires. In either case this results in much high resonant frequencies.
+
+## 3 FFTV Hardware Implementation
+
+The full featured FFTV module, when built in programmable logic on a TIM FPGA, uses 1% of resources on a 600k gate device. A _Veto-Busy-Timer_ and an overall _Busy-Timer_ are implemented as 48bit counters (81 day rollover period), and a _Veto-ID_ (number of veto's asserted) counter is implemented as a 32 bit counter. The ROD version, has smaller counters for an even smaller resource footprint (0, 24 and 8 bit counters respectively).
+
+All parameters, except for the _match-level_ (see Section 4, below), are fixed and cannot be modified. The _match-level_ can be modified over a range of 2-10, allowing for the FFTV to be characterised at the higher veto rates achieved with lower _match-level_ values.
+
+## 4 The FFTV Algorithm
+
+The algorithm developed (based on the type used at CDF2) is constrained by the physical capabilities of the hardware.
+
+Footnote 2: This frequency was observed for 3 mm bond wires, orientated so that the oscillations were out of the plane of the loop. In the SCT the bond wires will either be orientated so that oscillations would be in the plane of the loop (barrel) or to have much shorter bond wires. In either case this results in much high resonant frequencies.
+
+The core of the algorithm quantifies trigger frequency by logging the time between successive triggers. This is counted in units of the system clock (25ns) by the _period-counter_. Successive trigger periods are compared and a counter incremented if they match (within a programmable _period-match-tolerance_). If this _match-counter_ exceeds a pre-determined level, the veto signal is generated. In cases where trigger periods do not match, or each time the _period-counter_ exceeds a maximum limit (_period-rollover_) and resets to zero, the _match-counter_ is decremented.
+
+By assigning a maximum trigger-period, above which the triggers are ignored, low frequency triggers can be passed. Likewise, applying a minimum period causes high-frequency triggers to be ignored. This is particularly useful during double-trigger tests, where the lower frequency components can be identified amongst the otherwise widely varying successive trigger periods.
+
+Although these upper and lower frequency limits are by no means a proper band-pass filter, they are capable of isolating triggers that would be missed by the CDF version of the algorithm, as well as passing useful low frequency periodic triggers.
+
+The operation of the algorithm in an FPGA is best demonstrated by looking at the simulation results detailed in Section 5 below.
+
+## 5 FFTV Module Behavioural Simulation
+
+The code developed for the FPGA has been simulated using the ModelSim++ software package. In all cases the system was configured with the values show in Table 1, below. These values were chosen to illustrate the functionality of the algorithm only.
+
+\begin{table}
+\begin{tabular}{|l|l|l|l|} \hline
+**Quantity** & **Value** & **Units** & **Value in real terms** \\ \hline Period upper limit & 2850 & Clock cycles (25 ns) & 14.035 kHz \\ \hline Period lower limit & 2200 & Clock cycles (25 ns) & 18.182 kHz \\ \hline Period roll-over & 4100 & Clock cycles (25 ns) & 9.756 kHz \\ \hline Period match tolerance (\(\Delta\)T) & 127 & Clock cycles (25 ns) & +/- 315 Hz \\ \hline Period match threshold & 5 & - & 6 \\ \hline Veto duration & 8000 & Clock cycles (25 ns) & 200\(\mathrm{\SIUnitSymbolMicro s}\) \\ \hline \end{tabular}
+\end{table}
+Table 1: Parameter values for the FFTV algorithm in the FPGA.
+
+Figure 4: Demonstrating that with short-period double triggers a repetitive trigger is still detected.
+
+Figure 3: Demonstrating a Veto generated after 5 successive triggers, as well as trigger matching some (slightly) non identical trigger periods. Note that during a Veto the period-counter continues counting beyond the scope of this plot.
+
+## 6 Oscilloscope Traces
+
+Using test-points on the TIM, aspects of FFTV operation can be displayed on an oscilloscope. To best utilise the display on the oscilloscope, the rate and ranges have been modified by approximately a factor of 10 from that required. These are shown in Table 2.
+
+Two tests were undertaken. The first (results shown in Figure 6 left) demonstrates the _match-counter_ in operation; triggers are unaffected until the FFTV module is enabled, and then it takes 16+1 successive triggers to assert the veto.
+
+The second test (results shown in Figure 6 right) demonstrates random triggers being ignored, then, after switching to fixed frequency triggers, the veto being asserted.
+
+Figure 5: **Demonstrating trigger rates below and above threshold being ignored. Note that short periods are ignored and used as part of a longer period component.**
+
+## 7 Reliability
+
+To understand the long-term effect of the FFTV on detector dead-time, tests have been undertaken using the TIM with a random trigger source. To verify these results a simple Monte Carlo has also been written. Specifically we wanted to show the probability of a trigger generating a Veto.
+
+Initial tests used parameters based on those used at CDF, that have been fine tuned (and now hard-coded in firmware) for SCT needs. These final parameters are detailed in Table 3.
+
+To understand the results properly, tests were needed to both verify and calibrate the hardware operation of the algorithm and supporting systems.
+
+Generating randomly spaced triggers is not trivial in firmware. Using a pseudo-random number generator (PRNG) is a good compromise. On TIM the PRNG is constructed using a linear-feedback shift-register (LFSR). The LFSR generates seemingly unrelated numbers in a non-repeating sequence of (2N-1-1) length, where N is the number of bits in the binary number generated. TIM's LFSR is 38 bits long. As each bit now has an effective 50% chance of randomly being a 0 or a 1, a single bit can be used as pseudo-randomly spaced trigger at an average rate of 50% the LSFR shift rate (which, in our case, is the LHC bunch-crossing rate of 40MHz). By demanding more bits to be a known state, the average rate is halved with each additional bit, allowing the 40MHz to be divided down to generate triggers at rates of 80kHz and below. On TIM the randomiser frequency setting is used to control the number of bits demanded in the trigger generating equation (see the _BunchSpacing\(=\)1_ plot in Figure 7, below).
+
+\begin{table}
+\begin{tabular}{|l|l|l|l|} \hline Quantity & Value & Units & Value in real terms \\ \hline Average Frequency & 75 & kHz & - \\ \hline Period lower limit & 80/85 & Clock cycles (25 ns) & 500kHz/471kHz \\ \hline Period upper limit & 2666 & Clock cycles (25 ns) & 15 kHz \\ \hline Period match tolerance (AT) & 40 & Clock cycles (25 ns) & 1 \(\upmu\)s \\ \hline Period match threshold & 10 & - & \\ \hline Veto duration & 40000 & Clock cycles (25 ns) & 1 ms \\ \hline \end{tabular}
+\end{table}
+Table 3: Parameters used for Monte Carlo and TIM random veto test.
+
+Figure 6: left) Oscilloscope display showing a 150kHz fixed frequency trigger being passed until the FFTV is enabled and then counts 16\(+\)1 successive matching periods. right) Oscilloscope display showing a random trigger averaging 150kHz switching to a fixed frequency and thus generating a veto.
+
+To further complicate matters, the LHC will often run during commissioning with collisions spaced much further apart than during normal data taking. In particular, certain machine tests require spacings of 22*25ns and 82*25ns. To characterise the FFTV, triggers of this structure are generated by gating the trigger output of the TIM randomiser with a 25ns wide periodic pulse, of programmable duty-cycle. Obviously this reduction in number of possible triggers affects the average trigger rate. To quantify this, frequency scans at various bunch spacing have been performed, see below in Figure 7.
+
+To evaluate FFTV performance, the TIM (pseudo) random trigger source was used. The TIM was setup to veto its own triggers (i.e. _Standalone-mode_). Triggers and the number of vetoes generated were counted. These numbers are used to calculate the probability of generating a veto. By scanning through the setting for the number of matching triggers required to generate a veto (_match-level_), the relationship between this setting and veto-probability can be understood. This is useful for predicting veto rates at higher match-levels as at these higher levels the veto is only asserted at the order of 1 per day or less, making it difficult to get good statistics.
+
+Initial tests showed that average trigger frequency affected FFTV performance, with Figure 8 demonstrating the effect of frequency settings approximately at, above and below the specified ATLAS average trigger rate of around 75kHz.
+
+Figure 7: **TIM Pseudo-Random Trigger Frequency Performance: By scanning over the randomiser frequency and bunch-spacing settings, average trigger rates are verified.**
+
+As the bunch-spacing setting affects randomiser trigger rate, and trigger-rate affects FFTV performance, FFTV performance at different bunch-spacings is difficult to compare directly. Figure 9 shows FFTV performance at the 3 most common bunch-spacing settings. Note that the average trigger frequency achieved during the test is also shown.
+
+The FFTV algorithm has a lower-period (_period-min_) level below which triggers are ignored. This had been set to 80 clock-periods (i.e. 500kHz) as this is twice the _match-tolerance_ and well above
+
+Figure 8: Effect of trigger rate on FFTV performance: Shows the variation in performance due to bunch-spacing and trigger-rate.
+
+Figure 9: Overall FFTV Performance.
+
+the wire-bond resonant frequency and physics trigger rates. As a bunch spacing of 82 (i.e. 43 bunches in the machine) falls inside this range, we expected a much higher level of vetoing. To safeguard against this the lower-period setting was moved to 85 clocks (471kHz).
+
+Test results comparing the 2 lower-period settings were surprising, though, as the effect of the change was inconclusive (see Figure 10). To ensure that the setting has indeed changed and had some effect, a scan of fixed-frequency trigger frequencies was undertaken. The results, seen in Figure 11, show clearly that the FFTV does affect trigger rates at the _period-min/max_ boundaries.
+
+Using a simple Monte Carlo, developed by Tony Weidberg (listed in Appendix 13), the theoretical probability of the FFTV algorithm vetoing random triggers is quantified. We compared the results from the initial tests to those from TIM, and noticed some discrepancies. The only algorithmic
+
+Figure 11: **Fixed Frequency Trigger Period Scan.****a)** **Shows the full FFTV operating range, while b)** **shows a zoom in to around the 82 bunch-spacing mark.**
+
+Figure 10: **Comparing FFTV performance at different lower-period-threshold values.**
+
+difference between the software and hardware systems was the type of random number generator used. A PRNG was coded for the Monte Carlo to emulate the method used in TIM hardware. Figure 12 shows that the PRNG Monte Carlo agrees nicely with TIM data.
+
+## 8 Conclusion
+
+A system for protecting the SCT from fixed frequency triggers has been implemented. It can be introduced into the ATLAS trigger stream with negligible effect on data-taking efficiency.
+
+Performance has been evaluated using both the hardware derived and Monte Carlo generated data. These agree.
+
+## 9 Acknowledgements
+
+Many people have been invaluable. Tony Weidberg at Oxford for all of his input, code and useful conversation. John Hill (Cambridge) for his guidance and efforts in getting the affected groups (Trigger, Pixel and SCT) to accept the change (not easy!). John Joseph at LBL, ever accommodating, and for making the inclusion of the module into the ROD so easy.
+
+## References
+
+* [i] G. Bolla et al., Wire-bond failures induced by Resonant vibrations in the CDF silicon tracker, Nucl. Instr. Meth. A518 (2004) 277.
+* [ii] T. J. Barber et al., Resonant Bond Wire Vibrations in the ATLAS SemiConductor Tracker, Nucl. Instr. Meth. A538(2005) 442-457.
+
+Figure 12: TIM vs. M-C performance.

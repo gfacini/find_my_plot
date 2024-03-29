@@ -1,0 +1,63 @@
+# ATLAS offline reconstruction timing improvements for run-2
+
+The ATLAS Collaboration
+
+###### Abstract
+
+From 2013 to 2014 the LHC underwent an upgrade to boost the available centre-of-mass energy for collisions from 8 TeV to 13 TeV. During this interval of time, known as Long Shutdown 1 (LS1), the ATLAS software group began a campaign to substantially reduce the CPU time needed to process data. This reduction could not come at the expense of physics performance. The campaign was undertaken to prepare for the increase of the trigger bandwidth from 500 Hz to 1 kHz and for the increase in the number of interactions per LHC proton bunch crossing, which is commonly referred to as pile-up. This article summarises the main improvements and presents measurements of the data processing time and of a key performance indicator, the tracking efficiency, as a function of major software releases.
+
+(c) Copyright 2014 CERN for the benefit of the ATLAS Collaboration.
+
+Reproduction of this article or parts of it is allowed as specified in the CC-BY-3.0 license.
+
+Introduction
+
+The performance of the LHC in run-1 exceeded the design specifications for pile-up mainly because of proton bunch crossings occuring every 50 ns. The average number of interactions per bunch crossing, \(\langle\mu\rangle\), which corresponds to the mean of the poisson distribution on the number of interactions per crossing calculated for each luminosity bunch, is a direct measure of pile-up. It is calculated from the instantaneous per bunch luminosity as \(\mu=L_{\rm bunch}\times\sigma_{\rm inel}/(n_{\rm bunch}f_{r})\) where \(L_{\rm bunch}\) is the per bunch instantaneous luminosity, \(\sigma_{\rm inel}\) is the inelastic cross section which is assumed to be 71.5 mb for 7 TeV collisions and 73.0 mb for 8 TeV collisions, \(n_{\rm bunch}\) is the number of colliding bunches and \(f_{r}\) is the LHC revolution frequency. More details on this can be found in Ref. [1].
+
+During run-1 the pile-up benchmark of \(\langle\mu\rangle\approx 20\) was exceeded in a majority of fills, with \(\langle\mu\rangle\approx 35\) fills being common in the latter part of run-1. In run-2 pile-up will increase, with the first 1 fb\({}^{-1}\) expected to be taken with a 50 ns bunch crossing interval, one can expect \(\langle\mu\rangle\approx 40\) fills in the near term. Furthermore one should be prepared for fills with \(\langle\mu\rangle\approx 60\). Coupled with increased collision energy and pile-up in run-2, is an increase in trigger bandwidth of 1 kHz, which is required to maintain important single lepton triggers near to the run-1 level transverse energy and momentum thresholds. Given the run-2 requirements the following goals were set:
+
+* reduce data processing time by a factor 3 without compromising physics performance;
+* increase maintainability of the code;
+* validate that the physics results are invariant to code changes.
+
+The data processing time of interest here is the time taken to process Raw Data Object (RDO) files into Event Summary Data (ESD) files, in what is known as the reconstruction step. Therefore the data processing time is referred to as the reconstruction time. Reconstruction time measurements were conducted on both simulated and real data samples. The Monte Carlo simulated samples consist of top-quark pair production events (\(t\bar{t}\)) generated at a collision energy of 14 TeV with conditions of a bunch crossing (BC) spacing time of 25 ns and an average number of interactions per BC spanning \(\langle\mu\rangle=0\), 20 and 40. Run-1 data sets were sourced from the JetTauEtmiss slice and span measured \(\langle\mu\rangle=16.3,\ 20.1\,25.0\,30.0\), and 35.4. These samples provide events with the highest high track multiplicities and therefore provide an upper bound on the reconstruction time. Measurements of the reconstruction time unless otherwise stated are performed on a machine with HEPSPEC scaling factor of 11.95, where specifically the CPU used was a "Intel Xeon L5520 @ 2.26 GHz 2 processor - 16 core".
+
+The following sections describe updates and improvements made to the reconstruction software. Bear in mind that estimates of improvements in the reconstruction time are approximate. It is very difficult to factorise out the improvement due to one change as many changes were implemented concurrently. The entire ATLAS software suite consists of around two thousand software packages and is currently maintained by around 400 developers. The software is especially complex because it necessarily matches the complex nature of the ATLAS detector. Moreover that further complexity is needed for very sophisticated analysis of proton on proton collision data. Reconstruction times were measured for three versions of the software release, namely:
+
+**17.2.7.9**: version used to reconstruct data at the end of run-1.
+**19.0.3.3**: version with updates in software technology and optimised Inner Detector track seeding strategy for 8 TeV.
+**19.1.1.1**: version with updates for track seeding at 13 TeV and region of interest (ROI) seeded back tracking.
+
+Upgrades and improvements in software technology
+
+Following are a list of upgrades and improvements in software technology.
+
+* A new method to read the value of the magnetic field strength within ATLAS was implemented because this functionality was identified as a CPU bottleneck. Here the code was newly written in C++, where previously it was written in FORTRAN. The field value was cached for a fast lookup. Unit conversions between Tesla and Gauss and vice-versa were minimised, which also had the effect of reducing the call depth. Moreover the functions were made auto-vectorisable. These changes resulted in a 20% gain in speed in detector simulation tasks.
+* Replace the use of the CLHEP library, which is used for linear algebra vector and matrix operations, with the Eigen C++ template library. The use of expression templates removes intermediate steps performed in calculations. This migration affected thousands of lines of code in up to a thousand packages and took approximately eight months to complete. However the CLHEP library is still necessary as it's used to declare Lorentz vectors and in the description of the detector geometry.
+* Millions of evaluations of trigonometric functions occur in the reconstruction. In run-1 these were handled by the GNU libm math library. A switch was made to using the Intel math library. This library is a part of the Intel C++ compiler, which contains highly optimized and very accurate mathematical functions. The average time spent in evaluating trigonometric functions when using the libm library was 2.1 seconds out of a total event processing time of 14.1 seconds. The use libimf reduces the evaluation time by, on average, 10%.
+* Updated from a 32-bit to a 64-bit architecture, which provided a 25% overall reduction in data processing time.
+* Updated Google memory allocator package, tcmalloc, from version 0.99 to 2.1, in order to fix issue in unaligned memory blocks, which caused problems with Eigen. Moreover the updated version provides effective use of single instruction multiple data (SIMD) CPU functionality.
+* Update the compiler from version 4.3 to 4.7, which allows for study of auto-vectorisation.
+* Simplification of the event data model resulting in the reduction of dynamic memory allocation.
+
+## 3 Optimisation of track seeding and track finding in high pile-up environments
+
+The ATLAS Inner Detector (ID) charged particle tracking algorithms are the biggest consumers of the CPU budget in reconstruction. In a typical reconstruction job of run-1 data the Inner Detector algorithms consumed up to 60% of the total reconstruction time alone. This expense is to be expected because with more pile-up comes more space points with which one can form tracks in the ID, and so ID algorithms are susceptible to an exponential growth in reconstruction time. At \(\langle\mu\rangle=40\) ID algorithms are expected to take as much as 75% of the reconstruction time1. Therefore tuning and renewed optimisation of ID tracking has been a top priority during LS1.
+
+Footnote 1: In general, the tracking optimisation depends on the expected level of pile-up both for timing and physics performance.
+
+ATLAS has commissioned dedicated optimal track seeding strategies for run-2 that depend on the level of pile-up and moreover were re-tuned to fully exploit the capabilities of newly installed Insertable B-Layer (IBL). These have resulted in a factor of 2 speedup in reconstruction time in conditions of \(\mu=40\) and a bunch crossing of 25 ns. A first optimisation using 8 TeV data-sets was implemented in release 19.0, where release 17.2, referred to in figures later, was used in reconstruction at the end of run-1. Further it was found that, for the purpose of photon conversion reconstruction, dedicated tracking in the Transition Radiation Tracker sub-component of the ID (known within ATLAS as back tracking and TRT only tracking) need only be run in the region of interest defined by the presence of a energy deposit in the calorimeter. This change resulted in a factor of three reduction in the reconstruction time expended in TRT only tracking. The only client of TRT only tracking, conversion finding, was not affected by the change. This change was commissioned in software release 19.1 together with a further evolution in the track seeding for 13 TeV.
+
+## 4 Measurements
+
+Fig. 1 displays the measured reconstruction time for all and Inner Detector only algorithms as a function of the software release for top-quark pair production events. It shows that a factor 3 reduction in processing time has been achieved in LS1. The majority of the improvement has been due to improvements in ID algorithms.
+
+Fig. 2 displays the ID track reconstruction efficiency as a function of the software release. It has slightly improved from release to release, indicating that the performance has not been compromised by the changes that reduced the overall reconstruction time.
+
+Fig. 3 displays the measured reconstruction time as a function of the average number of interactions per bunching crossing in data events from the so-called JetETMiss stream. These are events triggered either by the presence of jets, missing transverse energy or tau-leptons. The data was collected in the latter part of run-1. It shows that a factor 4 reduction in processing time has been achieved in LS1 when comparing the reconstruction time between the three software releases.
+
+Fig. 4 displays the measured reconstruction time as a function of the average number of interactions per bunching crossing in data events from the same JetETMiss stream in the latter part of 2012. The reconstruction times shown are taken from the actual Tier-0 prompt reconstruction log files and plotted separately for each CPU type deployed in the Tier-0. Fig. 4 demonstrates that real reconstruction times are consistent with dedicated measurements used on the benchmark machine but can sometimes fluctuate to as high as 100 seconds in data when \(\langle\mu\rangle=35.4\) on some machines.
+
+## References
+
+* [1] G. Aad _et al._ [ATLAS Collaboration], Eur. Phys. J. C **71** (2011) 1630 [arXiv:1101.2185 [hep-ex]].

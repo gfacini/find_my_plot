@@ -1,0 +1,237 @@
+CERN/EAST note 95-01
+
+March 31, 1995
+
+###### Abstract
+
+In the second level triggering for ATLAS "Regions of Interest" (Rols) are defined in (etha, phi) corresponding to possibly interesting particles. For every RoI physically meaningful parameters are extracted for each subdetector. Based on these parameters a classification of the particle type is made. A feed-forward neural net with 12 input variables, a 6-node intermediate layer, and 4 output nodes has earlier been suggested for this classification task.
+
+The reported work consists of an implementation of this neural net using a DECPcRLe-1, a Programmable Active Memory (PAM). This is a reconfigurable processor based on Field Programmable Gate Arrays (FPGAs), which has also been used for real-time implementation of feature extraction algorithms for second level triggering.
+
+The implementation is pipelined, runs with a clock of 25 MHz, and uses 0.64 microseconds for one particle classification. Integer arithmetic is used, and the performance is comparable to a floating point version.
+
+CERN/EAST note 95-01
+
+March 31, 1995
+
+## 1 Introduction
+
+Following the approach developed in the EAST (RD-11) collaboration [1], the second level triggering for ATLAS can be divided into three phases: _Region of interest (RoI) Collection_, _Feature Extraction_, and _Global Decision_ (see [2]).
+
+For both feature extraction and global decision one has the choice between a "data driven" and a "farm based" architecture. In the data driven approach dedicated processors are used, operating in real time at the event frequency (100kHz). The farm based approach employs a large number of general purpose processors, each using more than 10 \(\mu\)s per event.
+
+So far data driven solutions of the feature extraction task have been demonstrated for several detectors [3]. One of the processors used, DecPeRLe-1, is reconfigurable by software, and is able to perform all the feature extraction algorithms within the 10 \(\mu\)s limit. The purpose of this note is to give a first example of how parts of the global decision task can also be efficiently and flexibly implemented on DecPeRLe-1.
+
+In the global decision stage features from different subdetectors are collected for each RoI, and an identification of the particle type, energy, direction etc. is made. Then these data from alle RoIs are used to make the final decision. In the present work we have only considered the particle identification part. It has been demonstrated earlier [4] that this task can be done by an artificial neural net algorithm. In the following we will show how this algorithm can be implemented on DecPeRLe-1.
+
+First we describe briefly the hardware architecture of DecPeRLe-1 in Section 2. The algorithm and its implementation is then explained in the two following sections. Finally, a short discussion is given of possible improvements of the solution.
+
+## 2 DecPeRLe-1
+
+When implementing a real-time computation task one may traditionally choose between two alternatives: Running the application on one or several programmable general processors, or building an application-specific hardware unit. The first alternative usually demands less developement time and is easier to adapt to varying operating condition, whereas the second gives better performance with respect to speed, area etc.
+
+Because of longer and more expensive development, custom tailored hardware implementations are only used for high volume production or if a software based solution is not practicable.
+
+The advent of Field Programmable Gate Array (FPGA) cirquits has recently provided a third possiblity, combining software versatility and hardware performance. In particular this has been made possible by interconnecting several FPGA cirquits and memory banks to make up what is sometimes called a Programmable Active Memory (PAM).
+
+An FPGA can be thought of as a regular mesh of simple programmable logic units ('gates'). The behaviour and interconnection of the gates can be programmed by feeding a configuration bitstream to the FPGA in its _download mode_. Once configured, an FPGA behaves like a regular application-specific integrated circuit (ASIC).
+
+The DecPeRLe-1 coprocessor board, developed by DEC, Paris Research Laboratory in 1992, is an example of a PAM. For an extensive description of the hardware see [5]. It consists of 23 XC3090-100 Xilinx FPGAs -- also called Logic Cell Arrays (LCAs) -- and four 1MB SRAM banks. The units are interconnected by buses as shown in the very simplified Figure 1.
+
+The FPGAs in Figure 1 are represented by squares. The capital letter inside the square denotes the function of the chip:
+
+**M:**: 16 of the chips are arranged in a 4x4 array, called the _computational matrix_ of the board. Each of the matrix chips can communicate with its nearest neighbour through 16 wires. This part of the board is responsible for most of the computation performed by the board.
+**S:**: In addition to the direct connections between the matrix chips, each chip has a 16 bit connection to each of four 64 bit wide buses (North, South, East, West). These buses end up in the so called _switches_. The switch chips can then be used to connect the bus lines to the memory banks (N, S, E, W) or to the two 32 bit wide _North East_ and _South West_ data buses. A switch chip also connects the two fifos with the data buses.
+**C:**: Two chips are responsible for generating address and control signals for the RAMs and other necessary control signals. These are called _Controllers_.
+
+One should note that even if the three classes of FPGA chips are intended for different use, they are all identical and completely programmable by the user.
+
+The board communicates with a host via two fifos. These may be accessed at run-time either by i/o calls on a word by word basis or by DMA.
+
+Along with DecPeRLe-1 a suite of software tools was developed. These allow the user to specify a design in detail using a C++ library, and provide for easy debugging. For more information on PAMs in general and DecPeRLe-1 in particular references [6] and [7] are recommended.
+
+## 3 The algorithm
+
+A typical event in ATLAS is expected to result in 5-10 RoIs, each containing some physics object (particle or jet). From each of the subdetectors a number of parameters (1-5) are produced by the feature extractors. The present work is based on a detector model from 1993, and involves the following kind of data:
+
+Figure 1: The DecPeRLe-1 architecture.
+
+* Trigger id. from Level 1 trigger (1 value)
+* Calorimeter parameters (5 values)
+* TRT parameters (2 values)
+* Preshower parameters (3 values)
+* Muon detector (1 value)
+
+From these 12 parameters one would like to decide whether the RoI contains one of the following objects:
+
+* electron
+* muon
+* jet (or background)
+
+### General description
+
+The classification task has been solved by using a feed-forward neural net with 12 inputs \(I_{0}^{0},I_{1}^{0},\ldots,I_{11}^{0}\), a 6 node hidden (intermediate) layer with inputs \(I_{0}^{1},I_{1}^{1},\ldots,I_{5}^{1}\), and 4 output nodes \(O_{0},O_{1},\ldots,O_{3}\) (see Figure 2).
+
+Three of the output nodes correspond to each of the three particle types (electron, muon, jet). Since other categories may be needed in a future implementation, a fourth output node has been added.
+
+The output of the neural net can be seen as a "fuzzy logic" classification, giving for each RoI four new features. Each feature gives a probability that the RoI contains a particle from one of the four different classes. The quality of the final decision in classifying different types of events can be improved if such a non-exclusive particle identification is done at this level.
+
+The scheme is described mathematically by Eqs. 1-4.
+
+Figure 2: Neural network for particle classification.
+
+\[S_{i}^{0} = \sum_{j=0}^{11}w_{ij}^{0}I_{j}^{0}+t_{i}^{0};\;\;i=0,1,...,5 \tag{1}\] \[I_{i}^{1} = \mbox{sigf}(S_{i}^{0})\] (2) \[S_{i}^{1} = \sum_{j=0}^{5}w_{ij}^{1}I_{j}^{1}+t_{i}^{1};\;\;i=0,1,...,3\] (3) \[O_{i} = \mbox{sigf}(S_{i}^{1}) \tag{4}\]
+
+where \(w_{ij}^{n}\) denote the _weights_ for no de \(i\) of layer \(n\), \(t_{j}^{n}\) the respective _thresholds_ (biases), and \(\mbox{sigf}(\cdot)\) denotes the _sigmoid function_
+
+\[\mbox{sigf}(x)=\frac{1}{1+e^{-2x}}. \tag{5}\]
+
+To make the neural net work properly, the weights and thresholds must have appropriate values. The assignment of these values is called _training_ and requires a representative data set. From physics simulations of the detectors 18000 data sets were available. The types of objects in the data sets are summarized in Table 1. For further details about how the data were generated see [8].
+
+Half of the data sets were used for training, and all were used in a subsequent verification. The training resulted in a set of weights and thresholds which are listed in Appendix A.
+
+### Fixed point version
+
+The algorithm described above was implemented as a C program with floating point numbers. For a PAM implementation a fixed point version (using integer arithmetic) was needed. The wordlengths and data formats are shown in Table 2 where S denotes the sign bit and dot (.) denotes the position of the radix point. The table also shows the notation which will be use for the digital representations later in the paper.
+
+Note that the weights are represented in the so-called negbinary number system to facilitate the implementation of the multipliers (see Section 4.1).
+
+\begin{table}
+\begin{tabular}{||l|c||} \hline Type & Number of occurences \\ \hline jet & 9789 \\ electron & 4572 \\ isolated \(\pi^{\pm}\) & 11 \\ isol \(\pi^{0}\) & 5 \\ prompt muon & 3619 \\ decay muon & 4 \\ \hline \end{tabular}
+\end{table}
+Table 1: Simulated data sets.
+
+A simulation program using these wordlengths was written, and the output was compared with the floating point version. For each of the implementations a desicion was made for the three active outputs:
+
+\[O_{i}>0.5\Rightarrow\text{particle $i$ identified}.\]
+
+In Table 3 the percentage of correct decisions vs. false decisions are tabulated for the two versions. As can be seen there are only negligible differences.
+
+### Scaling
+
+As a consequence of the employed multiplier (see 4.1) the weights must have integer values in the range -150-85. This is obtained by multiplying the weights and thresholds of the hidden layer with 3.6, and the weights and thresholds of the output layer with 10.7. A corresponding division must be performed before taking the sigmoid. To facilitate implementation two different sigmoids have been defined:
+
+\[\text{sig}^{\text{f}}(\textit{z}) = \frac{1}{1+\textit{e}^{-\text{2e}/3.6}} \tag{6}\] \[\text{sig}^{\text{f}}(\textit{z}) = \frac{1}{1+\textit{e}^{-\text{2e}/10.7}} \tag{7}\]
+
+The scaled weights and thresholds are found in Appendix A.
+
+\begin{table}
+\begin{tabular}{||c|l|c|c||} \hline Variable & Digital repr. & No of bits & Format \\ \hline \(I_{i}^{0}\) & In0[0..11] & 8 & 2’s complement & Szxx.yyyy \\ \(w_{ij}^{0}\) & W0[0..5][0..11] & 8 & negbinary & zzzzzzz. \\ \(S_{i}^{0}\) & S0[0..5] & 16 & 2’s complement & Szxxxxxxxx.yyyy \\ \(t_{i}^{0}\) & t0[0..5] & 8 & 2’s complement & Szxxxxxx.0000 \\ \(I_{i}^{1}\) & In1[0..5] & 8 & unsigned & 00.yyyyyy \\ \(w_{ij}^{1}\) & W1[0..3][0..5] & 8 & negbinary & zzzzzzz. \\ \(S_{i}^{1}\) & S1[0..3] & 16 & 2’s complement & Szxxxxxxxx.yyyyyy \\ \(t_{i}^{1}\) & t1[0..3] & 8 & 2’s complement & Szxxxxxxxx.000000 \\ \(O_{i}\) & Out[0..3] & 8 & unsigned &.yyyyyyyy \\ \hline \end{tabular}
+\end{table}
+Table 2: Wordlengths and data formats for digital representations.
+
+\begin{table}
+\begin{tabular}{||l|c|c|c|c||} \hline \hline \multicolumn{4}{||c|}{Correct decisions} & \multicolumn{2}{|c||}{False decisions} \\ \hline  & Floating point & Fixe d point & Floating point & Fixed point \\ \hline Jet & 98.30\% & 98.09\% & 2.022\% & 1.936\% \\ Electrons & 96.46\% & 96.89\% & 1.288\% & 1.519\% \\ Muons & 100.00\% & 100.00\% & 0\% & 0\% \\ \hline \hline \end{tabular}
+\end{table}
+Table 3: Simulation program results.
+
+The implementation
+
+In this section we will see how the resources of DecPeRLe-1 have been utilized to implement the fixed point version described in 3.2. At present the global architecture of the second level trigger is not settled. It is therefore not decided whether it is natural to perform the particle identification for each RoI in a single processor, or to distribute the task on several processors. For the present work we have assumed that one processor is assigned to do the particle identification for several RoIs, and that the data for these are presented sequentially in the input fifo of one DecPeRLe-1 board. For simplicity we assume that the data are given by 12 32-bit words, where only the lower byte is used. Similarily, the result of the algorithm is output as 4 32-bit words in the output fifo.
+
+Looking at Eqs. 1-4 we find that two kinds of modules are necessary to implement the algorithm. A kind of multiply-accumulate cirquit is needed for Eq. 1 and 3, and another kind of module must be used for the sigmoid function in Eq. 2 and 4.
+
+### The multiply-accumulate units
+
+For the present study we chose to re-use as much as possible the arithmetic solution employed in an earlier design; the Calorimeter Feature Extraction Unit [9]. This design contains a multiply-accumulate unit (MAU) with bit-parallel inputs (\(8\times 8\)) and a 16 bit serial output as shown in Figure 3.
+
+The Booth multiplier utilizes a saving in complexity by representing one of the multiplicands (W) in the so-called negbinary number system (see e.g. [10]). A drawback of this structure is that it allows only an asymmetric range of input values. With 8 bits for W this means that values in the range -150-85 can be represented. However, as demonstrated in Section 3.2, this is a dequate for the present application. The multiplier is fully pipelined and uses one clock cycle to perform a multiplication and has a latency of 3 clock cycles. The output is given on a "carry save format", i.e. as two 16 bits words S0 and C0. For each clock cycle the products are accumulated by a Carry Save Adder, giving the two partial sums S1 and C1. Finally, S1 and C1 are added bit-serially. This
+
+Figure 3: Multiply-accumulate unit. Control signals are not shown.
+
+last addition takes 16 clock cycles. To make a regular pipelined structure it is therefore appropriate to reset the accumulator each 16 cycle also. Thus, the whole unit can be used to form the accumulated sum of at most 16 partial products.
+
+One MAU occupies a little more than half the area of one LCA.
+
+### Putting the parts together
+
+Figure 4 shows a pipelined structure based on the elements just described. One multiply-accumulate element is used for each node in the hidden layer (0) and the output layer (1). MA_ni_ denotes the multiply-accumulate unit for node \(i\) of layer \(n\).
+
+To each of the multiply-accumulate units the sequence of weights must be fed together with the input data (not shown in the figure). After the last weight value the threshold \((t_{i}^{n})\) is appended to the sequence. Similarily the value 1 must be fed after the last input value. (Since the MAUs can effectuate up to 16 partial products, there is enough time to do this.)
+
+The sigmoid functions \(\mathrm{sigf}^{0}(\cdot)\) and \(\mathrm{sigf}^{1}(\cdot)\) are implemented by lookup tables stored in the RAM banks.
+
+In some stages of the processing the data are transmitted as bit parallel words, one after another (word- serially). This is for instance the case with the input data In0 which are fed simultaniously to the nodes of layer 0. At other stages the data are transmitted bit-serially, several words in parallel, e.g. the outputs of layer 0. To convert between these two representations, units containing shift register and a little control logic is used. These are denoted "Serial to Parallel" in Figure 4.
+
+### Partitioning
+
+We will now look at how the units discussed above are distributed among the LCAs of the DecPeRLe-1 board and how data are transmitted between them.
+
+Figure 4: Computational structure of the implementation.
+
+The multiply-accumulate units and the serial-to-parallel converters are implemented on the computational matrix of DecPeRLe-1, with each unit placed in one LCA. The partitioning is illustrated in Figure 5, which also shows how information enters and exits the matrix through the four buses. SP4 and SP6 denote the serial-to-parallel converters after layer 0 and 1 respectively. The number in the lower left hand corner of each square denotes the internal number of the LCA in the matrix. The remaining LCAs are almost empty, being used only for routing signals between the units where the computation takes place.
+
+### Use of the memory banks
+
+In the presented design the memory banks are used for two purposes: implementing the sigmoid functions \(\mathrm{sigf}^{0}(\cdot)\) and \(\mathrm{sigf}^{1}(\cdot)\), and storing the weights and thresholds \(w^{0}_{ij};w^{1}_{ij},t^{0}_{i}\), and \(t^{1}_{i}\). The use of the memory banks is summarized in Table 4.
+
+Figure 5: The partitioning of computation into LCAs.
+
+### Global data flow
+
+Having explained the details of the computations, we shall now see how the data flow from the input fifo, through switches, matrix, and controllers and end up in the output fifo. This is illustrated in Figure 6.
+
+In addition to routing data the East switch also contains logic for appending the extra 1 to the sequences In0 and In1 as mentioned above.
+
+Adding together all delays from the input fifo to the output fifo, the whole design has a latency of 83 clock cycles.
+
+### Control structure
+
+As all units of the design operate with a period of 16 clock cycles, the control structure is very simple. Once each 16 cycles, each unit (MA or SP) needs one impulse to reset/load registers. This is generated in one of the controllers and distributed on one of the available control lines (not included in the simplified architectural description).
+
+### Performance
+
+The speed of a DecPeRLe-1 design can be adjusted by tuning the clock speed. For designs using the memory banks, the maximum recommended clock frequency is 25 MHz. This speed was used for the present design, giving a clock cycle of 40 ns. With a 16 cycle period in the pipeline, this leads to 16 \(\times\) 40 ns = 0.64 \(\mu\)s processing time for each data set. The latency is 83 \(\times\) 40 ns = 3.32 \(\mu\)s.
+
+The execution time represents an improvement of about ten times the benchmark results reported for for high level processors in [4].
+
+The finished design was tested on the same data sets as used for verification of the software implementation. The produced results were bit-by-bit identical to the ones from the fixed point version of Section 3.2.
+
+\begin{table}
+\begin{tabular}{||c|c|c|c|c|c||} \hline \hline Bank & Ad dress & Ad dress & bit s & \multicolumn{3}{|c||}{Byte} \\  & (hex) & & 3 & 2 & 1 & 0 \\ \hline N & 0..b & 0..3 & unused & \(w_{2j}^{0}\) & \(w_{1j}^{0}\) & \(w_{0j}^{0}\) \\  & c & 0..3 & unused & \(t_{2}^{0}\) & \(t_{1}^{0}\) & \(t_{0}^{0}\) \\ \hline W & 0..5 & 0..3 & \(w_{3j}^{1}\) & \(w_{2j}^{1}\) & \(w_{1j}^{1}\) & \(w_{0j}^{1}\) \\  & 6 & 0..3 & \(t_{3}^{1}\) & \(t_{2}^{1}\) & \(t_{1}^{1}\) & \(t_{0}^{1}\) \\ \hline E & 0..ffff & 0..15 & unused & unused & unused & sigf0 \\ \hline S & 0..3ffff & 0..3 & sigf1 & & & \\  & 4..17 & & \(w_{5j}^{0}\) & \(w_{4j}^{0}\) & \(w_{3j}^{0}\) \\  & & 4..17 & & \(t_{5}^{0}\) & \(t_{4}^{0}\) & \(t_{3}^{0}\) \\ \hline \hline \end{tabular}
+\end{table}
+Table 4: Contents of memory banks.
+
+## 5 Possible improvements
+
+The aim of the reported work was to give one example of how one of the global decision tasks can be implemented on a PAM. Since few details of the future ATLAS detectors were fixed at the time of the algorithm development, no efforts have been made to find an _optimal_ solution. Instead, one has tried to chose solutions so as to make the developement time as short as possible. The re-use of arithmetic modules from [9] made it possible for a relatively inexperienced designer to have a working version running after a few weeks.
+
+Even if the performance of the design (0.64 \(\mu\)s processing time and 3.32 \(\mu\)s latency ) is more than sufficient to keep up with the 100 kHz event rate, further optimization of the algorithm may become necessary. For instance, if a single DecPeRLe-1 board is assigned to do more than just the RoI task the suggested parallelized implementation might be replaced by a sequential one, using longer time but occupying less space.
+
+With weights and thresholds placed in the RAM banks these values can be changed by the run-time software. Since the MAUs operate with a period of 16 clock cycles the number of nodes in layer 0 and 1 may theoretically be extended to 15 without reducing the performance of the design. This would require a more efficient use of FPGA area. By using the four emtpy LCAs for MAUs, a total of 14 nodes for the two layers should be obtainable. A re-thinking of the routing and bus usage would then be necessary, but bus bandwidth can
+
+Figure 6: Global data flow of the design.
+
+be saved by implementing the weights and thresholds by logic in the LCAs in stead of in the memory banks.
+
+Reducing the number of nodes, and substituting the bit-serial adder of the MAUs with a faster alternative would reduce the execution period of the pipeline. Alternatively, one could fine-tune the necessary wordlengths and keep the bit-serial adder.
+
+Another way of improving the design could be to feed more than one 8 bit word to the matrix at the time.
+
+As a conclusion the results obtained in this work represents only a lower limit of what can be achieved by the PAM methodology. Both higher speed and a denser design can obviously be obtained if a careful optimization of hardware and algorithm is undertaken.
+
+One should also keep in mind that the FPGAs and memory modules used represent 1992 technology. New PAM concepts are under developement today, which offer both higher speed and more dense cirquits. An interesting example is Enable++[11] which is suggested as a general feature extraction processor for second level triggering in ATLAS.
+
+## 6 Acknowledgements
+
+The arithmetic units used in the design are inspired by and almost identical to the ones designed J. Vuillemin and P. Boucard [9]. Without this previous work, the present study would have taken much longer time.
+
+We will also thank R. K. Bock for many valuable suggestions in writing the manuscript, and J. Carter for a lot of practical help in finding and understanding old files.
+
+The work was partially supported by Sor-Trondelag College, Trondheim, Norway.
+
+[MISSING_PAGE_EMPTY:13]
+
+## References
+
+* [1] R. K. Bock and W. Krischer: _4-year Status Report to the DRDC: Embedded Architectures for Second-level Triggering (EAST)_, CERN EAST note 94-23.
+* [2]_ATLAS Technical Proposal_, CERN/LHHC/94-43, LHCC/P2, 1994.
+* [3] D. Belosloudtsev et al., _Programmable Active Memories in real-time tasks: implementing data driven triggers for LHC experiments_, to appear in Nuclear Instruments and Methods in Physics Research.
+* [4] R. Hauser, I. Legrand, _Algorithms in Second-Level Triggers for ATLAS and Benchmark results_, EAST Note 94-37.
+* [5] P. Bertin and P. Boucard. _DecPeRLe-1 Hardware Programmer's Manual_. DEC-PRL DePeRLe-1 documentation, 1993.
+* [6] J. Vuillemin, P. Bertin, D. Roncin, M. Shand, H. Touati, P. Boucard. _Programmable Active Memories: the Coming of Age_. Submitted for publication in IEEE trans. on VLSI.
+* [7] J. Vuillemin, _On computing power_, in Programming Languages and System Architectures, J. Gutknecht, ed., 69-86, LNCS 782, Springer-Verlag, 1994.
+* [8] R. K. Bock et. al., _Test data for the global second-level trigger_, CERN EAST note 93-01.
+* [9] J. Vuillemin, _Calorimeter Collision Detector on DECPeRLe1_ internal note, May 1993.
+* [10] R. M. M. Obermann, _Digital Circuits for Binary Arithmetic_, MacMillan, 1979.
+* [11] H. Hogl et. al., _Enable++: A second generation FPGA processor_, preprint 1995.

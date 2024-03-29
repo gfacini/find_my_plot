@@ -1,0 +1,414 @@
+The ATLAS Muon Beam Test Data Acquisition System
+
+N.P. Hessey, LMU-Munich
+
+June 22, 1995
+
+###### Abstract
+
+This note describes the data acquisition system currently used in the M2 halo beam test area. After a brief overview, it describes the run-control system, the data format, and the structure of the event readout program daqprod, and the program daqana which sends events over Ethernet to the online monitor computer. It is very much intended as a reference manual, not a tutorial or guide to all there is to know about the system.
+
+Version 1.0: System as used in 1994 data taking.
+
+###### Contents
+
+* 1 Overview
+* 2 Run Control
+	* 2.1 Starting a run from scratch
+	* 2.2 Warmstarts after problems
+* 3 Configuration Files
+	* 3.1 Banks required for readout
+	* 3.2 Hardware configuration: detector to 2277 channel mapping
+* 4 Data Format
+	* 4.1 Overview
+	* 4.2 Brief Guide to Bank Contents
+	* 4.3 Bank Contents in Detail
+		* 4.3.1 GNRL Bank
+		* 4.3.2 CONF Bank
+		* 4.3.3 SLOW Bank
+		* 4.3.4 HODA Bank
+		* 4.3.5 HODT Bank
+		* 4.3.6 REFT Bank
+		* 4.3.7 2277 Bank
+		* 4.3.8 DSO1 Bank
+* 5 The event readout program (daqprod)
+* 6 The event analysis program (daqana)
+
+List of Figures
+* 1 Schematic of The ATLAS Muon Test Beam data acquisition system in the M2 halo beam
+* 2 daqprod function call tree: main section.
+* 3 daqprod function call tree: event readout.
+* 4 daqprod function call tree: slow control event readout.
+* 5 daqprod function call tree: start-of-run.
+* 6 daqprod function call tree: end-of-run.
+
+List of Tables
+* 1 Details of block headers. Ref. Spider manual, antepenultimate page.
+* 2 Details of logical record headers.
+* 3 Details of bank headers.
+* 4GNRL bank contents.
+* 5CONF bank contents.
+* 6Bit correspondance for which banks to read out.
+* 7REFT bank contents.
+* 82277 bank contents.
+
+Overview
+
+Figure 1 gives a schematic picture of the overall data acquisition system.
+
+The DAQ system runs on a FIC 8234 [1] computer. This has a 25 MHz 68040 cpu, housed in a VME crate. It has a 300 Mbyte hard-disk, a cartridge tape drive (STK 4280), one or two CES Camac Branch Drivers, and various other modules for reading out our data. It runs the Microwave OS-9 [2] operating system.
+
+We use the CERN SPIDER [3] data acquisition framework. This provides run-control (daqctl), taping etc., and a frame work for users to tailor event readout code to their needs. An important feature of SPIDER is its "Circular event buffer" - a large memory area which is filled with events by a "producer" task (daqprod). The events are read by "consumer" tasks, namely the tape-writer (daqrec) which copies events from the buffer to tape, and the online analysis task (daqana). We use the latter simply to read events from the buffer, and send them via TCP/IP sockets over Ethernet to another computer for online monitoring. Events are written to cartridge tape (STK 4280) in EPIO format.
+
+The event buffer allows us to read events quickly into memory during the 2.4 s beam spill, and copy them to tape or online monitor while the spill is off, helping to maximise our event rate.
+
+All the code written specifically for our own use is in C. We use the gcc (Gnu-C) compiler. The event readout code is modular (many small functions) for ease of maintenance and development (but at a small penalty in readout speed). It produces separate "bank" of data for each readout subsystem, which allows considerable flexibility in what to read out etc., and allows the addition of new detectors via new banks, without disrupting offline code etc.
+
+The computer is called o-atlmu1; we use the super account; and the code is in /h0/DAQ/\(<\) version \(>\) where \(<\) version \(>\) is one of OLD, PRO, or NEW. Most of the time we use NEW; but when the code is unstable due to development, we use PRO.
+
+## 2 Run Control
+
+It is hard to give instructions for the best way to start a run from all possible situations. So I give instructions that should always work, and then some which usually work. Try to work out what the status is and start following the instructions from the appropriate place.
+
+Make sure you don't startup Spider twice: check with procs -e what is running; if emurout is there, Spider is already loaded.
+
+Figure 1: Schematic of The ATLAS Muon Test Beam data acquisition system in the M2 halo beam
+
+### Starting a run from scratch
+
+Instructions:
+
+1. Turn on or reboot the computer (push-button switch on front panel of FIC 8234).
+2. Wait till it has booted (red light goes off on hard disk).
+3. Login: open a terminal to o-atlmu1, user super, ask me for the current password.
+4. Change directory: chd /h0/DAQ/NEW usually, or chd /h0/DAQ/PRO if code is unstable due to development.
+5. Start SPIDER: spistart
+6. Setup the configuration file to your needs, e.g.: edt config.file...make changes...PF1-f to save and exit (see next section for details)
+7. Start the run control program: daqctl (This automatically starts several processes, such as tape writer, analysis task, event readout task).
+8. Set parameters for your run. The run control is menu driven and quite self explanatory. First, use the p option to set the percentage of events to something non-zero. Otherwise sometimes the daqana task is not started for some reason. Then setup run number, taping or not, etc. and finally start a run with s.
+
+### Warmstarts after problems
+
+If problems arise, e.g. you cannot start or stop a run, you usually do not have to reboot. Diagnostics are available in three files, namely /dd/tmp/emu.log (SPIDER problems) and /h0/DAQ/\(<\) version \(>\)/daqprod.log and daqna.log. These can be inspected with list \(<\) filename \(>\). Try to fix the problem (e.g. remove the write lock from the tape) and start the run.
+
+If necessary, use \(<\) CTRL-C \(>\) to break out of daqctl, then remove all SPIDER routines with spistop. Repeat spistop several times (4?). Then follow "cold start" from instruction number 5 onwards.
+
+## 3 Configuration Files
+
+We use a configuration file to describe to the event readout program (daqprod) (i) which banks to readout, and (ii) what the hardware configuration is. The information contained in the configuration file is stored in the CONF bank, for use by offline analysis programs. The file must be prepared beforethe start of each run. It is read by daqprod just before data taking begins. Currently, the file name is hardwiredinto daqprod as config.file.
+
+The file is read in "free-format": you may separate items by as many spaces or blank lines as you wish. It is not case sensitive. An exclamation mark (!) in column 1 comments out the rest of that line.
+
+### Banks required for readout
+
+The first section of the file deals with which banks are to be read out. It starts with the keyword "banksWanted" and ends with "end". Inbetween is a list of names of banks to be read out, each followed by a version number. The version number is written to the bank header for use by offline programs; it should be changed whenever the format of a bank changes (e.g. you change which channel of an adcis connected to a detector). Then the offline code can be made to cope with all bank versions ever taken. For example:
+
+ banksWanted
+
+GNRL 1
+
+CONF 1
+
+REFT 3
+
+end
+
+### Hardware configuration: detector to 2277 channel mapping
+
+The second section deals with which detector is connected to which channel of 2277 tdc. Each detector channel is denoted by a "channel number", a positive number (not 0 and less than 32767) reserved for it alone. For example, the flowers use numbers 1 to 14, so these cannot be chosen for any other detector. Then the configuration file tells daqprod which crate \(<\) c \(>\), station \(<\) n \(>\) and subaddress \(<\) a \(>\) (range 0 to 31) of a 2277 is connected to a given channel number \(<\) chan no. \(>\).
+
+This second section has the format:
+
+ crate \(<\) c \(>\)
+
+ station \(<\) n \(>\)
+
+\(<\) a \(>\) \(<\) chan no. \(>\)
+
+...repeat...
+
+endFrom station to end inclusive may be repeated for each 2277 module in a crate, and the whole can be repeated for each crate. In place of (subaddress, channel) pairs, there is an abbreviation to save typing: -1 \(<\) chan \(>\) will assign subaddresses 0 to 15 to channels \(<\) chan \(>\) to \(<\) chan \(>\) + 15; -2 \(<\) chan \(>\) will assign 16 to 31 to channels \(<\) chan \(>\) to \(<\) chan \(>\) + 15.
+
+## 4 Data Format
+
+### Overview
+
+All words are two-bytes unless otherwise stated. Data is written to cartridge tape in EPIO format [4], in bigendian (non-DEC) byte order. Events (EPIO logical records) are also sent to the online monitor computer, but not as EPIO physical blocks.
+
+Tapes contain runs which are separated by 2 end-of-file marks. The last run on a tape ends with two end-of-file marks.
+
+Runs consist of fixed length blocks (23040-bytes per block). Blocks are also known as physical records.
+
+Blocks start with a 12-word header and are filled with logical records. Each event gives one logical record. Logical records can span blocks. Table 1 details the block header.
+
+\begin{table}
+\begin{tabular}{r r l}
+**Word** & **Value** & **Meaning** \\
+1 & 11520 & Block (physical record) length in words \\
+2 & 12 & Block header length in words \\
+3 & 1-32767 & Block number this run \\
+4 & 13-11520 & Displacement to first word of first new logical \\
+5 & 1-32767 & Run Number \\
+6 & 0 & Physical record type \\
+7 & 29954 & SPIDER identifier \\
+8 & 31280 & SPIDER identifier \\
+9 & 0 & Number of fast blocks (we never have any) \\
+10 & 8012 & Tape format version number \\
+11 & 16 & Wordlength in bits \\
+12 & 12 & Block header length (seems to be a repeat of \\ word 2) \\ \end{tabular}
+\end{table}
+Table 1: Details of block headers. Ref. Spider manual, antepenultimate page.
+
+**Word** Value **Meaning**
+
+ 1 6-32767 Logical record (event) length in words
+
+ 2 1, 2... Event type. Normal, slow control, start of run, padding, respectively
+
+ 3 6 Logical record header length in words
+
+ 4 0-32767 Logical record number. (It wraps around after
+
+ 32767)
+
+ 5 0, 1... Error flag. All o.k., event truncated, respectively
+
+ 6 1 Bank version (in case we ever change the bank structure)
+
+Logical records (which correspond to events) start with a 6-word header. The first 4 of these are the normal EPIO header; the next two are our "user header" words. The rest of the logical record is filled with "banks". Table 2 details the logical record header words.
+
+ Banks start with a 4 word header followed by the bank's data. Table 3 details the bank header. The data part varies from bank to bank and is described in detail for each bank later.
+
+### Brief Guide to Bank Contents
+
+Normal events: (Event type 1)
+
+GNRL: Event number, date and time
+
+HODA: Hodoscope adc's
+
+\begin{table}
+\begin{tabular}{l l}
+**Word** & **Meaning** \\
+1 & Bank length in words \\
+2, 3 & Bank name: 4 character ASCII code \\
+4 & Bank version: an integer forseen for use by analysis \\  & \(\,\) \\  & \(\,\) \\  & \(\,\) \\  & \(\,\) \\  & \(\,\) \\ \end{tabular}
+\end{table}
+Table 2: Details of logical record headers.
+
+\begin{table}
+\begin{tabular}{l l}
+**Word** & **Value** & **Meaning** \\
+1 & 6-32767 Logical record (event) length in words \\
+2 & 1, 2... Event type. Normal, slow control, start of run, padding, respectively \\
+3 & 6 Logical record header length in words \\
+4 & 0-32767 Logical record number. (It wraps around after \\
+5 & 0, 1... Error flag. All o.k., event truncated, respectively \\
+6 & 1 Bank version (in case we ever change the bank structure) \\  & \(\,\) \\ \end{tabular}
+\end{table}
+Table 3: Details of bank headers.
+
+[MISSING_PAGE_FAIL:10]
+
+#### 4.3.2 CONF Bank
+
+Length: varies. Name: CONF. Version 1. Table 5 gives the contents of each word. Table 6 gives the bit assignments of the first two words: If a bit is set, that bank was read out. The bcn code is
+
+\[xbbccnnnnnaaaaa\]
+
+where \(x=\) not used, \(b=\) branch, \(c=\) crate, \(n=\) station, \(a=\) subaddress, i.e. 2277 channel, 0 - 31.
+
+**Word**Contents
+
+ 1 Bit pattern showing which banks are to be read out. See table 6 for details.
+
+ 2 Currently unused; reserved for 17\({}^{th}\) bank on.
+
+ 3, 5, 7... bcnac code computed from configuration file.
+
+ 4, 6, 8... Detector channel number, as given in configuration file.
+
+#### 4.3.3 SLOW Bank
+
+Length: 53 words. Name SLOW. Version 1.
+
+\begin{table}
+\begin{tabular}{l l} Bit & Bank \\
+1 & GNRL \\
+2 & CONF \\
+3 & SLOW \\
+4 & HODA \\
+5 & HODT \\
+6 & REFT \\
+7 & 2277 \\
+8 & Not used \\
+9 & DSO1 \\ \end{tabular}
+\end{table}
+Table 6: Bit correspondance for which banks to read out.
+
+\begin{table}
+\begin{tabular}{l l} Bit & Bank \\
+1 & GNRL \\
+2 & CONF \\
+3 & SLOW \\
+4 & HODA \\
+5 & HODT \\
+6 & REFT \\
+7 & 2277 \\
+8 & Not used \\
+9 & DSO1 \\ \end{tabular}
+\end{table}
+Table 5: CONF bank contents.
+
+**Words 1 - 48 are adc's read from the slow control crate. For their meaning, consult the log book.**
+
+**Last word in bank: Status word, 0 if all is well; otherwise error code.**
+
+#### 4.3.4 HODA Bank
+
+**Length: 137 words. Name: HODA. Version 1.**
+
+**Data words 1 - 128: the hodoscope photomultiplier adc's. Then four unused adc's. Then status word, 0 if all was well. See the hodoscope guide for the order.**
+
+#### 4.3.5 HODT Bank
+
+**Length: 133 words. Name: HODT. Version 1.**
+
+**Data words 1 - 128: the hodoscope photomultiplier tdc's. Word 129: status word, 0 if all was well. See the hodoscope guide for the order.**
+
+#### 4.3.6 REFT Bank
+
+**Length: 49 words. Name: REFT. Version 1. Table 7 gives the contents of each word.**
+
+**Word**Contents
+
+1-7 Upstream Flowertdc's, tubes 1-7.
+
+8 Unused
+
+9-15 Downstream Flowertdc's, tubes 8-14
+
+16 Unused
+
+17-22 Combountertdc's
+
+23-24 Unused
+
+25 S1tdc
+
+26 S3 left handtdc
+
+28 S3 right handtdc
+
+29-44 Unused
+
+45 Status. 0 if all was well.**
+
+**Version 2: Subaddress 5 of the first tdc broke. So we moved the input to subbadress 7. I.e. tube 6 now appears in word 8.**
+
+**Version 3. Back to the same as version 1.**
+
+**W
+
+\begin{table}
+\begin{tabular}{l l}
+**Words 1 - 48 are adc’s read from the slow control crate. For their meaning, consult the log book.**
+
+**Last word in bank: Status word, 0 if all is well; otherwise error code.**
+
+#### 4.3.4 HODA Bank
+
+**Length: 137 words. Name: HODA. Version 1.**
+
+**Data words 1 - 128: the hodoscope photomultiplier adc's. Then four unused adc's. Then status word, 0 if all was well. See the hodoscope guide for the order.**
+
+#### 4.3.5 HODT Bank
+
+**Length: 133 words. Name: HODT. Version 1.**
+
+**Data words 1 - 128: the hodoscope photomultiplier tdc's. Word 129: status word, 0 if all was well. See the hodoscope guide for the order.**
+
+#### 4.3.6 REFT Bank
+
+**Length: 49 words. Name: REFT. Version 1. Table 7 gives the contents of each word.**
+
+**Word**Contents
+
+1-7 Upstream Flowertdc's, tubes 1-7.
+
+8 Unused
+
+9-15 Downstream Flowertdc's, tubes 8-14
+
+16 Unused
+
+17-22 Combountertdc's
+
+23-24 Unused
+
+25 S1tdc
+
+26 S3 left handtdc
+
+28 S3 right handtdc
+
+29-44 Unused
+
+45 Status. 0 if all was well.**
+
+\end{table}
+Table 7: REFT bank contents.
+
+#### 4.3.7 2277 Bank
+
+Length: Varies. Name: 2277. Version: 1. Table 8 gives the bank contents.
+
+**Word**Contents
+
+1, 3, 5... 2277 hit tdc value
+2, 4, 6... 2277 hit address code
+
+In the table, "tdc value" is the 16 bits given by the 2277 module. The "address code" has the hit edge polarity \(p\) (1 for leading, 0 for trailing), subaddress \(a\), station \(n\), crate \(c\), and branch \(b\) coded into 16 bits as:
+
+\[bbccnnnnnaaaap\]
+
+#### 4.3.8 DSO1 Bank
+
+Length: Varies. Name: DSO1. Version: 1 This bank contains the waveform from the LeCroy 9360 oscilloscope. The exact format depends on the setup of the scope; see the manual that goes with it for details.
+
+## 5 The event readout program (daqprod)
+
+The source code can be found in /h0/DAQ/NEW/PROD on the daq computer. This directory also contains a make file for ease of compiling and linking after code development. To find details of what the code does, look in the source code. To help you find your way around the code, study the figures in this section, which give the call tree of daqprod along with a brief description of what the routines do. In general, the source code for a routine is in a file of the same name, with.c appended, and with any upper-case characters converted to lower.
+
+The program daqprod has several entry points. They are called under the control of daqctl. main is started when daqctl is started. run_start_ev-ent and run_stop_event are started at the appropriate times. We do not use process_user_control_request or udaq_end.
+
+It writes debugging messages to daqprod.log in /h0/DAQ/NEW.
+
+\begin{table}
+\begin{tabular}{l l}
+**Word** & **Contents** \\
+1, 3, 5... 2277 hit tdc value \\
+2, 4, 6... 2277 hit address code \\ \end{tabular}
+\end{table}
+Table 8: 2277 bank contents.
+
+Figure 2: daqprod function call tree: main section.
+
+Figure 3: daqprod function call tree: event readout.
+
+Figure 4: daqprod function call tree: slow controlevent readout.
+
+Figure 5: daqprod function call tree: start-of-run.
+
+Figure 6: daqprod function call tree: end-of-run.
+
+The event analysis program (daqana)
+
+The source code for the online event analysis program daqana is in /h0-/DAQ/NEW/ANAL. There is a makefile there too, for ease of compiling and linking when developing the program. daqana checks the event format, and sends events over Ethernet to the online monitor computer. It writes error messages and other information to daqana.log.
+
+## References
+
+* [1] CES FIC 8234 User's Manual
+* [2] Microwave OS-9 Advanced System Software Manuals
+* [3] SPIDER User's Guide
+* [4] EPIO User's Guide: Application Software and Databases Group, Computing and Networks Division, CERN. CERN Program Library Long Writeup I101.

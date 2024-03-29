@@ -1,0 +1,472 @@
+**Cell response equalization**
+
+**of the ATLAS electromagnetic calorimeter**
+
+**without the direct knowledge of the ionization signals**
+
+D. Banfi, M. Delmastro, M. Fanti
+
+_Dipartimento di Fisica dell'Universita di Milano and INFN._
+
+_I-20133 Milano, Italy_
+
+The ATLAS liquid Argon electromagnetic calorimeter provides multiply-sampled digitized signals with a frequency of 40 MHz. The signal amplitude is reconstructed from the samples using a digital filtering technique; the computation of the digital filter weights requires the precise knowledge of the shape of the signal emerging from the front-end electronics. Each read-out channel can be calibrated by means of electronic pulsers that mimic the ionization signal produced by an electromagnetic shower. However, the calibration signal differs from the ionization one, because the injected current pulses are different in shape (exponential/triangular, respectively) and injection point (at the detector end/inside the detector). In order to perform a correct cell equalization, the ionization signal shape must have the correct normalization with respect to the calibration pulse used to compute the actual electronic gain of each channel, thus taking into account the mentioned differences.
+
+This document describes a set of algorithms developed to predict the ionization signal solely from the information contained in the corresponding calibration pulse. The advantage of this approach is that the proper gain of each channel and the corrections for the electrical properties of each cell can be directly inferred and then embedded in the digital filtering reconstruction, without any direct knowledge of the response of the cell to the shower-induced ionization current.
+
+The performance of the algorithms has been tested on the electron test-beam data taken from an ATLAS liquid Argon electromagnetic calorimeter production module, demonstrating the ability to predict ionization pulse shapes in agreement with the observed ones to better than 1% (0.2% at the peak). The digital filtering weights have been applied to reconstruct the energy of 245 GeV electrons with an energy resolution of 0.8% and a response uniformity better than 0.4%, which fulfill the ATLAS performance requirements.
+
+**Keywords:** signal reconstruction, electronic calibration, optimal filtering, response uniformity
+
+###### Contents
+
+* 1 Introduction
+* 2 Detector model and ionization signal prediction
+	* 2.1 Readout cell electrical model
+	* 2.2 Signal description
+	* 2.3 Ionization signal prediction
+* 3 Parameter extraction algorithms
+	* 3.1 Extraction of \(\tau_{\rm cali}\)
+	* 3.2 Response Transformation Method (RTM)
+		* 3.2.1 General strategy
+		* 3.2.2 Extraction of \(\tau_{\rm cali}\) and \(f_{\rm step}\): the step-response transformation
+		* 3.2.3 Extraction of \(f_{\rm step}\) when the \(\tau_{\rm cali}\) value is known
+		* 3.2.4 Extraction of \(\tau_{0}\): the cosine-response transformation
+		* 3.2.5 Extraction of \(\tau_{\rm r}\): minimization of the injection-point correction residual oscillations.
+* 3 Frequency Analysis Method (FAM)
+		* 3.3.1 Extraction of \(\tau_{0}\) and \(\tau_{\rm r}\)
+		* 3.3.2 Usage of discrete Fourier transform algorithm
+	* 3.4 Impact of parameter uncertainties on signal reconstruction
+* 4 The Master Waveform approach
+* 5 Parameter extraction results
+	* 5.1 Calibration data set
+	* 5.2 Results for \(\tau_{\rm cali}\) and \(f_{\rm step}\)
+	* 5.3 Results for \(\tau_{0}\) and \(\tau_{\rm r}\)
+* 6 Reconstruction performance for beam test data
+	* 6.1 Quality of the ionization signal prediction
+		* 6.1.1 Drift time estimate
+	* 6.2 Implementation of Optimal Filtering at beam test
+	* 6.3 Performance of the energy reconstruction
+		* 6.3.1 Electron beam data sample and analysis outline
+		* 6.3.2 Energy reconstruction
+		* 6.3.3 Linear gain from the Master Waveform
+* 7 Conclusions
+
+Introduction
+
+The ATLAS [1] electromagnetic calorimeter (EMC) [2] is a lead-liquid Argon (LAr) sampling calorimeter with an accordion geometry, divided into one barrel and two end-caps, each segmented in depth in three sampling compartments (Front, Middle, Back), and with a fine granularity in the \(\eta\) and \(\phi\) directions1. The system is completed by a thin preshower detector (Presampler).
+
+Footnote 1: A cylindrical coordinate system is used in ATLAS, with \(z\) coordinate along the beam axis and \(\phi\) as the azimuthal angle. The pseudorapidity is defined as \(\eta=-\ln\left[\tan\left(\frac{\theta}{2}\right)\right]\), \(\theta\) being the polar angle from the detector centre, with respect to the \(z\) axis. In this document, angular positions will often be referred to using Middle compartment cell numbering, with a granularity \(\Delta\eta\times\Delta\phi=0.025\times 0.025\). For a cell with indexes \(\eta_{\rm cell}\) and \(\phi_{\rm cell}\) the value of \(\eta\) is given by \(0.025\cdot(\eta_{\rm cell}+0.5)\) and \(\phi\) is \(0.025\cdot(\phi_{\rm cell}+0.5)\).
+
+The apparatus is equipped with an electronic calibration system, that allows to promptly measure the actual gain and electrical response of each readout cell. This system is based on the ability to inject into the detector a calibration signal of known amplitude that mimics the ionization pulse generated by the particles hitting the detector; this calibration signal being reconstructed through the whole readout chain, the actual gain is computed and cell equalization can be achieved. This calibration system has been designed to reach a response uniformity such that the local2 constant term in the energy resolution be \(\lesssim\) 0.5%3.
+
+Footnote 2: The term _local_ refers to an area \(\Delta\eta\times\Delta\phi\) = 0.2\(\times\) 0.4
+
+Footnote 3: The long range non–uniformity will be corrected with physics–based _on–site_ calibration [2]
+
+The signal from the LAr EMC is sampled every 25 ns at the LHC bunch crossing frequency and digitized. Information on the peak amplitude \(A\) and timing \(\tau\) are then extracted from the signal samples \(\{S_{i}\}\) using a digital filtering technique (_optimal filtering_, OF [3]):
+
+\[\left\{\begin{array}{rcl}A&=&\sum_{i=1}^{n}a_{i}S_{i}\\ A\tau&=&\sum_{i=1}^{n}b_{i}S_{i}\end{array}\right. \tag{1}\]
+
+where the \(\{a_{i}\}\) and \(\{b_{i}\}\) optimal filtering coefficients (OFC) are computed through a Lagrange multiplier technique by minimizing the noise contributions [3, 4]. In order to perform the OFC computation, the knowledge of the normalized (see Section 2.3) shape of the ionization ("_physics_") signal and the noise autocorrelation function are required for all the readout cells. While the latter can be directly obtained from random trigger data or pedestal runs, the measurement of the former will not be straightforward at ATLAS.
+
+The calibration system provides a precise knowledge of the calibration pulse shape, thanks to the possibility of introducing a suitable time phase between the signal injection and the 25 ns DAQ sampling clock, thus providing the capability of virtually sampling the calibration signal every ns. However, the ionization signal differs from the calibration one for two reasons:
+
+* the current produced by drifting electrons is triangular, with a duration equal to the drift time \(T_{\rm d}\), whereas the injected calibration current is exponential, with a decay time \(\tau_{\rm cali}\);
+* the former is generated inside the detector, while the latter is injected on the signal collection board, at one end of the detector, and reaches the inside through an inductive path4.
+
+This document describes a technique to compute, solely from the information contained in the calibration signal alone, a reliable prediction of the ionization signal to be used in the OFC computations. As this technique relies on a detailed analysis of the calibration signal tail, special calibration runs are needed to observe signals for a duration of about 800 ns5.
+
+Footnote 5: This represents the maximum recordable portion of an ATLAS LAr EMC signal, which is determined by the readout electronics, the maximum number of acquirable samples being 32, and 25 ns being the sampling period.
+
+An effective detector model and a mathematical description of the signal are introduced in Section 2; an algorithm to predict the ionization waveform from the calibration signals is also derived (2.3). This algorithm depends on knowledge of electrical parameters, which are characteristic of each detector channel and its calibration pulse generator and which can be extracted from an analysis of the calibration signal itself, as detailed in Section 3. The sensitivity to the uncertainty of such parameters is also discussed. Section 4 describes how to combine into a _"master waveform"_ several calibration signals obtained by injecting current pulses of different amplitude: this procedure provides signal shapes that are less sensitive to calibration-card-induced offsets and that naturally incorporate the linear electronic gain of the channel.
+
+The technique has been successfully applied to test beam data taken on an ATLAS LAr EMC barrel production module. The extracted electrical parameters are displayed in Section 5. In Section 6 the predicted ionization signals are compared with the observed ones (6.1) and the obtained OFC's are used to reconstruct the energy released in the detector by beam test electrons (6.3.2).
+
+Presently, another signal reconstruction technique is available for the ATLAS LAr EMC, as described in [6, 7]. The performances of the two methods are comparable.
+
+## 2 Detector model and ionization signal prediction
+
+### Readout cell electrical model
+
+The ATLAS EMC readout electrodes have quite a complicated structure [2], but it can be shown that, for the frequency region corresponding to the readout electronics bandwidth, each cell can be described with a simple lumped model based on a few electrical components [5]. The simplest model for a detector cell is shown in Figure 1.
+
+The LAr gap is described as a capacitor \(C\) between the absorber (ground reference) and the readout electrode. The signal generated by the electromagnetic shower (see Section 2.2) is represented by a triangular current generator applied between the two capacitor plates. This signal is brought to the signals summing board (SB, [2]) and the signals collection board (Mother Board, MB [2, 8]) through a path on the electrode, which has an inductance: \(L\) is the total inductance of this path, including the SB and MB contributions. The connection between the detector cell and the readout line has a small resistive component that is modeled by a lumped resistor \(r\). The calibration pulse is represented by an exponential current generator (see Section 2.2) injected on the MB [2]. Typical values for the \(r\), \(L\) and \(C\) parameters are shown in Table 1[2, 5].
+
+The readout line consists of a sequence of cables connected to each other and terminated by a preamplifier [9] with input impedance \(Z_{\rm pre}\) (cfr.Table 1), followed by a CR-RC\({}^{2}\) bipolar shaping filter with time constant \(\tau_{\rm sh}\) = 15 ns [10]. The transfer function of the readout system is described by:
+
+\[H^{\rm readout}(s)=H^{\rm readout}_{\rm line}(s)\alpha\frac{s\tau_{\rm sh}}{(1+s \tau_{\rm sh})^{3}} \tag{2}\]
+
+where \(H^{\rm readout}_{\rm line}(s)\) is the transfer function of the readout line chain, whose input resistance as seen from the detector is \(Z^{\rm readout}_{\rm line}(s)\); \(\alpha\) is the preamplifier gain6 and \(\tau_{\rm sh}\) the shaper internal constant. Typical shapes of the calibration and ionization signals emerging from the shaper are displayed in Figure 2. The calibration signal is normalized to have unit peak. The normalization of the ionization signal is such that the amplitude of injected current is the same; the peak difference is due to the injection point (see Section 2.3 for a detailed explanation).
+
+Footnote 6: The preamplifier gain \(\alpha\) can be considered independent of frequency, at least within the window of the shaper.
+
+### Signal description
+
+The ionization electrons drift in the field produced at the LAr gap by the high voltage, producing a current signal with amplitude proportional to the released energy. This current has the typical ionization-chamber triangular shape, with a rise time of the order of 1 ns followed by a linear decay for the duration of the maximum drift time \(T_{\rm d}\)[11]. Such a signal in the time domain and Laplace domain, respectively, is given by:
+
+\[I^{\rm phys}_{\rm inj}(t) = I^{\rm phys}_{0}\left(1-\frac{t}{T_{\rm d}}\right)\theta(t)\; \theta(T_{\rm d}-t) \tag{3}\] \[I^{\rm phys}_{\rm inj}(s) = I^{\rm phys}_{0}\left[\frac{1}{s}-\frac{1-e^{-sT_{\rm d}}}{s^{2 }T_{\rm d}}\right] \tag{4}\]
+
+where \(I^{\rm phys}_{0}\) is the value of the current extrapolated to \(t\) = 0 (i.e. the intercept).
+
+The calibration signal is injected as near as possible to the LAr gap and aims to mimic the ionization signal, in order to be able to measure the actual gain and properties of each channel thus assuring the proper cell equalization [2]. An exponential signal with decay time \(\tau_{\rm cali}\) is generated by the calibration boards (CB) [12, 13], whose pulser is based on an \(RL\)-circuit (Figure 3). A current step of programmable height flows through the parallel combination of an inductance \(L_{\rm c}\) and a resistance \(R_{\rm c}\) equal to the calibration line termination on the MB. The values of the \(R_{\rm c}\) and \(L_{\rm c}\) components are chosen in order to obtain the proper exponential decay constant \(\tau_{\rm cali}=\frac{2L_{\rm c}}{R_{\rm c}}\), which has been chosen to mimic the ionization signal decay slope. The exponential voltage pulse is then converted to a current signal by the calibration resistor located on the MB.
+
+The non-ideal inductance \(L_{\rm c}\) of the CB pulser circuit has a resistive component \(r_{\rm c}\) that alters the exponential waveform baseline. According to the simplified scheme in Figure 3, in the frequency domain the output pulse is:
+
+\[I^{\rm cali}_{\rm inj}(s) = I^{\rm cali}_{0}\left[\frac{\left(\frac{r_{\rm c}}{r_{\rm c}+ \frac{R_{\rm c}}{2}}\right)+s\left(\frac{L_{\rm c}}{r_{\rm c}+\frac{R_{\rm c}} {2}}\right)}{s\left(1+s\left(\frac{L_{\rm c}}{r_{\rm c}+\frac{R_{\rm c}}{2}} \right)\right)}\right] \tag{5}\] \[= I^{\rm cali}_{0}\left[\frac{f_{\rm step}+s\tau_{\rm cali}}{s(1+s \tau_{\rm cali})}\right]=I^{\rm cali}_{0}\left[\frac{\left(1-f_{\rm step} \right)\tau_{\rm cali}}{1+s\tau_{\rm cali}}+\frac{f_{\rm step}}{s}\right] \tag{6}\]where:
+
+\[\left\{\begin{array}{rcl}f_{\rm step}&=&\left(\frac{r_{\rm c}}{r_{\rm c}+\frac{R_ {\rm c}}{2}}\right)\\ &&\\ &&\\ \tau_{\rm cali}&=&\left(\frac{L_{\rm c}}{r_{\rm c}+\frac{R_{\rm c}}{2}}\right) \end{array}\right. \tag{7}\]
+
+In the time domain the calibration current (6) reads:
+
+\[I^{\rm cali}_{\rm inj}(t)=I^{\rm cali}_{0}\left[\left(1-f_{\rm step}\right)e^{ -\frac{t}{\tau_{\rm cali}}}+f_{\rm step}\right] \tag{8}\]
+
+The effective calibration pulse is an exponential waveform that converges to a non-null baseline. The relative height of this residual baseline is determined by the resistive component \(r_{\rm c}\) of the non-ideal inductance \(L_{\rm c}\) of the CB pulser circuit. The nominal value of the resistance on the CB is \(R_{\rm c}~{}=~{}50~{}\Omega\)[12]. A \(r_{\rm c}\sim~{}2~{}\Omega\) resistive component of the non-ideal inductance \(L_{\rm c}\) can be expected [14], leading to a baseline fraction \(f_{\rm step}\sim~{}7\%\).
+
+### Ionization signal prediction
+
+The differences between the ionization and calibration currents and the different current paths in the detector must be taken into account in the signal reconstruction and calibration procedure. In order to complete the equalization of the cell response, the readout gain computed with the calibration signal is in fact to be applied to an ionization signal that has been properly corrected.
+
+According to the model proposed in Figure 1, the currents at the beginning of the readout chain are:
+
+\[I^{\rm phys}_{\rm line}(s) = I^{\rm phys}_{\rm inj}(s)\frac{\frac{1}{sC}}{r+\frac{1}{sC}+sL+ Z_{\rm line}} \tag{9}\] \[I^{\rm cali}_{\rm line}(s) = I^{\rm cali}_{\rm inj}(s)\frac{r+\frac{1}{sC}+sL}{r+\frac{1}{sC }+sL+Z_{\rm line}} \tag{10}\]
+
+The ionization signal can be then expressed as a function of the calibration signal, factorizing the effect of the (common) readout lines and electronics transfer functions. The ionization pulse generated at the LAr gap level is to be considered "normalized" (\(g^{\rm phys}\)) when it corresponds to a _unitary_7 calibration pulse \(g^{\rm cali}\) injected at the MB level. Taking into account the currents' analytical parametrizations (4) and (6) and the relations (9) and (10), one obtains in the Laplace domain8:
+
+Footnote 7: “Unitary” means either with peak amplitude scaled to 1 ADC count, or with signal scaled to a DAC = 1 injected current (see Section 4).
+
+Footnote 8: The formalism introduced here does not take into account the possible effect of the calibration lines (Figure 3), which in this model are considered as lossless and perfectly terminated. The real calibration lines could in principle alter the shape of the calibration pulse at the MB, because of the skin effect, attenuation and reflections: these effects are expected to be small [2], so that they can be handled as separate and independent corrections if necessary.
+
+\[g^{\rm phys}(s)=g^{\rm cali}(s)\times\underbrace{\frac{(1+s\tau_{\rm cali})( sT_{\rm d}-1+e^{-sT_{\rm d}})}{sT_{\rm d}(f_{\rm step}+s\tau_{\rm cali})}}_{g^{\rm exp -tri}(s)=\frac{I^{\rm phys}_{\rm inj}(s)}{I^{\rm cali}_{\rm inj}(s)}}\times \underbrace{\frac{1}{1+s\tau_{r}+s^{2}\tau_{0}^{2}}}_{g^{\rm MB~{}-~{}det}(s)} \tag{11}\]where \(\tau_{\rm r}=rC\) and \(\tau_{0}=\sqrt{LC}\).
+
+For computational purposes, relation (11) is transported in the time domain, the two corrections being factorized and implemented in two different time-domain convolutions9
+
+Footnote 9: For rigorous mathematical details about the direct and inverse Laplace transforms and their properties, see for example [15]. We recall that the time domain convolution of two functions \(f(t)\) and \(g(t)\) is defined as:
+
+\[f(t)*g(t)=\int f(t-t^{\prime})g(t^{\prime})\theta(t-t^{\prime})dt^{\prime}= \int_{0}^{t}f(t-t^{\prime})g(t^{\prime})dt^{\prime} \tag{12}\]
+
+ In our case the \(n\) samples \(g_{i}=g(t_{i})\) of the \(g(t)\) function, and the analytic expression of the \(f(t)\) function, are known. The \(i\)-th sample of the convolution function \(f(t)*g(t)\) can be then numerically estimated as: \[\left\{f(t)*g(t)\right\}_{i}=\left(\sum_{j=1}^{i}f(t_{i}-t_{j})\times g_{j} \right)\times\Delta t\] (13)
+
+\(\Delta t\) being the sampling interval (in our case \(\Delta t\) = 1 ns).: \[g^{\rm exp}\rightarrow{\rm tri}(t) = \delta(t)+\left[\frac{1-f_{\rm step}}{\tau_{\rm cali}}e^{-f_{\rm step }\frac{t}{\tau_{\rm cali}}}\right.\] (14) \[\left.+\frac{1}{f_{\rm step}T_{\rm d}}\left(\left(1-f_{\rm step }\right)e^{-f_{\rm step}\frac{t}{\tau_{\rm cali}}}-1\right)\right]\theta(t)\] \[-\frac{1}{f_{\rm step}T_{\rm d}}\left(\left(1-f_{\rm step} \right)e^{-f_{\rm step}\frac{t-T_{\rm d}}{\tau_{\rm cali}}}-1\right)\theta(t- T_{\rm d})\] \[g^{\rm MB}\rightarrow{\rm det}(t) = \frac{2}{\tau_{a}}e^{-\frac{\tau_{\rm r}}{2\tau_{0}^{2}}t}\sin \left(\frac{\tau_{a}}{2\tau_{0}^{2}}t\right)\theta(t)\] (16)
+
+Equation (16) holds when \((\tau_{r}^{2}-4\tau_{0}^{2})<0\), case that is always fulfilled for typical values of \(r\), \(L\) and \(C\) in our detector (see Table 1).
+
+Notice that in equations (14) and (11) both \(g^{\rm phys}\) and \(g^{\rm cali}\) have the same normalization, i.e. \(I_{0}^{\rm phys}=I_{0}^{\rm cali}\). However, as shown in Figure 2, their peak amplitudes differ, mainly due to the presence of the inductance \(L\) between the two injection points. Equation (14) naturally includes this effect, and allows to incorporate it in the OFC evaluation, so that the electronics gain evaluated from calibration signals can be applied to ionization signals as well.
+
+In order to complete the computation of (14), the knowledge of the parameter set is required. While the value of the drift time \(T_{\rm d}\) can be inferred from the design considerations11
+
+Footnote 11: The value of \(T_{\rm d}\) depends on the LAr gap width, the mobility of electrons in LAr and the high voltage applied between absorbers and electrodes. In the EMC barrel section it is supposed to be the same \(T_{\rm d}\approx 400\) ns for all the cells. An estimate of this parameter will be given in Section 6.1.1., the cell electrical properties \(\tau_{r}\) and \(\tau_{0}\) vary from cell to cell and the calibration pulse parameters \(f_{\rm step}\) and \(\tau_{\rm cali}\) depend on the calibration channel characteristics. The next section will explain how such parameters can be extracted from the calibration signal.
+
+## 3 Parameter extraction algorithms
+
+The \(\tau_{\rm cali}\), \(f_{\rm step}\), \(\tau_{0}\) and \(\tau_{r}\) parameters can be directly retrieved from the calibration pulse analysis. The evident advantage of such an approach is that the actual gain of the channel and the proper OFC set can be computed in a (quasi) on-line environment, solely from of the calibration pulse shape. The calibration of the detector is then completely self-consistent, since it does not rely on the acquisition of ionization signal events.
+
+The calibration pulse at the end of the readout chain is modeled in the Laplace domain by the following expression:
+
+\[g_{\rm cali}(s)=\underbrace{\frac{f_{\rm step}+s\tau_{\rm cali}}{s(1+s\tau_{ \rm cali})}}_{I_{\rm ini}^{\rm cali}(s)}\underbrace{\frac{1+s\tau_{\rm r}+s^{2} \tau_{0}^{2}}{1+s(\tau_{\rm r}+\tau_{Z})+s^{2}\tau_{0}^{2}}}_{H_{\rm det}(s)}H_ {\rm line}^{\rm readout}(s)\underbrace{\alpha\frac{s\tau_{\rm sh}}{(1+s\tau_{ \rm sh})^{3}}}_{H_{\rm pre+sh}(s)} \tag{17}\]
+
+where \(\tau_{Z}=CZ_{\rm line}^{\rm readout}(s)\) (cfr Section 2). The modulus of the detector transfer function is:
+
+\[|H_{\rm det}(s)|=|H_{\rm det}(j\omega)|=\left|\frac{1-\omega^{2}\tau_{0}^{2}+ j\omega\tau_{\rm r}}{1-\omega^{2}\tau_{0}^{2}+j\omega(\tau_{\rm r}+\tau_{Z})} \right|=\frac{\sqrt{\left(1-\omega^{2}\tau_{0}^{2}\right)^{2}+\omega^{2}\tau_ {\rm r}^{2}}}{\sqrt{\left(1-\omega^{2}\tau_{0}^{2}\right)^{2}+\omega^{2}\left( \tau_{\rm r}+\tau_{Z}\right)^{2}}} \tag{18}\]
+
+### Extraction of \(\tau_{\rm cali}\)
+
+An exponential signal \(v_{\rm in}=\theta(t){\rm e}^{-\frac{t}{\tau_{\rm cali}}}\), injected through a linear network with a transfer function \(h(t)\) in the time domain, produces an output signal \(v_{\rm out}\) that, after a transient, exhibits an exponential tail with the same decay constant \(\tau_{\rm cali}\) as for the injected signal, provided that \(\tau_{\rm cali}\) is larger than any characteristic time constant of the network.
+
+For a simple one-pole network, \(h(t)=\frac{{\rm e}^{-\frac{t}{\tau}}}{\tau}\), therefore:
+
+\[v_{\rm out} = \int_{0}^{t}dt^{\prime}\,h(t^{\prime})v_{\rm in}(t-t^{\prime})= \theta(t){\rm e}^{-\frac{t}{\tau_{\rm cali}}}\int_{0}^{t}dt^{\prime}\,{\rm e} ^{\frac{t^{\prime}}{\tau_{\rm cali}}}h(t^{\prime})\] \[= \theta(t)\frac{\tau_{\rm cali}}{\tau_{\rm cali}-\tau}\left({\rm e} ^{-\frac{t}{\tau_{\rm cali}}}-{\rm e}^{-\frac{t}{\tau}}\right)\] \[= \theta(t)\frac{\tau_{\rm cali}}{\tau_{\rm cali}-\tau}{\rm e}^{- \frac{t}{\tau_{\rm cali}}}\left(1-{\rm e}^{-\frac{\tau_{\rm cali}-\tau}{\tau_{ \rm cali}\tau}t}\right)\]
+
+After a long enough time \(t\) the fractional distortion of a pure exponential trend can be quantified as \({\rm e}^{-\frac{\tau_{\rm cali}-\tau}{\tau_{\rm cali}\tau}t}\). The discussion can be generalized to a network with any number of poles. Then, the behavior of \(v_{\rm out}\) at large values of \(t\) is determined by the largest time constant of the network.
+
+This holds in particular for the calibration signal emerging from the shaper (see Figure 2). Here, \(\tau_{\rm cali}\approx 350\) ns, while the largest characteristic time constant of a calorimeter cell is \(CZ_{\rm line}\approx 50\) ns for the Middle compartment (for Front and some sections of the Back, the largest constant would be \(\tau_{\rm sh}=15\) ns), therefore \(\frac{\tau_{\rm cali}\tau}{\tau_{\rm cali}-\tau}\lesssim 60\) ns. For \(t\gtrsim 450\) ns the discrepancy is expected to be \(\lesssim 5\cdot 10^{-4}\).
+
+The \(\tau_{\rm cali}\) parameter is extracted by an exponential fit to the calibration signal tail. The fit is performed on a time interval \([t_{\rm tail};t_{\rm end}]\). Typically \(t_{\rm end}\approx 750\div 800\) ns, and fluctuates depending on how much signal has been recorded before the starting point, however the resultof the fit does not exhibit a significant dependence on this parameter. In principle, a dependence on the choice of the tail starting point \(t_{\rm tail}\) is expected. This dependence has been investigated over a few channels and it is less than 1% for \(t_{\rm tail}>550\) ns. The time when the tail becomes exponential depends on the position of the minimum of the negative lobe \(t_{\rm min}^{\rm neg.lobe}\). Choosing \(t_{\rm tail}=t_{\rm min}^{\rm neg.lobe}+400\) ns proves to be a stable recipe.
+
+Another, more direct method to measure \(\tau_{\rm cali}\) is described in [12].
+
+### Response Transformation Method (RTM)
+
+#### 3.2.1 General strategy
+
+According to the LAr readout cell model (Figure 1) the calibration pulse (Figure 4) at the end of the readout chain can be written in the Laplace domain as:
+
+\[V_{\rm out}^{\rm cali}(s)=I_{\rm inj}^{\rm cali}(s)\times H^{\rm det}(s)\times H ^{\rm readout}(s) \tag{19}\]
+
+The function \(H^{\rm det}(s)\) describes the effects of the detector cell properties on the injected calibration signal \(I_{\rm inj}^{\rm cali}(s)\), while \(H^{\rm readout}(s)\) is the readout (line + preamplifier + shaper) transfer function. Let a generic current pulse \(Y_{\rm inj}(s)\) be injected on the system at the MB level, as it is actually done with the real calibration pulse \(I_{\rm inj}^{\rm cali}(s)\). The response \(W_{\rm out}(s)\) of the system to this signal would be:
+
+\[W_{\rm out}(s) = Y_{\rm inj}(s)\times H^{\rm det}(s)\times H^{\rm readout}(s) \tag{20}\] \[= \frac{Y_{\rm inj}(s)}{I_{\rm inj}^{\rm cali}(s)}\times I_{\rm inj }^{\rm cali}(s)\times H^{\rm det}(s)\times H^{\rm readout}(s)=\frac{Y_{\rm inj }(s)}{I_{\rm inj}^{\rm cali}(s)}\times V_{\rm out}^{\rm cali}(s) \tag{21}\]
+
+or, in the time domain:
+
+\[W_{\rm out}(t) = {\cal L}^{-1}\left\{\frac{Y_{\rm inj}(s)}{I_{\rm inj}^{\rm cali}( s)}\right\}*V_{\rm out}^{\rm cali}(t)=f_{\rm tran}^{Y}(t)*V_{\rm out}^{\rm cali}(t) \tag{22}\]
+
+The transformed response \(W_{\rm out}(t)\) to the signal \(Y_{\rm inj}(t)\) can be computed as the (numerical) time-domain convolution of the sampled calibration signal \(V_{\rm out}^{\rm cali}(t)\) with a proper transformation function \(f_{\rm tran}^{Y}(t)\). The RTM bases its strategy to retrieve the parameters needed to complete the ionization signal prediction (14) on the computation and analysis of what would be the response of the whole system (detector cell + readout chain) to a signal different from the standard "exponential" calibration pulse. The system response can in fact be sensitive to a particular injected waveform, the output showing in some cases easily recognizable characteristics. In the following steps, waveforms will be sought that minimize the signal tail of \(W_{\rm out}(t)\): for this purpose, a \(\chi^{2}\)-like quantity is built by summing the squares of the values of \(W_{\rm out}(t)\) along the tail:
+
+\[Q^{2}=\sum_{t>t_{\rm tail}}W_{\rm out}^{2}(t) \tag{23}\]
+
+the tail being defined as the signal portion after the time \(t_{\rm tail}\).
+
+#### 3.2.2 Extraction of \(\tau_{\rm cali}\) and \(f_{\rm step}\): the step-response transformation
+
+The calibration pulse parameters \(\tau_{\rm cali}\) and \(f_{\rm step}\) can be obtained by computing the response of the system to a _step function_\(S_{\rm inj}(s)=\frac{1}{s}\)[17]. In the frequency domain the relative transformation function is:
+
+\[f_{\rm tran}^{\rm step}(s;\tau_{\rm cali}^{\prime},f_{\rm step}^{ \prime}) = \frac{S_{\rm inj}(s)}{I_{\rm inj}^{\rm cali}(s;\tau_{\rm cali}^{ \prime},f_{\rm step}^{\prime})}=\frac{1+s\tau_{\rm cali}^{\prime}}{s\tau_{\rm cali }^{\prime}+f_{\rm step}^{\prime}} \tag{24}\]
+
+where \(\tau_{\rm cali}^{\prime}\) and \(f_{\rm step}^{\prime}\) are the input values of the calibration pulse parameters. It can be easily verified that, when \(\tau_{\rm cali}^{\prime}=\tau_{\rm cali}\) and \(f_{\rm step}^{\prime}=f_{\rm step}\), the output function is the response of the system to a step function:
+
+\[U_{\rm out}(s)=\frac{1}{s}\times H^{\rm det}(s)\times H^{\rm readout}(s) \tag{25}\]
+
+The function \(U_{\rm out}(t)\) has the property that _it goes to zero in the tail_ very rapidly, since the functions \(H^{\rm det}(s)\) and \(H^{\rm readout}(s)\) contain only short time constants and do not give rise to a long tail in the waveform (see Figure 1). This null-tail property of the step-response can be used to recognize when the conditions \(\tau_{\rm cali}^{\prime}=\tau_{\rm cali}\) and \(f_{\rm step}^{\prime}=f_{\rm step}\) are met. The chosen \(Q^{2}\)-function is then:
+
+\[Q^{2}(\tau_{\rm cali}^{\prime},f_{\rm step}^{\prime})=\sum_{t>t_{\rm tail}}U _{\rm out}^{2}(t;\tau_{\rm cali}^{\prime},f_{\rm step}^{\prime}) \tag{26}\]
+
+The values of \(\tau_{\rm cali}\) and \(f_{\rm step}\) values are extracted by finding the minimum of this function. The time domain transformation function to be used in the convolution (22) to obtain the step-response \(U_{\rm out}(t)\) is:
+
+\[f_{\rm tran}^{\rm step}(t;\tau_{\rm cali}^{\prime},f_{\rm step}^{\prime})={ \cal L}^{-1}\left\{\frac{1+s\tau_{\rm cali}^{\prime}}{s\tau_{\rm cali}^{\prime} +f_{\rm step}^{\prime}}\right\}=\delta(t)+\left(\frac{(1-f_{\rm step}^{\prime })}{\tau_{\rm cali}^{\prime}}\right)e^{-\frac{f_{\rm step}^{\prime}t}{\tau_{\rm cali }^{\prime}}} \tag{27}\]
+
+The minimization procedure may in principle depend on the tail starting point value \(t_{\rm tail}\). A robust criterion to choose the "stable" \(t_{\rm tail}\) value consists in correlating it with a signal-dependent parameter, i.e. \(t_{\rm tail}=t_{\rm min}^{\rm neg.lobe}\) + 100 ns, \(t_{\rm min}^{\rm neg.lobe}\) being the minimum of the negative lobe of the shaped signal [18].
+
+#### 3.2.3 Extraction of \(f_{\rm step}\) when the \(\tau_{\rm cali}\) value is known
+
+The \(\tau_{\rm cali}^{\prime}\) and \(f_{\rm step}^{\prime}\) parameters are strongly correlated [18] so a bidimensional search of the (\(\tau_{\rm cali}\),\(f_{\rm step}\)) minimum of the \(Q^{2}(\tau_{\rm cali}^{\prime},f_{\rm step}^{\prime})\) function (26) may not be the best computational choice12.
+
+Footnote 12: This bidimensional minimization has to be completed using a numerical minimization algorithm [19].
+
+As the \(\tau_{\rm cali}\) value is known from the calibration pulse fit proposed in Section 3.1, a convenient alternative is to minimize \(Q^{2}(\tau_{\rm cali}^{\prime}=\tau_{\rm cali}^{\rm tail},f_{\rm step}^{\prime})\) in the \(f_{\rm step}\) space only. The results are compatible with those obtained with the step response analysis, this recipe being faster from the computational point of view13.
+
+#### 3.2.4 Extraction of \(\tau_{0}\): the cosine-response transformation
+
+The modulus of the detector transfer function (18) has a minimum14 for \(\omega_{0}=\frac{1}{\tau_{0}}=\frac{1}{\sqrt{LC}}\). If a monochromatic pulse of frequency \(\omega\) is injected into the detector cell, the response of the system is then a minimum for \(\omega=\omega_{0}\) (see Figure 4).
+
+Footnote 14: This minimum would actually be a true zero in cases where the presence of the resistive component \(r\) could be neglected.
+
+The response of the system to a monochromatic cosine pulse \(C_{\rm inj}(t,\omega)=\theta(t)\cos(\omega t)\) of angular frequency \(\omega\) is computed according to the RTM strategy, the relative transformation function being:
+
+\[f_{\rm tran}^{\rm cos}(s;\omega,\tau_{\rm cali}^{\prime},f_{\rm step}^{\prime} )=\frac{C_{\rm inj}(s;\omega)}{I_{\rm inj}^{\rm cali}(s,\tau_{\rm cali}^{ \prime},f_{\rm step}^{\prime})}=\frac{s}{s^{2}+\omega^{2}}\frac{s(1+s\tau_{ \rm cali}^{\prime})}{s\tau_{\rm cali}^{\prime}+f_{\rm step}^{\prime}} \tag{28}\]
+
+When the conditions \(\tau_{\rm cali}^{\prime}=\tau_{\rm cali}\) and \(f_{\rm step}^{\prime}=f_{\rm step}\) are satisfied15 the output function is exactly the response of the system to a cosine pulse of angular frequency \(\omega\):
+
+Footnote 15: This is achieved using the \(\tau_{\rm cali}\) and \(f_{\rm step}\) values obtained through the step–response analysis (see Section 3.2.2).
+
+\[X_{\rm out}(s;\omega)=C_{\rm inj}(s;\omega)\times H^{\rm det}(s)\times H^{\rm readout }(s) \tag{29}\]
+
+The function \(X_{\rm out}(t;\omega)\) has its smallest amplitude when \(\omega=\omega_{0}\). The chosen \(Q^{2}\)-function is now:
+
+\[Q^{2}(\omega)=\sum_{t>t_{\rm tail}}X_{\rm out}^{2}(t;\omega) \tag{30}\]
+
+The \(\omega_{0}\) value is extracted by finding the minimum of this function. The time domain transformation function to be used in the convolution (22) to obtain the cosine-response \(X_{\rm out}(t;\omega)\) is:
+
+\[f_{\rm tran}^{\rm cos}(t;\omega,\tau_{\rm cali}^{\prime},f_{ \rm step}^{\prime}) = {\cal L}^{-1}\left\{\frac{s}{s^{2}+\omega^{2}}\times\frac{s(1+s \tau_{\rm cali}^{\prime})}{s\tau_{\rm cali}^{\prime}+f_{\rm step}^{\prime}}\right\} \tag{31}\] \[= \delta(t)+\frac{1}{f_{\rm step}^{\prime 2}+\omega^{2}\tau_{\rm cali }^{\prime 2}}\bigg{\{}e^{\frac{-t\tau_{\rm step}^{\prime}}{s^{\prime}}}\left( f_{\rm step}^{\prime 2}-f_{\rm step}^{\prime 3}\right)-\] \[\omega\Big{[}\left(f_{\rm step}^{\prime}+\omega^{2}\tau_{\rm cali }^{\prime 2}\right)\sin(\omega t)+\left(\omega\tau_{\rm cali}^{\prime}(f_{\rm step }^{\prime}-1)\right)\cos(\omega t)\Big{]}\bigg{\}}\]
+
+An additional correction is needed to complete the minimization, since the original calibration waveform contains the contribution of the readout electronic transfer function \(H_{\rm readout}(s)\) (see equation (17)). The shaper acts in fact as a band-pass filter that suppresses the high frequency components, thus preventing the \(Q^{2}(\omega)\) function from rising with increasing frequency. The shaper transfer function is to be deconvolved from the transformed output pulse, taking advantage of the fact that the cosine output function \(X_{\rm out}(t,\omega)\) depends only on the single frequency value \(\omega\). The shaper transfer function contribution can be eliminated by using a single correction factor computed as the inverse of the absolute magnitude of the shaper transfer function at the given frequency \(\omega\):
+
+\[X_{\rm out}^{\prime}(t;\omega,\tau_{\rm sh})=X_{\rm out}(t;\omega)\sqrt{ \frac{\left(1+\left(\omega\tau_{\rm sh}\right)^{2}\right)^{3}}{(\omega\tau_{ \rm sh})^{2}}} \tag{32}\]The minimization16 as a function of \(\omega\) is then performed on the corrected \(Q^{2}\)-function:
+
+Footnote 16: Several approaches have been studied: this monodimensional minimization can in fact be completed using an iterative algorithm, exploiting the \(\chi^{2}\) linearization, even if a fully numerical minimization [19] proves to converge faster. The best choice proved to be a private implementation of the Brent minimization algorithm (e.g. see [21]).
+
+\[Q^{\prime 2}(\omega,\tau_{\rm sh})=\sum_{t>t_{\rm tail}}X^{\prime 2}_{\rm out}(t ;\omega,\tau_{\rm sh})=Q^{2}(\omega)\left(\frac{\left(1+(\omega\tau_{\rm sh}) ^{2}\right)^{3}}{(\omega\tau_{\rm sh})^{2}}\right) \tag{33}\]
+
+the shaper internal constant \(\tau_{\rm sh}\) being given as an external parameter17. The obtained \(\omega_{0}\) parameter is uncorrelated with the \(t_{\rm tail}\) value [18].
+
+Footnote 17: The extracted value of the \(\omega_{0}\) resonance is not sensitive to small variation of \(\tau_{\rm sh}\): the same \(\omega_{0}\) value was obtained from the minimization algorithm after changing the input \(\tau_{\rm sh}\) value from the correct one (15 ns) to 13 ns and 17 ns.
+
+The value of \(\omega_{0}\) can also be measured by studying the calibration-detector-readout chain with a network analyser. The results are comparable to those described here.
+
+2.5 Extraction of \(\tau_{r}\): minimization of the injection-point correction residual oscillations.
+
+The \(\tau_{r}=rC\) can be estimated by taking advantage of cancellation of the zero introduced by the detector transfer function \(H_{\rm det}(s)\) in the calibration pulse (17). This cancellation occurs when the measured calibration is corrected for the "injection-point" factor [17]:
+
+\[V^{\rm cali}_{\rm out}(t;\tau^{\prime}_{0},\tau^{\prime}_{r})|^{\rm corr}=f^{ \rm i.p.}_{\rm tran}(t;\tau^{\prime}_{0},\tau^{\prime}_{r})*V^{\rm cali}_{\rm out }(t)={\cal L}^{-1}\left\{\frac{1}{1+s\tau^{\prime}_{r}+s^{2}\tau^{\prime}_{0} }\right\}*V^{\rm cali}_{\rm out}(t) \tag{34}\]
+
+the transformation function being:
+
+\[f^{\rm i.p.}_{\rm tran}(t;\tau^{\prime}_{0},\tau^{\prime}_{r})={\cal L}^{-1} \left\{\frac{1}{1+s\tau^{\prime}_{r}+s^{2}\tau^{\prime}_{0}}\right\}=e^{-\frac {t}{\tau_{1}}}\sin\frac{t}{\tau_{2}} \tag{35}\]
+
+where \(\tau_{1}=\frac{2\tau^{\prime 2}_{0}}{\tau^{\prime}_{r}}\) and \(\tau_{2}=\frac{2\tau^{\prime 2}_{0}}{\sqrt{4\tau^{\prime 2}_{0}-\tau^{\prime 2}_{r}}}\).
+
+If the conditions \(\tau^{\prime}_{0}=\tau_{0}\) and \(\tau^{\prime}_{r}=\tau_{r}\) are met, the factor \((1+srC+s^{2}LC)\), present in the original calibration waveform because of the detector transfer function \(H^{\rm det}(s)\), is canceled. Otherwise, the zero-cancellation being incomplete, an oscillation of angular frequency \(\omega_{\rm res}=\frac{1}{\tau^{\prime}_{0}}\) is produced in the transformed waveform \(V^{\rm cali}_{\rm out}(t)|^{\rm corr}\)[17]. While the \(\tau^{\prime}_{0}=\frac{1}{\omega_{0}}\) is fixed by the cosine response analysis described above (Section 3.2.4), the correct value of \(\tau_{r}\) parameter is to be sought by looking for the vanishing of such residual oscillations. In this case, the \(Q^{2}\)-function is built summing the squares of the differences between the original calibration signal and the correct one in the tail region on the pulse:
+
+\[Q^{2}(\tau^{\prime}_{r})=\sum_{t>t_{\rm tail}}\left(V^{\rm cali}_{\rm out}(t) -V^{\rm cali}_{\rm out}(t;\tau^{\prime}_{0}=\frac{1}{\omega_{0}},\tau_{r})|^{ \rm corr}\right)^{2} \tag{36}\]
+
+The \(\tau_{r}\) value is extracted by finding the minimum of this function (see Figure 4). The minimization procedure may in principle depend on the tail starting point value \(t_{\rm tail}\). A robust criterion to choose the "stable" \(t_{\rm tail}\) value consists in correlating it with a signal-dependent parameter, i.e. \(t_{\rm tail}=t_{\rm min}^{\rm neg.\;lobe}\) + 100 ns, \(t_{\rm min}^{\rm neg.lobe}\) being the minimum of the negative lobe of the shaped signal.
+
+### Frequency Analysis Method (FAM)
+
+#### 3.3.1 Extraction of \(\tau_{0}\) and \(\tau_{\rm r}\)
+
+The parameters \(\tau_{0}\) and \(\tau_{\rm r}\) can be extracted via a frequency analysis of the calibration signal \(g_{\rm cali}(t)\) emerging from the shaper.
+
+The quantity \(|H_{\rm det}(j\omega)|\) defined in equation (18) has a minimum for \(\omega=\omega_{0}=\frac{1}{\tau_{0}}\), and its second-order derivative is such that:
+
+\[\left[\frac{1}{|H_{\rm det}(j\omega)|}\cdot\frac{d^{2}\left|H_{\rm det}(j \omega)\right|}{d\omega^{2}}\right]_{\omega=\omega_{0}}=4\frac{\tau_{0}^{4}}{ \tau_{\rm r}^{2}}\left[1-\left(\frac{\tau_{\rm r}}{\tau_{\rm r}+\tau_{Z}} \right)^{2}\right]\simeq 4\frac{\tau_{0}^{4}}{\tau_{\rm r}^{2}} \tag{37}\]
+
+where the last approximation holds due to the fact that \(\tau_{\rm r}\ll\tau_{Z}\)18. Therefore, once the function \(|H_{\rm det}(j\omega)|\) is known, a minimum search allows one to calculate \(\tau_{0}\), whereas \(\tau_{\rm r}\) can be obtained from the evaluation of \(\frac{d^{2}|H_{\rm det}(j\omega)|}{d\omega^{2}}\) along with equation (37).
+
+Footnote 18: Experimentally, \(r\lesssim 0.5\ \Omega\), whereas \(Z_{\rm line}^{\rm readout}\approx 25\ \Omega\) for the Middle and Back compartments, and \(\approx 50\ \Omega\) for the Front, see Table 1.
+
+The function \(|H_{\rm det}(j\omega)|\) can be extracted from the Fourier transform of the observed \(g_{\rm cali}(t)\), making use of equation (17). For ideal lines, matched to their loads, \(H_{\rm line}(s)={\rm e}^{j\omega\tau_{\rm line}}\) and \(Z_{\rm line}(s)=Z_{\rm load}\) (i.e. \(\tau_{Z}=CZ_{\rm pre}\), where \(Z_{\rm pre}=25\ \Omega\) for Middle and Back compartments, and \(Z_{\rm pre}=50\ \Omega\) for the Front), therefore:
+
+\[|H_{\rm det}(j\omega)|=|g_{\rm cali}(j\omega)|\left|\frac{j\omega(1+j\omega \tau_{\rm cali})}{f_{\rm step}+j\omega\tau_{\rm cali}}\frac{1}{\alpha}\frac{(1 +j\omega\tau_{\rm sh})^{3}}{j\omega\tau_{\rm sh}}\right| \tag{38}\]
+
+where \(f_{\rm step},\tau_{\rm cali},\tau_{\rm sh}\) are known quantities.
+
+For real lines, the function \(|H_{\rm det}(j\omega)|\) is distorted. The effect has been studied assuming a model in which the calibration/readout lines consist in two line segments, one for the cold cable and one for the vacuum+warm cables, with characteristic impedances and delays equal to the nominal ones (all connectors are neglected because they introduce distortions at frequencies much higher than the shaper bandwidth region, 5\(\div\)12 MHz). The observed shift of the position of the minimum with respect to the model with ideal lines is \(\sim 0.3\%\), perfectly acceptable, as is illustrated below (see Section 3.4).
+
+#### 3.3.2 Usage of discrete Fourier transform algorithm
+
+For such analysis, a discrete Fast Fourier Transform (FFT) algorithm is required, which implies some special comments.
+
+The FFT of a signal sampled \(N\) times at regular time intervals \(\Delta t\) has a frequency spectrum up to \(\frac{1}{2\Delta t}\) (Nyquist frequency) and a frequency binning \(\Delta\nu=\frac{1}{N\Delta t}\). Since \(\Delta t=1\) ns and \(N\approx 750\div 800\), a binning \(\Delta\nu\simeq 1.2\) MHz would result, and the location of the minimum would be biased or completely masked, due to the coarseness of the binning. Moreover, to get a clean frequency spectrum, the sampled function needs to be "periodic", i.e. the trailing portion should smoothly join the leading portion of the next period: this certainly does not happen at \(\approx 800\) ns (\({\rm e}^{-t/\tau_{\rm cali}}\simeq{\rm e}^{-800/350}\simeq 0.1\)). Finally, the FFT algorithm requires that \(N\) is an integer power of two.
+
+A common technique to reduce the width of the bins in the frequency domain is to extend the length of the time domain function by "padding" it with zeroes. In this case the tail of thefunction is not zero but exponential to a very good approximation, so it can be extrapolated up to a sufficiently high number of points \(N=2^{m}\). A detailed study showed that \(N=8192=2^{13}\) is sufficient to get a clean minimum, with a binning frequency \(\Delta\nu=122\) KHz, as displayed in Figure 5. The sensitivity to the tail extrapolation procedure, which relies on the accuracy of the \(\tau_{\rm cali}\) value, has been studied. A 10% systematic uncertainty on the \(\tau_{\rm cali}\) value produces a bias of \(\sim 0.3\%\) on the position of the minimum.
+
+Since \(|H_{\rm det}(j\omega)|\) is known only at fixed points, a first coarse minimum search is achieved, and a cubic fit is performed on the points around it. The polynomial obtained is used to estimate a more precise minimum \(\omega_{0}\), and its second-order derivative is used to evaluate \(\tau_{\rm r}\).
+
+### Impact of parameter uncertainties on signal reconstruction
+
+The systematic effects on signal reconstruction due to uncertainties in the extracted parameters have been estimated as follows.
+
+* For a given calibration signal \(g_{\rm cali}\), the parameters are extracted and the corresponding ionization signal prediction \(g_{\rm phys}\) is obtained. It is assumed that the extracted values for the parameters are the best estimates of their real values, so that \(g_{\rm phys}\) can be regarded as the "true" ionization waveform, for the current purpose.
+* One parameter is varied by 1%, and another ("wrong") ionization signal prediction \(g^{\prime}_{\rm phys}\) is carried out. From this, a set of "wrong" OFC is evaluated.
+* The "wrong" OFC are applied to the "true" ionization waveform \(g_{\rm phys}\) to evaluate the amplitude \(A\).
+* The displacement of the amplitude from unity (i.e. the quantity \(A-1\)) is quoted as the relative amplitude bias due to a 1% uncertainty on the parameter. Notice that deriving OFC from \(g_{\rm phys}\) and applying them to \(g_{\rm phys}\) itself would yield a value \(A=1\) by definition.
+
+The effects of varying the parameters by 1% are summarized in Table 2 and displayed in Figure 6 for the Middle compartment pulses; in addiction to the extracted parameters, the drift time \(T_{\rm d}\) is considered.
+
+The most sensitive parameters are \(\tau_{0}\), \(\tau_{\rm cali}\) and \(T_{\rm d}\). Varying the shaping time \(\tau_{\rm sh}\) does not alter the extracted value of the other parameters. An overall bias on \(\tau_{\rm cali}\) or \(T_{\rm d}\) would produce the same change in the energy scale at all \(\eta\) positions, whereas a bias on \(\tau_{0}\) has effects that depend on \(\eta\), and therefore could in principle spoil the detector uniformity. A 1% variation of \(\tau_{\rm r}\) does not produce any appreciable effects; however, setting this parameter to zero in the prediction of the ionization pulse shape would alter the reconstructed amplitude by 0.5%.
+
+## 4 The Master Waveform approach
+
+Both calibration and ionization signals are acquired in three electronics gain regions (Low, Medium or High gain, [22]): the use of a single set of OFC for each of these three gain regions is possible if the whole system (detector + readout) is linear19. Under this assumption of linearity it is possible to directly embed the linear gain of the system in the OFC, through the use of the Master Waveform (MW).
+
+The calibration profiles are built from the readout data generated by the injection of a pulse of defined amplitude; the amplitude of each profile corresponds to the Digital-to-Analog-Converter (DAC) setting on the calibration board (CB) [12]. The MW values \(m\) are determined by the linear response of the system for several DAC values at a given time bin \(t\), from which the input current can be computed:
+
+\[y(t)=m(t)\times\text{DAC}+\text{DAC0}(t)\quad\forall t\in[0,800\text{ ns}] \tag{39}\]
+
+where \(y\) is the system response in ADC counts for the relative DAC setting, as extracted from the corresponding calibration curve. The \(m\) and DAC0 values are obtained through a linear fit to the DAC-dependent calibration data at each time bin \(t\). This procedure allows one to map the detector response \(m(t)\) to a calibration pulse, averaged over the different DAC values and remaining independent of possible offsets (DAC0). It is in fact known that the CB output is sensitive to the card clock feed-through [12]: even when the CB is supposed to inject a null signal (\(\text{DAC}=0\)) there is a non-zero signal emerging from the board. Since the response of the detector to an ionization signal is not dependent on this residual signal, its presence should be subtracted from the single DAC curves: the MW approach automatically takes care of this correction. An example of the MW computation in the Medium gain region is illustrated in Figures 7 and 8, where the input 32-samples single DAC curves and the final \(m(t)\) and DAC0(\(t\)) results are shown.
+
+The final MW \(m(t)\) is measured in ADC/DAC units (or, equivalently, in ADC/\(\mu\)A units, as a given DAC value implies a value of \(I_{0}^{\text{cali}}\)) and naturally incorporates the linear electronic gain of the channel. If the ionization signal is predicted from the MW without applying any peak normalization, the obtained OFC are in units of DAC/ADC (or \(\mu\)A/ADC). Their application to a sampled signal (in ADC counts) would directly provide the ionization signal amplitude in current units (DAC), and no gain factor would be needed, the only additional calibration constant needed being the detector sensitivity (DAC/GeV or \(\mu\)A/GeV).
+
+## 5 Parameter extraction results
+
+The parameter extraction methods described in the previous sections have been applied to calibration data taken on the production module P15 of the ATLAS LAr EMC barrel.
+
+### Calibration data set
+
+Calibration pulse shapes have been measured from special calibration runs (_delay_ runs), in which the calibration signals have been acquired using 32 samples per event and time delays have been introduced between the calibration pulse injection and the DAQ clock by integer steps of 1 ns, so that the pulse shapes could be virtually sampled every ns and have a resulting length of 800 ns. Such data have been acquired in High and Medium gain for several channels of the Front, Middle and Back compartments, as displayed in Table 32.
+
+Footnote 1: The \(LC\) value is not a function of \(\phi\), but it is not a function of \(\phi\).
+
+All single-DAC calibration signals have been grouped by channel and gain setting, and the corresponding MWs have been produced. For the High gain, data for 4 DAC values (10, 300, 600, 900) have been taken, whereas for the Medium gain, 3 DAC values (3000, 6000, 9000) have been taken.
+
+### Results for \(\tau_{\rm cali}\) and \(f_{\rm step}\)
+
+Each group of \(8\times 8\) Middle cells is pulsed by 8 different calibration channels according to a known pattern [2]. The \(\tau_{\rm cali}\) or \(f_{\rm step}\) values extracted from different channels that are pulsed by the same calibration line should agree. By grouping such parameters per calibration channel one can estimate the precision to which the parameters are extracted. The results are shown in Figure 9. The typical error on \(\tau_{\rm cali}\) is \(\approx 3\) ns, i.e. \(\lesssim 1\%\), while the error on \(f_{\rm step}\) is \(\approx 0.003\), i.e. \(\sim 5\%\). Similar results hold for the Front and the Back compartments. The corresponding sensitivities on the reconstructed signal are discussed in Section 3.4.
+
+### Results for \(\tau_{0}\) and \(\tau_{\rm r}\)
+
+The agreement between the \(\tau_{0}\) values extracted with RTM and FAM for the Middle compartment is displayed in Figure 10. The correlation is perfect, and the discrepancy between the two results is \(\sim 0.3\%\).
+
+Figure 11 shows the extracted \(LC=\tau_{0}^{2}\) parameter as a function of \(\eta\) for the Middle compartment. \(LC\) is more easily understandable than \(\tau_{0}\) in terms of the electrode geometrical properties. The increasing trend of \(LC\) with \(\eta\) is due to the corresponding increase of the gap capacitance \(C\), while the local 4-cell structure, recognizable in most of the \(\eta\) range, reflects the geometrical pattern of the inductive paths on the readout electrodes [5]. For e.g. \(\eta_{\rm cell}=9,10\) the connection to the SB is straight, whereas for \(\eta_{\rm cell}=8\) and 11 it runs around the Back compartment cell, resulting in a longer stripline with larger inductance. This structure repeats itself every 4 Middle cells, as displayed in the top part of Figure 11. The \(LC\) value as a function of \(\phi\) is displayed for a few \(\eta\) positions in Figure 12: the trend suggests a non-perfect inductance equalization along \(\phi\) in the SB.
+
+The evaluation of \(\tau_{0}\) for the Front and Back compartments is less easy than for the Middle, due to the fact that the resonant angular frequency \(\omega_{0}=\frac{1}{\sqrt{LC}}\) is higher and approaches the region where the lumped model approximation becomes inadequate. The frequency spectrum for some typical channels in the three compartments is displayed in Figure 13. Each Middle channel exhibits only one clear minimum, located at \(\omega_{0}\) below 180 MHz. In the Front often two minima are present, located at \(\sim 430\) MHz and \(\sim 500\) MHz, the deepest being usually, but not always, the second one. In the Back many minima are observable, in a wide angular frequency range. Therefore, while for the Front the ambiguity is two-fold, for the Back there is no clear criterion for the choice. This issue is addressed in Section 6.3.2.
+
+Reconstruction performance for beam test data
+
+The signal reconstruction method explained in the previous sections has been tested on data taken during a beam test performed on the production module P15 of the ATLAS electromagnetic calorimeter barrel. The validation procedure is three-fold. As a first check, the predicted shapes for ionization signals have been compared to the actually observed ones, for a few channels: this is addressed in Section 6.1. Secondly, the reconstructed particle arrival time is compared to the one measured by a scintillator (Section 6.2). The most compelling issue is the energy reconstruction performance with the OFC obtained from the predicted ionization shapes, detailed in Section 6.3. The chosen quality indicators are the relative energy resolution \(\sigma_{E}/\langle E\rangle\) and the energy uniformity, for electrons of 245 \(\mathrm{GeV}\). The scale of the reconstructed energy \(\langle E\rangle\) is regarded as a less significant indicator, because it depends on the conversion factor \(\mu\mathrm{A}\rightarrow\mathrm{GeV}\) between the observed current and the actual deposited energy, a factor which depends on details of the calorimeter construction, and not on properties of the electronics.
+
+### Quality of the ionization signal prediction
+
+The quality of the signal reconstruction can be tested by comparing the predicted ionization signal with the observed one. For this purpose, the predicted signal is normalized such that the corresponding calibration signal has unitary peak.
+
+The observed signal has been obtained from electron events, as follows:
+
+* for each event, 7 ADC samples \(S_{0},\ldots,S_{6}\), spaced by \(\Delta t=25\) ns, have been acquired in ADC counts (i.e. without applying the \(\mathrm{ADC}\rightarrow\mu\mathrm{A}\rightarrow\mathrm{GeV}\) conversion chain);
+* using the OFC obtained from the predicted signal, the amplitude \(A\) (in ADC counts) and the arrival time (i.e. the time difference between the particle arrival and the latest "tick" of the clock ) \(t_{0}\) are derived;
+* the pairs \((t_{0}+k\Delta t;S_{k}/A)\) (with \(k=0\ldots 6\)) are then summed and averaged in bins of 1 ns each, to obtain the profile of the experimental signal. The normalization \(S_{k}/A\) has been introduced to decrease the impact of the event-by-event energy fluctuations in building the profile. A consequence is that the obtained signal is automatically normalized in the same way as the predicted one, therefore not only the shapes, but also the amplitudes are expected to be comparable without any further rescaling.
+
+In Figure 14, the observed profiles for a Middle cell, in high and medium gain, are shown, together with a predicted profile from a medium gain calibration pulse. The observed signal amplitude \(A\) has been calculated for both high and medium gain using the same set of OFC, obtained from the medium gain signal prediction. For this reason, the observed profile in the medium gain is correctly normalized, whereas that in high gain must be divided by 9.3, which is the nominal ratio between the two gains.
+
+The agreement between prediction and observation is good. For any example of the two gains, the difference at the peak is \(\sim\) 0.2%, whereas local residuals are always between \(\pm\) 2%, with an r.m.s. of 0.9%.
+
+The observed signals in high and medium gain are also very similar: the r.m.s. of the local difference is 0.5%.
+
+#### 6.1.1 Drift time estimate
+
+The drift time parameter \(T_{\rm d}\) affects the prediction of the ionization signal, as displayed in Figure 15 (left). The rising portion is essentially unmodified, whereas the peak value and the negative lobe change significantly.
+
+The drift time can be estimated by comparing the predicted shape with one observed from electron data. Since the normalization of the latter is arbitrary, the comparison must be done on the decreasing portion and the negative lobe21. The portion of the waveform between 10 ns and 75 ns is used to properly normalize and shift in time the two waves, to make the two rising portions overlap. Then, the assumed \(T_{\rm d}\) is varied in steps of 10 ns and the value yielding the best agreement between prediction and observation in the time range \(0\div 400\) ns is chosen. The result is \(T_{\rm d}=470\) ns, as shown in Figure 15 (right).
+
+Footnote 21: The end of the negative lobe is not predictable due to effects induced by the accordion geometry. However, the vertical variation in its first part contains enough information [24].
+
+### Implementation of Optimal Filtering at beam test
+
+At ATLAS, the 40 MHz DAQ clock will be synchronized with the bunch crossing, so that the particles will reach the calorimeter synchronously with the clock. On the contrary, during the beam test data taking, particles hit the detector at random times with respect to the 40 MHz DAQ clock. The detector signal is sampled every 25 ns, but the arrival time \(t_{0}\) is unknown22. The OF technique (equations (1)) must therefore be modified, allowing coefficients \(\{a_{i}\},\{b_{i}\}\) to be functions of time:
+
+Footnote 22: A scintillator connected to a TDC provides a measurement of \(t_{0}\).
+
+\[\left\{\begin{array}{rcl}A&=&\sum_{i}a_{i}(t_{0})S_{i}\\ A\,\delta t&=&\sum_{i}b_{i}(t_{0})S_{i}\end{array}\right. \tag{40}\]
+
+A first timing hypothesis \(t_{0}\) is attempted, and an error estimate on this hypothesis is given by \(\delta t\), evaluated using the above equations. Then the calculation can be iterated for a new \(t_{0}\), given by the old one corrected by \(\delta t\), until \(|\delta t|\) is "small enough", at which point the last \(t_{0}\) found gives the sought starting time.
+
+In the EMC, 5 samples are used for OF, spaced by 25 ns. The signal pulse shape is known every ns, therefore this is also the maximum time granularity achievable. All possible \(t_{0}\) values (\(0\leq t_{0}<25\) ns) are divided into 25 time bins of 1 ns each, and for each bin 5 \(\{a_{i}\}\) and 5 \(\{b_{i}\}\) coefficients are needed, for a total of \(125+125\) coefficients. The first iteration starts with a hypothesis of \(t_{0}=12\) ns and finishes when \(|\delta t|<1\) ns, which occurs typically in 2 steps.
+
+The convergence of the iterative OF process is in practice guaranteed when the observed signal is reasonably approximated by the predicted one used to evaluate the OF. Since signals from cells with low energy deposit can be affected by significant noise or cross-talk, it proves to be more reliable to apply the iterative OF only to the most energetic cell in the Middle compartment (i.e. that hit by the incident particle), where the signal distortion is negligible. The value of \(t_{0}\) extracted with such procedure is then used to reconstruct the amplitude for all cells in the calorimeter, applying a non-iterative OF. The motivation is the assumption that the shower development is very fast and simultaneous for all cells, and the DAQ clock is synchronous for all of them.
+
+As a cross-check of the method, the reconstructed \(t_{0}\) can be compared to the measurement from the scintillator. The correlation is very strong (see Figure 16), and the agreement is goodat the level of \(\sim\) 350 ps, which is approximatively the time resolution of the beam counter used at this test. The OF is applied to 5 out of 7 acquired samples (\(S_{0},\ldots,S_{6}\)), chosen around the highest available sample. For most events the highest sample is the central one (\(S_{3}\)), so that samples \(S_{1},\ldots,S_{5}\) are used. For a few events, the highest sample is \(S_{4}\) and therefore samples \(S_{2},\ldots,S_{6}\) are used: this explains the small spot located in the right bottom corner of Figure 16.
+
+### Performance of the energy reconstruction
+
+#### 6.3.1 Electron beam data sample and analysis outline
+
+The analysed data sample consists of over \(2\cdot 10^{6}\) events of 245 GeV electrons hitting the calorimeter module in the region \((0\leq\eta<1.2)\times(0\leq\phi<0.2)\), corresponding to Middle cell numbers \(0\div 47\) along \(\eta\) and \(8\div 15\) along \(\phi\). The beam energy spread for 245 GeV electrons is of the order of 0.1%.
+
+The event selection is the same as was described in [25]. In particular, only events in which the cluster barycentre is located within \(\pm 0.1\) cell units around the cell centre are considered, in order to be less sensitive to side leakage effects and \(\phi\)-modulations [26]. The electron energy in the Middle compartment is evaluated as a sum over \(3\times 3\)-cells cluster centred around the most energetic cell. For the Front and Back compartments, the size of the clusters is chosen in order to completely include the corresponding Middle cluster. For the evaluation of the response uniformity over the full \(\eta\) range, effects due to longitudinal showers leakage beyond the Back compartment and shower starting before the accordion calorimeter are accounted and corrected for by applying linear weights to the energies recorded by the Back and the Presampler, as described in [25].
+
+#### 6.3.2 Energy reconstruction
+
+The performance of this signal reconstruction technique has been fully tested only in the region \(0.4\leq\eta<0.6\), where the calibration data from the three compartments were available (see Section 5.1 and Table 3). Rejecting the \(\phi\)-lines 8 and 15 (where a \(3\times 3\) cluster cannot be built), 48 Middle cells have been analysed, corresponding to a region \(\Delta\eta\times\Delta\phi=0.2\times 0.15\). The energy resolution achieved is better than 0.8%, while the uniformity is better then 0.4%, after Presampler and Back compartment weighting [25], as displayed in Figure 17.
+
+Due to the unreliability of the extracted \(\tau_{0}\) parameter for the Back compartment (see Section 5.3), the effect of the injection point correction on the energy scale for this compartment has been studied. The prediction of the ionization signal has been repeated without such a correction (i.e. the only correction applied being the exponential-to-triangular shape one). The Back energy changes on average from 1.9 GeV to 1.8 GeV, with a relative variation of -6%. The relative impact on the total reconstructed energy for a 245 GeV electron is less than \(5\cdot 10^{-4}\).
+
+A similar study has been carried out on the Front compartment, where the \(\tau_{0}\) extraction exhibits a two-fold ambiguity. By switching off the injection point correction, the average energy change is from 38.1 GeV to 37.2 GeV, with a relative variation of -2.5%. The impact on the total reconstructed energy for a 245 GeV electron is \(\approx\) -0.4%. The energy reconstructed by choosing either of the two \(\tau_{0}\) solutions does not show any appreciable variation.
+
+A possible reconstruction strategy that exploits the advantage of using the calibration data only would be not to apply the injection point correction to the Back compartment, in order to avoid using parameters that are not reliable, and to apply it to the Front compartment, since the choice between the two possible \(\tau_{0}\) extracted values does not impact the reconstructed energy.
+
+#### 6.3.3 Linear gain from the Master Waveform
+
+In the previous section, the predicted ionization signals used for OFC calculation were obtained from _normalized_ MWs, i.e. whose peak was set to 1. This means that both calibration and ionization signals' amplitudes have no units, and the channel linear gain information is lost. OFC's are then pure numbers, and OF applied to a sampled signal in ADC counts provide a measurement of the peak also in ADC units: in this case an additional conversion to DAC units is necessary23.
+
+Footnote 23: An effective way to measure such a correction for a channel consists in injecting calibration pulses with different amplitude (measured in DAC units on the CB), and for each of them extract the response peak in ADC units. The set of \((\mathrm{DAC};\mathrm{ADC}_{\mathrm{peak}})\) pairs is then fit with a polynomial function.
+
+However, as explained in Section 4, the natural dimension of the MW (and therefore of the predicted ionization signal) is ADC/DAC (or ADC/\(\mu\)A) units, thus incorporating the linear gain. The corresponding OFC's are in DAC/ADC (or \(\mu\)A/ADC) units, so that when applied to a sampled signal in ADC counts, they give a peak measurement in DAC (or \(\mu\)A) units, and any additional ADC\(\rightarrow\)DAC (ADC\(\rightarrow\)\(\mu\)A) correction is not necessary. This strategy has been applied to the reconstruction of the 245 GeV electron data from the beam test, and the results for energy scale, resolution and uniformity are perfectly compatible with the one obtained with the method described in [6].
+
+## 7 Conclusions
+
+A set of algorithms has been developed to obtain a prediction of the ionization signal shape, on the basis of the information contained in the measured calibration pulse. The strategy has two fundamental steps: the calibration pulse is analysed to extract typical calibration and channel electrical parameters; the ionization pulse is then evaluated from the calibration pulse using time-domain convolutions with functions that depend on the extracted parameters.
+
+The algorithms have been tested on calibration and electron beam data taken on an EMC barrel production module. The agreement between the predicted and observed ionization signal shapes is better than 1% (0.2% in the peak region). From the predicted ionization signal, the optimal filtering coefficients are evaluated and used to reconstruct the energy deposited by 245 GeV electrons. The resolution achieved is better than 0.8% and the local detector response uniformity is better then 0.4%. The reconstructed signal timing resolution (\(\sim\)350 ps) is compatible with that of the beam counter.
+
+Systematic studies have been carried out on the sensitivity of reconstruction to the extracted parameters. Typically, a 1% uncertainty on a parameter impacts the signal peak reconstruction at the level of 0.2% at most.
+
+For the intrinsic advantage of using the calibration data only, and the excellent energy reconstruction performance demonstrated with the beam data, the signal reconstruction approach discussed in this paper is a promising candidate for the ATLAS LAr calorimeter.
+
+## Acknowledgments
+
+The work presented here has been performed within the ATLAS Collaboration, and we thank collaboration members for helpful discussions. We have made use of the ATLAS LAr EMC detector hardware and of the corresponding software tools, which are the result of collaboration-wide efforts.
+
+We would like to thank L. Neukermanns, R. Zitoun and P. Perrodo, who firstly addressed the calorimeter equalization issue in the ATLAS LAr EMC barrel. The approach discussed here, relying on calibration data only, was originally proposed by W. Cleland and formerly investigated by F. Lanni and J. McDonald, who helped us to finalize the details of the algorithms discussed. Besides the above mentioned persons, we would like to thank L. Serin, M. Citterio and L. Mandelli for useful discussions.
+
+## References
+
+* [1] The ATLAS collaboration. _Technical Proposal for a General-Purpose \(pp\) Experiment at the Large Hadron Collider at CERN_. Technical Report CERN/LHCC/94-43, CERN, 1994.
+* [2] The ATLAS collaboration. _Liquid Argon Calorimeter Technical Design Report_. Technical Report CERN/LHCC/96-41, CERN, 1996.
+* [3] W.E. Cleland and E.G. Stern. _Signal processing considerations for liquid ionization calorimeter in a high rate environment_. _NIM A_, 338, 1984.
+* [4] Y. Jaquier, C. de La Taille, I. Nikolic, L. Serin. _Strenghs and weakness of digital filtering_. _ATLAS Internal Note_, ATL-LARG-97-080, 1997.
+* [5] M. Citterio, M. Delmastro and M. Fanti. _A study of the electrical properties and of the signal shapes in the ATLAS Liquid ARgon Accordion Calorimeter using a hardware model_. _ATLAS Internal Note_, ATL-LARG-2001-018, 2001.
+* [6] L. Neukermans, P.Perrodo and R. Zitoun. _Understanding the electromagnetic barrel pulse shapes and the absolute electronic calibration_. _ATLAS Internal Note_, ATL-LARG-2001-008, 2001.
+* [7] D. Prieur. _Using Time Convolution Method to compute Optimal Filtering Coefficients for LARG electromagnetic calorimeter_. _ATLAS Internal Note_, ATL-LARG-PUB-2005-001, 2005.
+* [8] The USA ATLAS collaboration. _The Mother Board system for the Liquid Argon barrel calorimeter_. [http://www.usatlas.bnl.gov/detector/lar/mb/](http://www.usatlas.bnl.gov/detector/lar/mb/).
+* [9] G. Battistoni et al. _Specification Requirements for Warm Preamplifiers_. [http://www.mi.infn.it/~battist/preampl2.html](http://www.mi.infn.it/~battist/preampl2.html).
+* [10] R. L. Chase, C. de la Taille, J. P. Richer, N. Seguin-Moreau. _A fast monolithic shaper for the ATLAS e.m. calorimeter_. In _Proc. 5th International Conference on Calorimetry in High-energy Physics_, 1994.

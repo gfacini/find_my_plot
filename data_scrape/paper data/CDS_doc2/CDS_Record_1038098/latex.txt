@@ -1,0 +1,422 @@
+# The ATLAS Tracking Geometry Description
+
+A. Salzburger
+
+Leopold Franzens Universitat Innsbruck, Austria & CERN
+
+S. Todorova
+
+Tufts University, USA
+
+M. Wolter
+
+Institute of Nuclear Physics, PAN, Krakow, Poland
+
+corresponding author: Andreas.Salzburger@cern.ch
+
+December 6, 2007
+
+###### Abstract
+
+Track reconstruction requires a detector geometry description for the usage in track extrapolation processes and material effects integration during track finding and track fitting. Since, in general, the more realistic detector description used in full detector simulation causes an unacceptable increase of CPU time consumption when being used in track reconstruction, the reconstruction geometry is realised as a simplified description of the actual detector layout. This documents presents the data classes of the newly developed ATLAS reconstruction geometry and describes its building process for the ATLAS CSC detector layouts. Additionally a comparison of the material budget described by the reconstruction geometry with one used in full detector simulation will be presented for the Inner Detector and the calorimeter devices.
+
+Introduction
+
+The abstraction of the complex detector geometry to a simplified version for the use within track finding and fitting is a common technique in track reconstruction of high energy physics experiments. A dedicated reconstruction geometry is not only necessary for the definition of the measurement surfaces, but also for the description of the detector material for the integration during track extrapolation processes and track fitting. In track reconstruction, the interaction of a particle with the traversed detector material is, in general, described by Gaussian or multi-Gaussian noise addition to the measurements to account for multiple scattering effects and deterministic mean or most probable energy loss with a small variance. The stochastic description together with the applied simplifications in the description of the material effects allow to use a simplified geometry model with an averaged material description. However, an accurate description of the material in both weight and spatial position within the detector is essential for high quality track reconstruction and hence for various measurements aimed to be done with the ATLAS detector. Evidently, a good balance between CPU time consumption (which directly corresponds to the level of abstraction) and physics performance has to be found.
+
+During the redesign of the ATLAS offline reconstruction software, initially invoked by the _Final Report of the Reconstruction Task Force_ (RTF) [1], a new detector description has been deployed to serve the needs of modern track reconstruction techniques. This reconstruction geometry will be henceforth referred to as TrackingGeometry. It is fully integrated in the object oriented C++ based ATLAS software framework ATHENA [2] -- an enhanced version of the LHCb GAUDI framework [3] -- and has been developed in coherence with the ATLAS tracking event data model (EDM) [4], respecting ATLAS coding standards [5].
+
+This document concentrates on the ATLAS-CSC-00-00-00 detector description version, which is the base version for all layouts used within the ATLAS _Computer System Commissioning_ (CSC). CSC layouts incorporate misalignment, realistic magnetic field and material distortions, enhancing detector performance studies as close as possible to the conditions to be found at startup of the experiment. The ATLAS TrackingGeometry and associated material descriptions also exist for legacy layouts to guarantee backward compatibility. Table 1 summarises the supported ATLAS layout versions. This document is based on the ATLAS software release 12.0.6.
+
+\begin{table}
+\begin{tabular}{|l|l|l|} \hline
+**Layout** & **Comments** & **Base Layout for Material** \\ \hline \hline ATLAS-Rome-Initial-01 & - & ATLAS-DC3-02 \\ \hline ATLAS-Rome-Initial-02 & used for Rome production & ATLAS-DC3-02 \\ \hline ATLAS-DC3-02 & production layout of 11.0.X & - \\ \hline ATLAS-DC3-04 & - & ATLAS-DC3-05 \\ \hline ATLAS-DC3-05 & Inner Detector material update & - \\ \hline ATLAS-DC3-06 & - & ATLAS-DC3-07 \\ \hline ATLAS-DC3-07 & TRT material update & - \\ \hline ATLAS-CSC-00-00-00 & - & ATLAS-CSC-00-00-00 \\ \hline ATLAS-CSC-00-01-00 & misalignment (MA) & ATLAS-CSC-00-00-00 \\ \hline ATLAS-CSC-01-00-00 & realistic magnetic field (RMF), no MA & ATLAS-CSC-00-00-00 \\ \hline ATLAS-CSC-01-01-00 & RMF, MA & ATLAS-CSC-00-00-00 \\ \hline ATLAS-CSC-01-02-00 & RMF, MA, material distortions (MD) & ATLAS-CSC-00-00-00 \\ \hline \end{tabular}
+\end{table}
+Table 1: Supported ATLAS detector layouts by the TrackingGeometry. For each of the supported layouts, the material description file can be retrieved from the ATLAS conditions database (COOL). Since some of the layouts differ only slightly in terms of material budget, material files have been mapped solely for root layout types. All other supported layout tags are linked to these root layouts. Although the ATLAS-CSC-01-02-00 layout introduces distortions in the material distribution, it is per default described through the non-distorted root layout, since this layout type is dedicated for evaluating the effect of a wrong material description — and in the best cast — for developing a material calibration technique.
+
+### Design Principles and Document Structure
+
+Two main design principles have been followed while developing the new TrackingGeometry: a rigorous separation of mathematical objects and physical or logical entities and a sub-detector technology independent implementation to enhance its usage in common tracking tools that do not access detector specific information. Surface and Volume classes are designed as purely geometrical constructs and are located in the TrkSurfaces and TrkVolumes packages of the Tracking software repository, respectively; the contained classes of these packages are described in detail in Sec. 2 and Sec. 3 of this document. The purely geometrical objects are extended to Layer, TrackingVolume and DetachedTrackingVolume classes that add material and/or magnetic field information. These extended classes are contained by the TrkGeometry package and are further described in Sec. 4. The Layer and TrackingVolume classes provide the general pattern for the internal navigation schema used during track extrapolation processes. The existence of two different volume representations reflects the strategies that are followed in describing the sub-detectors: while the _Inner Detector_ and the calorimeter volume are described by a full connective setup, the _Muon System_ with its very complex geometry and volume shapes requires a different concept for material description the navigation. The process of building the sub-detector geometries and the combination to one final reconstruction geometry is described in Sec. 5. Since a full description of the ATLAS detector would go far beyond the scope of this document, the reader is invited to find further details about the ATLAS detector geometry, technologies and setup in [6]. Sec. 5, however, assumes that the reader is familiar with the main concepts of the ATLAS detector. Section 6.1 covers the material association to the layers and volumes of the ATLAS TrackingGeometry and gives a comparison of the material budget with the amount of material given by the geometry description of the full ATLAS detector simulation, which is based on the Geant4 simulation toolkit [7]. Section 7 refers to prototype extensions of the TrkDetDescr package and Sec. 6 describes the automatic testing of TrackingGeometry building and visualization methods for debugging.
+
+The appendix of this document explains nomenclature, the typesetting within this document and gives a brief description of the ATLAS software framework components used within this context.
+
+## 2 The Surface Description
+
+The Surface classes are the main components of all further geometrical objects defined by in the new TrackingGeometry. Volumes and layers are designed as composites respectively extensions of the Surface class. Furthermore, surfaces play a key role in the structure of the common ATLAS tracking EDM. They serve as the input to track extrapolation and give therefore the natural reference frames for track representations. The expression of a track with respect to a given surface type is realised through according track parameter classes. Additionally, all _local-to-global_ transformations in track finding and fitting are delegated to the surface to guarantee consistency between the used coordinate systems. Finally, the Surface class also builds the interface of reconstruction algorithms to the common ATLAS detector description GeoModel [8]: in ATLAS, a common geometry database is used and a GeoModel detector description is built from this source. In full detector simulation (performed with the Geant4 toolkit) this description is converted into a Geant4 description that is understood by the simulation program1.
+
+Footnote 1: This is performed by a dedicated Gee204 converter.
+
+Since for reconstruction a direct translation from GeoModel, or - even more - a direct use of either GeoModel or Geant4 would result in an too complicated description, a simplification of the geometry has to be done. However, the positions and extends of the sensitive detector elements are required to the same detail as in the simulation process. Thus, surfaces representing actual measurement surfaces are directly bound via GeoModel to the ATLAS detector description database. This mechanism also guarantees the correct alignment of the surfaces respecting the latest conditions data.
+
+Respecting the ATLAS detector layout and the requirements imposed by global and local track fitting algorithms, five different surface types have been implemented in the new geometry description. The different surface types exist as individual classes extending a common Surface base class. The base class concentrates the minimal required information for the definition of a surface:
+
+* a center position and a rotation with respect to the global frame, implemented as an instanceof the CLHEP [9] object HepTransform3D
+* a boundary shape description, implemented as an inherited object of the class SurfaceBounds
+
+Figure 1 shows the UML inheritance diagram for the various Surface classes.
+
+### Local Frame Definitions
+
+The choice of different surface representation has been based, in general, on the existence of a unique intrinsic local coordinate system. This is important to establish a coherent definition of the track parameterisation with respect to the measured coordinates given by the detection device. A planar surface of rectangular shape is therefore expressed by the same class as a planar surface of trapezoidal shape as both are characterised by a local cartesian coordinate frame. The two instances of type PlaneSurface would then differ simply by diverse SurfaceBounds types. A disc-like planar surface on the other hand is represented by a dedicated DiscSurface class to respect the intrinsic polar coordinate frame. This concept is broken for performance reasons by the introduction of the PerigeeSurface class, which is conceptually identical with the StraightLineSurface class, but restricts the orientation of the surface to be parallel to the nominal \(z\) axis. Figure 2 shows an illustration of the existing different surface and the main boundary types. Table 2 lists the different surface descriptions and the associated local frame definitions.
+
+The local frame is not necessarily a cartesian coordinate frame, however, each local frame is based on a three-dimensional cartesian helper frame, \(H=\left(\mathbf{h}_{x},\mathbf{h}_{y},\mathbf{h}_{z}\right)\), that defines the position and rotation of the surface with respect to the global frame. Cylindrical, pseudo-cylindrical2 and polar coordinate
+
+Figure 1: Simplified UML diagram for the surface classes of the ATLAS (tracking) detector description. The base class constructors indicate the two different surface types **private** and **public** : Surface instances associated to a TriDetElementBase are **public** surfaces. They are owned and managed by the central ATLAS detector description GeoModel. **Private** surfaces can either be constituents of the TrackingVolume instances or reference surfaces for EDM objects that are not bound to sensitive detector elements. The diagram also shows the main local to global transformation methods provided by the surface interface. These transformations are overloaded by the extended child classes respecting the internal or natural surface coordinate system.
+
+systems referred to as _local coordinate frames_ are deduced from this helper frame; the following conventions have been imposed:
+
+* the normal vector of planar surfaces points along the \(\mathbf{h}_{z}\) direction
+* the symmetry axis for cylinders or line surfaces points along the \(\mathbf{h}_{z}\) direction
+
+Figure 2: The different surface types and the main boundary shapes as used in the EDM and implemented in the TrKurfaces package. In general, different surface types where chosen for different intrinsic coordinate systems. This concept is broken for performance reasons by the introduction of the PerigeeSurface type that is a specialisation of the StraightLineSurface type. The picture also includes the prototype of a SaggedLineSurface which has been designed to describe the sagging of wires due to gravitation, a more detailed description of this aspect can be found in Sec. 7.
+
+The conventions remain the only restrictions that have to be met for defining additional surface and bounds classes.
+
+Surface classes for volume definitionsIn Sec. 3 it will be shown that Surface objects are used to confine all further volumes in the ATLAS TrackingGeometry. Many different volume shapes have to be constructed, also including volumes that have been created through a boolean operation (such as subtraction) including two basic volume types. This results in the need of more complex Surface class definitions to handle the boolean behavior and to allow subtracted shape definitions. This additional classes, the SubtractedPlaneSurface and the SubtractedCylinderSurface still extend the common Surface base class, and are located -- together with dedicated SurfaceBounds definitions -- in the TrkGeometrySurfaces CVS repository3.
+
+Footnote 3: Since these type of surface classes are not part of the EDM, but of the geometry description, it has been chosen to outcast them into a dedicated location.
+
+### Memory Management and Object Persistency
+
+Object persistency denotes the writing of transient EDM classes to disk, which is one of the core foundations of the ATLAS computing model. It allows reconstruction and data processing to be separated into different steps and guarantees re-processing of already recorded event data. In ATLAS, the persistency process is realised by the abstract POOL [10] interface, ROOT [11] provides the concrete implementation for input and output streaming.
+
+Two different kinds of Surface types exist in terms of memory management and object persistency:
+
+* **Public Surfaces:** surfaces that represent tracking detector elements are constructed and owned by such; The detector element (which is part of the GeoModel detector description) is consequently responsible for the deletion and freeing of the associated memory for the particular Surface instance during the cleanup of the reconstruction job. In this configuration the Surface class acts simply as a proxy for the according detector element described by GeoModel. When creating a track representation on such a surface, the Surface object itself is not copied, but a pointer to the existing instance is stored within the track parameters class to guarantee consistent local to global (and _vice versa_) parameter transformations. Due to the large number of surfaces that are associated to detector elements these objects are not persitised when the event information is written to POOL4. Only the identifier of the detector element is stored and the surfaces are recreated when track parameters are read in from a persistent data file. Storing the identifier (a small class encapsulating a bitwise encoded integer) reduces the size of the surface on disk substantially. Footnote 4: In the ATLAS Tracking EDM the Track class is realised as a container class for TrackStateOnSurface objects. In general, only few TrackStateOnSurface instances on a track are not associated to sensitive detector elements.
+* **Private Surfaces:** surfaces that are not owned by detector elements are copied by object rather than by pointer. This situation can be given through Surface instances within the TrackingGeometry description, or for Surface objects that build reference frames for EDM objects. Most of the EDM objects are expressed with respect to public Surface instances, however, the EDM design allows to express tracks or track segments with respect to any given
+
+\begin{table}
+\begin{tabular}{|l|l|l|} \hline
+**Surface Type** & **Boundary Shapes** & **Natural intrinsic Frame** \\ \hline \hline CylinderSurface & cylindrical, opt. sectoral & cylinder coordinates (\(r\phi,l_{z}\)) \\ \hline DiscSurface & disc-like, opt. sectoral, elliptical & polar coordinates (\(r,\phi\)) \\ \hline PlaneSurface & rectangular, trapezoidal, diamond & cartesian coordinates (\(l_{x},l_{y}\)) \\ \hline PerigeeSurface & pseudo-cylindrical & impact coordinates (\(d_{0},l_{z}\)) \\ \hline StraightLineSurface & pseudo-cylindrical & drift coordinates (\(r_{d},l_{z}\)) \\ \hline \end{tabular}
+\end{table}
+Table 2: The five main surface types defined in the TrkSurfaces package, possible boundary shapes and the local coordinate frame surface. Consequently these surface instances are then owned by the holding object and are persistified together with the track expressions when the event information is written to the persistent store.
+
+The distinction between the possible private or public behaviour of a surface can be easily done by calling the associatedDetElement() method: any result different from 0 indicates that the surface belongs to a detector element. In general, the public surfaces outnumber private ones by orders of magnitudes in a standard reconstruction application.
+
+## 3 The Abstract Volume Description
+
+The ATLAS TrackingGeometry provides an abstract volume representation; the Volume class concentrates differently shaped objects within a single implementation. Logical volumes or magnetic volumes inherit from the abstract volume description. The positioning and relative rotation of the volume with respect to the global frame is enhanced similarly to the Surface class by an instance of the CLHEP HepTransform3D class. A Volume is mainly characterised by a set of confining boundary surfaces (class BoundarySurface). Three BoundarySurface child classes extend in a double inheritance structure the corresponding mathematical Surface classes -- which are described in Sec. 2 -- and the BoundarySurface base class. The usage of derived classes from the TrKSurfaces package provides full compatibility of the BoundarySurface classes with the common tracking structure and enables boundary surfaces as input surfaces to track extrapolation processes. This full integration into the extrapolation package turns the BoundarySurface objects into key components of the navigation process between different volume entities: since the BoundarySurface class extends the Surface class with pointers or arrays of pointers to attached Volume objects, the uniquely defined normal vector of the surface can be used as an immediate indicator to the attached objects on both sides. This relation is used in the navigation process of track extrapolation between the volumes of the reconstruction geometry, see Sec. 4.
+
+The BoundarySurface class itself is implemented as a class template, such that the association to an attached volume of derived type can be done without unnecessary dynamic_cast operations. Table 3 lists the child classes of the BoundarySurface base class.
+
+The implementations of BoundarySurface classes enhance the creation of basic volume shapes, which are realised through the VolumeBounds class. The main shapes -- excluding the boolean shapes - are illustrated in Fig. 3, Fig. 4 shows the decomposition of a sample cylindrical volume in its boundary surfaces and the description of the normal vector to the boundary surfaces. The UML class diagram of the Volume class with its ownership relation to the possible VolumeBounds is displayed in Fig. 5.
+
+### Fast BoundarySurface Access in Navigation Processes
+
+In the navigation process of a track extrapolation it is useful to have fast access to the BoundarySurface instance through which the track is expected to enter or exit a volume. A linear approximation of
+
+\begin{table}
+\begin{tabular}{|l|l|l|} \hline
+**Class** & **Geometrical Base** & **Volume Shapes** \\ \hline \hline BoundaryCylinderSurface & CylinderSurface & cylinder cover of tubes, \\  & & full cylinder volumes \\ \hline BoundaryDiscSurface & DiscSurface & faces of tubes, \\  & & full cylinder volumes \\ \hline BoundaryPlaneSurface & PlaneSurface & faces of boxes, \\  & & sectorial faces for tubes \\ \hline BoundarySubtractedCylinderSurface & SubtractedCylinderSurface & for subtracted volumes \\ \hline BoundarySubtractedPlaneSurface & SubtractedPlaneSurface & for subtracted volumes \\ \hline \end{tabular}
+\end{table}
+Table 3: The defined child classes that extend both the common Surface base class for the geometrical integration and the BoundarySurface interface for the Volume confinement.
+
+the track direction is in more than 99 % of the cases sufficient for this estimation, for cases where the linear approximation fails to describe the exit surface of a volume the next probable exit surface has to be taken. The VolumeBounds class together with a dedicated ObjectAccessor class performs this fast search and provides an ordered list of BoundarySurface objects depending on their likeliness to be intersected by the track. In the Navigator -- a central part of the ATLAS extrapolation package -- the BoundarySurface objects can then be successively intersected with the use of an propagation AlgTool to find the entry, respectively exit surfaces of volume entities.
+
+Figure 3: The three main volume types given by the different volume boundary classes. Volumes are mainly characterised by the set of confining boundary surfaces that are handled and owned by the VolumeBounds class. More complex volume shapes such as e.g. the bevelled cylinder shape can also be found in the TrkVolumes repository, they are mainly used for the construction of the complex TrackingGeometry of the Muon System.
+
+## 4 The Geometry Description
+
+Surfaces and volumes are geometrical entities, but can not handle the description of physical or logical objects in the tracking detector model. Relevant information about the material is missing for the use in track reconstruction. In addition, the reference to the magnetic field through the volume is of advantage when using a parameterised field description for a decrease of CPU time consumption in algorithms with repeating magnetic field look-ups5.
+
+Footnote 5: For most pattern recognition algorithms the simplified parametric field description is sufficient for the required tracking quality during track finding.
+
+### The Layer Class
+
+A Layer class combines the surface information together with material description to be mainly used in track fitting. It is located in the TrkGeometry package and provides additionally the possibility to order sub-surfaces representing sensitive detector elements onto the layer surface. This schema, together with the newly designed extrapolation engine results in a powerful geometry that enhances a predictive navigation to be used e.g. for _a posteriori_ holes-on-track search and the new _Fast Atlas Track Simulation_ (FATRAS) [12].
+
+The derived layer classes PlaneLayer, DiscLayer and CylinderLayer follow a double inheritance structure from the corresponding Surface classes and a common Layer base class, Fig. 6 shows a simplified UML diagram for a planar layer.
+
+Similarly to the boundary surfaces, the extension of the common Surface base class enhances Layer
+
+Figure 4: A (sectorial) cylindrical volume shape and its decomposition into boundary surfaces; the uniquely defined normal vectors of the boundary surfaces enhance the pointing to the inside respectively outside neighbor and serve as the key for the navigation between volumes.
+
+objects to be naturally used within the extrapolation package.
+
+In a static setup, the Layer class includes the possibility to point to the next or previous Layer object with respect to the enclosing volume frame for inter-layer navigation. A dedicated NavigationLayer class that does not represent any material has been created to respect material-free regions in the simplified detector model while preserving the unique layer association of every point in the detector. This is necessary to enhance fast navigation between layers in the reconstruction process. Figure 7 shows an illustration of an example volume with a contained static configuration of navigation and material layers.
+
+#### 4.1.1 The LayerMaterialProperties Class
+
+Material on a layer is described by classes extending a LayerMaterialProperties base class. Two different child classes, the simple HomogenousLayerMaterial that describes a constant material distribution and the more complex BinnedLayerMaterial extend this base class. The BinnedLayerMaterial enhances material description with a binned structure, both one- and two-dimensional. The same binning technique as for the ordering of sub volumes within the TrackingGeometry hierarchy is used, realised by dedicated BinUtility classes. A more detailed description of these and further utility classes used from TrkDetDescr package can be found in the Appendix, see Sec. A.3.
+
+The material distribution on a layer can be chosen with different update directives. In some sub-detectors the layer based material update may be done at different stages in the extrapolation process: some of the layers require the material update to be done before respectively after the measurement is taken into account during the track fit, simply for the more accurate representation of the actual spatial placement of the material in the detector. The concept of applying the material update into two steps, one part before including the track measurement on track (henceforth called _pre-update_), one part after inclusion of the hit on the consecutive extrapolation to the next hit module (_post-update_) is realised by the interface design of the layer material description. For layers traversed during track extrapolation without a hit, a full update is done taking the entire layer material into account6.
+
+Footnote 6: These three concepts of pre-update, post-update and full update are also reflected in the interface of the IMaterialEffectsUpdate class in the new track extrapolation package.
+
+Figure 5: Simplified UML of the Volume class in the ATLAS TrackingGeometry. A Volume is mainly characterised by its confining boundary surfaces. The contained BoundarySurface class and its extensions is also shown in this diagram.
+
+Reference MaterialThe average description of detector material using layers with binned material, however, can not guarantee the accuracy needed for various benchmark measurements aimed for with the ATLAS detector. Therefore, a dedicated ReferenceMaterial class has been added to the LayerMaterialProperties that can concentrate a very accurate description of a particular subset of the layer. The application of this method in the context of the Pixel and SCT detector is described further detail in Sec. 5.
+
+### The TrackingVolume Class and DetachedTrackingVolume Class
+
+In the same way the Layer class extends the Surface base class, the Volume class is extended to represent logical entities in the reconstruction geometry. The derived classes, i.e. the TrackingVolume and the DetachedTrackingVolume classes, extend both, a material and a magnetic field property class. This design has been motivated by the following requirements:
+
+* Deriving the TrackingVolume and DetachedTrackingVolume from the MaterialProperties class enables the modeling of detector volumes with dense material such that the newly developed STEP propagation algorithm [13], which takes material effects during the propagation continuously into account can be used.
+* The inheritance from the magnetic field property object turns the TrackingVolume into the
+
+Figure 6: Simplified UML diagram for the layer class in the TrkGeometry package. The double inheritance of a layer from its dedicated surface representation and a common base class is shown. For convenience constructors and destructors are ommitted in this diagram.
+
+interface to the magnetic field access during the propagation and helps therefore to synchronise magnetic volumes with detector entities.
+
+The existence of two separate classes, the TrackingVolume and the DetachedTrackingVolume is due to their different role during the navigation process. TrackingVolume objects require a fully connected setup, i.e. the BoundarySurface objects are shared between volumes respectively point to the attached volumes to guide the navigation from one volume to the other. Figure 8 shows the simplified UML inheritance tree for the TrackingVolume class; the integration of the TrackingVolume class into the TrackingGeometry and its part in the inter-volume navigation is described in Sec. 4.3. The DetachedTrackingVolume is designed to be used in a non-connective setup which results in a different navigation strategy in track extrapolation processes: the entry and exit surface of a track to such a volume is not _a priori_ known and can not easily be found by a linear track approximation. It has to be found by multiple propagations to detect the nearest intersection with the various BoundarySurface objects. The DetachedTrackingVolume can be regarded as a movable _floating_ body that is loosely (or not) connected to the surrounding environment. It is constructed, in general, from a prototype TrackingVolume and contains methods for cloning and repositioning to facilitate the construction of multiple objects. The sub-structure of the DetachedTrackingVolume is fully connective and the navigation can fall back to the standard navigation mechanism used with TrackingVolume instances.
+
+#### 4.2.1 Confined Layers and Volumes
+
+A TrackingVolume can contain a subset7 of confined layers (illustrated in Fig. 7) or a subset of confined volumes, respectively. Whereas the first point enables the positioning and navigation of layers within a detector volume, the second concept creates a hierarchy structure for the entire TrackingGeometry. Evidently one TrackingVolume instance must not contain both types of subsets at once, which is regulated by the available constructors that are defined for the TrackingVolume objects. Thus, two categories of TrackingVolume instances exist in the reconstruction geometry description:
+
+Footnote 7: The subsets are not simple STL container objects, but dedicated templated container classes that enable a binned ordering of objects in an array structure, see Sec. A.3.
+
+* volumes on **container level** that contain other TrackingVolume instances;
+* volumes on **navigation level** which contain Layer objects and are at the lowest brach of the volume hierarchy;
+
+Figure 7: Illustration of an example volume (left) containing three material layers (bright) and four navigation layers (dark). The navigation layers are place holders with the single purpose to point to the next respectively previous material layers. The second illustrations shows the realisation of this strategy for the SCT Barrel layers.
+
+All navigation actions taken inside the TrackingGeometry are done on **navigation level**, hence volumes on **container level** do not need to be included in the navigation, material and magnetic field schema. The confined layers of a TrackingVolume on **navigation level** can exist in three ways: an ordered static setup, an unordered static setup and a dynamic setup. The ordered static layer setup (as illustrated in Fig. 7) is characterised through an alternating sequence of NavigationLayer objects and layers with material description, ordered along the main traversing direction of tracks within the TrackingVolume. The NavigationLayer fills artificially the entire space between two Layer objects, such that every point in the volume can be uniquely assigned to either a navigation object or to a Layer itself. The static setup is for instance realised in the standard Inner Detector TrackingGeometry setup, see Sec. 5.1. In case that the volume contains a set of layers which cannot be suitably ordered in one or two dimensions, the concept of association of every space point to a Layer is abandoned (in general, it would require filling of the _empty_ parts of a volume with complex spacing objects). In this case, the TrackingVolume or DetachedTrackingVolume can hold an unordered vector
+
+Figure 8: Simplified UML inheritance diagram for the TrackingVolume class in the new TrkGeometry package. The triple inheritance from the abstract volume class, such as the classes representing material respectively magnetic field properties. For convenience constructors and destructors are omitted in this illustration.
+
+of Layer objects and the navigation has to be performed similarly to the DetachedTrackingVolume: by searching the next layer intersection through propagation.
+
+The alternative layer description in a TrackingVolume is a dynamic setup when Layer objects are created on demand when being needed for material information during the track extrapolation. This is done by registering an IDynamicLayerCreator to the TrackingVolume at creation time. The IDynamicLayerCreator interface allows various concrete implementations with different sources for the material description. When traversing a TrackingVolume with a dynamic layer setup, the request for the traversed material is forwarded to the registered concrete implementation of the IDynamicLayerCreator AlgTool. Given the global position for the start point and the end point (destination surface impact or exit of the volume at a boundary surface), the material is collected by the AlgTool and modeled in a number of \(n\) new layers in between. Hence, the client algorithm is responsible for memory cleanup associated to the dynamic Layer objects.
+
+### The TrackingGeometry Class
+
+The TrackingGeometry class is the top class in the geometry hierarchy. It holds the TrackingVolume of highest hierarchical order which represents the full detector geometry through its internal hierarchy tree. This allows the stepping down to the lowest volume (i.e. the volume on navigation level) for any given point in the ATLAS detector. All TrackingVolume objects of the geometry are registered with their name to the TrackingGeometry to allow the search of specific volumes e.g. for the creation of reference expressions at well defined entry or exit points of sub-detector volumes. The TrackingVolume class inherits the entire templated BoundarySurface schema from the Volume base class and builds therefore a fully connected set. Full connectivity in this sense should indicate that each single volume on navigation level -- except the outermost boundary volumes of the entire detector description -- is fully attached to neighbor volumes at all sides via the BoundarySurface mechanism. Evidently gaps between volumes have to be filled with dedicated gap volumes at navigation level. The mechanism of glueing volumes together requires that BoundarySurface instances can be shared between Volume objects, i.e. in software terms that the BoundarySurface object becomes a member of both Volume objects. Therefore BoundarySurface objects must be reference counted to guarantee a clean memory management, while optimising memory consumption by not creating unnecessary copies of identical objects. The SharedObject class is in charge for the reference counting mechanism and is located in the TrkDetDescrUtils package, which is in further detail described in Sec. A.3.
+
+Recursive Property SettingThe hierarchy tree structure allows the modification of the entire TrackingGeometry after the building process, e.g. a total scaling of all material objects by a global factor or the redefinition of the used magnetic field configuration. As a concrete example a parameterised field description can be applied to all volumes of lower hierarchy level than the Inner Detector if the accuracy needed for the specific application allows to simplify the details field description. An example of the hierarchical tree structure of the TrackingGeometry volumes is illustrated in Fig. 20.
+
+### Connectivity and Navigation through the TrackingGeometry
+
+The hierarchy schema enables a unique association of any global position with a TrackingVolume at navigation level. This is achieved by stepping down the hierarchy tree to the lowest branch associated with the given space point. Decisions between Volume objects on the same level are achieved by the binned ordering of the fully connective TrackingVolume objects within a container. However, global search methods are CPU time consuming and since most of the navigation sequences within track extrapolation processes follow a trajectory through various volume using the connectivity of the TrackingGeometry serves as a faster navigation model. Since the full understanding of the navigation requires a deep knowledge about the structure of the ATLAS track extrapolation engine, the reader is encouraged to find a further description of the ATLAS extrapolation package in [14]. Figure 9 illustrates a sample navigation sequence following a trajectory through a toy detector.
+
+## 5 The ATLAS TrackingGeometry
+
+The building of the ATLAS TrackingGeometry requires the parsing of the full ATLAS detector description GeoModel. Specific information about detector structures has to be accessed for this tasks, therefore the sub-detector constructions introduce dependencies on these associated software repositories. The new ATLAS tracking realm, on the other hand, has been designed to be sub-system independent and the same concept is also applied to the content of the TrkDetDescr container package. To integrate the TrackingGeometry into this software structure, the building of the sub-detector TrackingGeometry instances has been outsourced into the associated detector repositories, while still using only common classes from the Tracking repository that do not refer to specific detector technologies. Various different concrete implementations of an IGeometryBuilder interface class, each for one sub-detector or for different detector setups, are retrieved at run-time and are steered by a central AlgTool, the so-called GeometryBuilder (located in the TrkDetDescrTools package). Details of the building process and the structure of the sub-detector geometries are described in the following sections.
+
+### The Inner Detector TrackingGeometry
+
+The reconstruction geometry for the Inner Detector is created by the InDetTrackingGeometryBuilderAlgTool that makes use of several other AlgTool classes for the creation of Layer and Volume objects that are contained by the ID. The building process is evoked by calling the PixelLayerBuilder and the SCT_LayerBuilder, respectively, that parse the associated sensitive GeoModel detector description source for the pixel detector and the silicon strip detector (SCT). The overall dimensions of the silicon detector are determined and Layer objects created, while the sensitive detector elements are sorted in binned arrays with a fast access mechanism, Figure 10 illustrates this simplified model for a SCT endcap disk. The ID TrackingGeometry automatically adapts to different layouts8 and misalignment configurations. The Layer objects for the _Transition Radiation Tracking_ (TRT) are, in general, not built by parsing the sensitive detector elements. This is due to the fact that the material in the TRT is almost continously distributed and can be -- for performance reasons -- simplified to a few layers in the reconstruction geometry. Modeled layers for condensed material information are inserted in the corresponding TRT volumes to represent the inert material of the TRT detector9.
+
+Footnote 8: E.g. the number of pixel barrel and endcap layers differs for the ATLAS-Rome-Initial and ATLAS-CSC layouts. The PixelLayerBuilder adopts through parsing of the full description to the actual number of layers, and the PixelVolumeBuilder encloses the layers dynamically.
+
+Footnote 9: For the use in FATRAS, the TRT straws are grouped and ordered on layers similarly to the pixel or SCT detector. As this operation requires the parsing of about 300 000 elements this is omitted for the standard reconstruction job setup.
+
+A UML sequence diagram for the creation of the Inner Detector TrackingGeometry in shown in
+
+Figure 9: Illustration of a sample navigation following a particle trajectory through three fully connected volumes \(A\), \(C\) and \(B\). The volume boundary surfaces hold information about the attached volumes respectively volume arrays, such that a simple projection onto the surface normal vector enhances a step by step navigation scheme.
+
+Figure 11: UML Sequence diagram for the building process of the Inner Detector TrackingGeometry. Volume builders for the Pixel, SCT and TRT detectors are used, in the standard configuration pixel and SCT volume builders themselves use implementations of LayerBuilder classes.
+
+Figure 10: An illustration of a SCT endcap layer represented by its detailed technical drawing and the simplified binned model as created for the TrackingGeometry description. The complex material distributions that originates from the various components that build the SCT endcap disk is described by a material map, see Sec. 5.4.1.
+
+Figure 11: UML Sequence diagram for the building process of the Inner Detector TrackingGeometry. Volume builders for the Pixel, SCT and TRT detectors are used, in the standard configuration pixel and SCT volume builders themselves use implementations of LayerBuilder classes.
+
+#### 5.1.1 Overlap Description in the Inner Detector TrackingGeometry
+
+In the pixel and SCT detector, neighboring modules in both directions (but mainly in the azimuthal direction) overlap to maximise the coverage of the detecting surface. An example of the module overlap for the SCT barrel in the \(\phi\) direction can be seen in Fig. 7. The resulting increase of material seen by a track crossing through such an overlap region is already taken care of with the ReferenceMaterial mechanism, described in Sec. 4. For a qualitative _holes-on-track_ search and for the use of the TrackingGeometry in the fast track simulation this overlap information is a very important feature to estimate the number of pixel and SCT hits per track correctly. In the TrackingGeometry a special overlap description schema has been created to handle these overlap situations in a fast but precise way. Dedicated helper classes that extend a common OverlapDescriptor base class have been implemented for the various sub-detector technologies, which hold information about the neighboring modules and provide them in an optimised way to the extrapolation package. The OverlapDescriptor can be registered to the Layer object and retrieved from it when needed in the navigation process. The overlap description has been extended to be able to handle any neighboring modules, e.g. the backside module of a SCT module is handled as an overlap module as well as the next straw in azimuthal direction on a idealised TRT cylinder layer10.
+
+Footnote 10: The TRT barrel detector is build in a 32 folded geometry that is for speed reasons in the TRT TrackingGeometry simplified as cylindrical layers. This simplification introduce a small error in the \(r\phi\) coordinate of the straw centers when being registered in the binned arrays. This leads to a rare wrong prediction of the following track intersection that is cancelled by the TRT_OverlapDescriptor.
+
+### The Calorimeter TrackingGeometry
+
+The Calorimeter TrackingGeometry is built by the CaloGeometryBuilder located in the CaloTrackingGeometry CVS package. It is capable of building various versions of the calorimeter description:
+
+* A static configuration very close to the actual GeoModel description can be built, including volume builders for both, the _Liquid Argon_ (LAr) and _Tile_ calorimeter. The CaloGeometryBuilder steers the building process and delegates the creation of the TrackingVolume objects to the LArVolumeBuilder and TileVolumeBuilder, respectively, that are located in the sub-detector repositories. Dedicated converter classes, located in the TrkDetDescrGeModelCnv translate the logical top volumes of the GeoModel description into according TrackingVolume objects, and Layer instances are inserted to quantify the material. Continuous (i.e. TrackingVolume based) and point-like (i.e. Layer based) material update mechanisms are both enabled by the static geometry description. The positions of the inserted layers are retrieved from the CaloSurfaceBuilder AlgTool that is also used in the TrackToCalo reconstruction algorithm; this guarantees an optimal description of the calorimeter material when being used for extrapolations between sensitive sampling layers.
+* A very simplified description of the calorimeter volume can be chosen alternatively, that is linked to a IDynamicLayerCreator. Layer objects are hereby created on demand from an external source.
+
+The CaloTrackingGeometryBuilder adapts automatically to a given inner volume that is wrapped to keep the connectivity within the TrackingGeometry, Fig. 12 shows an illustration of the combined Inner Detector and Calorimeter TrackingGeometry in the full static configuration, the Layer objects are omitted in this illustration.
+
+### The Muon TrackingGeometry
+
+The TrackingGeometry for the Muon System is build by four AlgTool implementations that are located in the MuonTrackingGeometry package:
+
+* the MuonTrackingGeometryBuilder ist a concrete implentation of the IGeometryBuilder interface building the combined ATLAS geometry (combining the Muon TrackingGeometry with ID/Calorimeter TrackingGeometry, or, for Muon stand-alone setup, with a dummy central volume).
+
+* a dedicated MuonStationBuilder for building of the active geometry (muon stations); also provides identification of active layers.
+* a MuonStationTypeBuilder class for processing of station prototypes, and
+* a MuonInertMaterialBuilder implementation for building of the passive material of the reconstruction geometry.
+
+The strategy deployed throughout the Muon TrackingGeometry is as follows:
+
+* all material objects are represented by DetachedTrackingVolume objects (and are therefore, in principle, alignable, although this feature is superfluous for inert material)
+* the active material is concentrated on Layer objects with point-like update
+
+Figure 12: The joined TrackingGeometry for the Inner Detector and the Calorimeter in the static configuration. The TrackingVolume objects of the Inner Detector and the Calorimeter are embedded in the global ATLAS TrackingGeometry: the illustration shows also the enclosing static envelope TrackingVolume structure of the Muon System TrackingGeometry. The visualization is done using the TrackingVolumeDisplayer AlgTool based on the ROOT graphics extension. The layers are omitted in this illustration.
+
+* the active layers are constructed in a way that allows a unique (geometrical) association of a GeoModel DetectorElement with a layer, therefore opening the possibility to use layer surface representation as an alternative tracking surface
+* the passive material (outside stations) is described by dense volumes; this description relies on use of STEP_Propagator for extrapolation through these volumes.
+
+All Muon Spectrometer objects are confined in a system of (fully connected) static volumes (_muon envelope_) which form (with the central detectors) the ATLAS combined tracking geometry. The detached volumes can span over several static volumes within the muon envelope, i.e. a given DetachedTrackingVolume can be simultaneously confined in several container volumes. Both enveloping TrackingVolume and confined DetachedTrackingVolume objects are defined at navigation level. Figure 13 shows parts of the Muon System TrackingGeometry build in stand-alone setup.
+
+### Combined TrackingGeometry Building and Material Association
+
+The building of the TrackingGeometry in the ATLAS case is organised in an inside-out structure: starting from the ID, the calorimeter volumes are build and finally the Muon System is wrapped around, where the inner enclosed volumes are integrated into the outer TrackingVolume objects. This guarantees that the navigation schema of the static TrackingVolume classes is carried out to the outermost volumes.
+
+The steering of this consecutive geometry building is done by a general ATLAS GeometryBuilder AlgTool, which is interfaced to the job steering by python configuration classes. As the wrapping process of the inner volumes adapts automatically to the size of the inserted volume respectively is able to fill gaps with dedicated fill volumes that carry out the navigation stream, sub-detectors can be optionally left out in the construction procedure: i.e. all sub-detector TrackingGeometry parts can be constructed in a stand alone mode or single sub-detector parts can be left out.
+
+Figure 13: Parts of the Muon System TrackingGeometry visualised with the ATLAS HepVis event display, the Barrel stations are omitted in this illustration. The most complex version of the Muon System TrackingGeometry is generated by parsing and translating the GeoModel detector description.
+
+An Athena Service class, the TrackingGeometrySvc located in the TrkDetDescrSvc package, executes and steers the building process of the ATLAS TrackingGeometry. Depending on the job specifications, the sub-detector geometry builders are configured and the main GeometryBuilder is called to start the construction of the TrackingGeometry. The geometry building process is realised as a callback function, i.e. the geometry version tag (see Sec. 1) is determined with the data header of the first event, which triggers a callback function to the TrackingGeometrySvc. This is particularly important for correct retrieval of the material description file, which is described in more detail in the following section. Additionally the callback mechanism enables an update of the reconstruction geometry for alignment, and even the running on multiple files with different layouts in one single reconstruction job.
+
+#### 5.4.1 Automatic Material Association and Calibration
+
+Material maps:The material association for layers is done -- for the static layer setup in the ID and calorimeter -- by mapping the material described in the full simulation geometry onto the simplified TrackingGeometry. A direct translation of the detector material from the geometry database would be in principle possible, but would still require some underlying tracking engine to associate the detailed detector parts to layers or layer cells: the simplification of the complex geometry to few basic geometrical shapes (described by mathematical surfaces) requires that the real positions of detector material is projected onto the surface. In the TrackingGeometry this is done by using a straight line propagation from the extrapolation package, while using a constraint that the track origin is the nominal interaction point. This generalisation can be done, since the projection distance is very small in comparison to the geometrical structure or the track bending. The mapping process requires as an input a detailed map of the simulation geometry, which is produced by a dedicated Geant4 UserAction11. The spatial information (position, step length) and the material properties (radiation
+
+Figure 14: UML Sequence diagram for the building process of the TrackingGeometry. Two different implementations of the IGeometryBuilder interface are illustrated in the picture, steered by the general GeometryBuilder AlgTool that is controlled by the TrackingGeometrySvc.
+
+length \(X_{0}\), density \(\rho\), atomic number \(A\) and mass index \(Z\)) of the Geant4 simulation steps -- when tracking a non-interacting particle -- are translated into a persistent class and written to a ROOT file. Figure 15 shows as an example the hit position map of the recorded Geant4 simulation in comparison with the simplified TrackingGeometry model.
+
+Creation and Retrieval of Material Files from COOL:a dedicated Algorithm that is located in the TrkDetDescrAlgs, the so-called MaterialStepAssociation, reads the produced file from Geant4 and maps the material steps onto the TrackingGeometry layers or layer bins (if a binned material description is has been chosen). This is done by using the internal navigation of the TrackingGeometry together with the new track extrapolation package. The areas around the mathematical infinitesimal thin layers (layers extend the Surface class) are automatically determined using a pointing direction to the nominal interaction point and the material cell is then projected onto the intersection point with the Layer object. An illustration of this schema including the pointing direction constraint can be seen in Fig. 16. The material steps are corrected for their incident angle to the associated layer and, given the high statistics of the Geant4 sample, an average description of the material associated to every particular Layer can be obtained.
+
+The output of this Algorithm is translated into LayerMaterialProperties objects as described in Sec. 4.1.1 and written into a ROOT file. For each given layout, this process is repeated and the resulting ROOT file, which is typically of a size of about 250 kByte on disk, is registered with the according layout tag in the ATLAS condition database (COOL)[15]. When starting a reconstruction job, the appropriate data set according to the chosen detector layout is in reverse retrieved from COOL and the material is loaded onto the TrackingGeometry.
+
+Material Calibration:During the start up of the ATLAS experiment, different techniques will be required to calibrate the material in both, the simulation and reconstruction geometry. The TrkDetDescr realm has been designed to provide a great variety of calibration methods for the reconstruction material. All descriptive material classes have scaling methods implemented to tune the material with given calibration data. Together with the powerful extrapolation package and the internal navigation of the reconstruction geometry, material calibration within reconstruction algorithms can be deployed.
+
+Figure 15: The material hit map of the Inner Detector in the \(rz\) plane created with the ATLAS Geant4 simulation and its simplified representation by the TrackingGeometry after the material mapping process. Layer objects and the boundaries of the TrackingVolume objects can be identified in the TrackingGeometry. Additionally, the layers with incorporated ReferenceMaterial (pixel and SCT Detectors) representations can be clearly identified through their diverse structure.
+
+## 6 Validation of the ATLAS TrackingGeometry
+
+Any complex software framework should be designed keeping an automatic or at least semi-automatic validation procedure in mind. This is in particular important for basic component packages that create manifold dependencies to components of higher complexity or diversity. The geometry description in track reconstruction is surely one of these basic components since it impacts directly the functionality and -- more important -- the quality and performance of the track reconstruction. The validation process can be, in general, divided into these two different realms:
+
+* **quality:** the main task of the TrackingGeometry is providing an adequate material description for the track extrapolation or track fitting operations. Thus, the natural evaluation of the quality is the performance of the overall track reconstruction, in particular the pull distributions of the track parameters representations after track fitting. However, the final tracking quality depends on multiple parameters and the factorisation of different contributions is almost impossible. The TrackingGeometry provides therefore a complete framework to validate the material description in comparison to the full Geant4 description.
+* **functionality:** the validation of the building process and the correct setup of the constructed TrackingGeometry for different layouts, checks for holes in the connectivity of volumes and between layers covers the functionality of the TrackingGeometry.
+
+### Comparison between Simulation and Reconstruction Geometry
+
+The intrinsic navigation of the ATLAS TrackingGeometry allows a very detailed validation of the material budget in comparison with the one represented by the simulation geometry. This process starts already during the mapping of the Geant4 information onto the TrackingGeometry (described in Sec. 5.4.1): the simulation material is recorded for further processing through a dedicated MaterialMapper AlgTool that identifies the TrackingVolume and/or Layer the Geant4 step is associated to and fills a dedicated output container.
+
+The same MaterialMapper AlgTool can be used as a plugin to the new ATLAS extrapolation engine: in detail, it becomes part of a special flavored AlgTool that implements the IMaterialEffectsUpdator interface and -- instead of updating the track representation according to the amount of traversed material -- records the material through the MaterialMapper12. A simple validation algorithm, the so-called TrackingGeometryValidation, located in the TrkDetDescrAlgs performs the mapping of
+
+Figure 16: The Geant4 step association with pointing direction using the nominal interaction point as a pointing constraint is shown in the left illustration. The second plot shows the actual Geant4 hit map in the \(rz\) plane with the associations to different layers identified by different colors for a part of the positive TRT endcap.
+
+Figure 17: The material distribution in terms of radiation length thickness for the volumes of the Inner Detector TrackingGeometry in comparison with the material used in full simulation (Geant4). The material of the TrackingGeometry layers is shown. The TRT comparison also incorporates the difference between the ATLAS-CSC-00-00-00 and ATLAS-DC3-05 layout, respectively, and shows the automatic adaption of the reconstruction material description to the simulation geometry.
+
+the reconstruction material after the associated material file is read in from COOL. The identical structure of the output ROOT trees eases the comparison between the Geant4 and reconstruction geometry; dedicated ROOT based comparison applications that are adopted to the output structure of the MaterialMapper are located in the TrkDetDescrExample package. This automatic comparison is only possible for a fully static TrackingGeometry description. Hence, it can not be applied in this mode for the prototype TrackingGeometry of the Muon System. Figure 17 and Fig. 19 show comparisons of the material budget in terms of radiation length for the Inner Detector and Calorimeter in the ATLAS-CSC-00-00-00 layout. Fig. 18 shows the same comparison for the ReferenceMaterial of the Pixel B layer.
+
+### Automatic Testing
+
+The testing of the material association in comparison with the simulation material still needs human intervention by checking the validity of the produced output. The geometry building process, however, can be done in an automatic way. A dedicated algorithm GeometryBuilderTest, located in the TrkDetDescrAlgs repository, can be executed for this purpose.
+
+Since the TrackingGeometry is built, in general, by parsing the full ATLAS detector description, it
+
+Figure 18: The material distribution in terms of radiation length thickness of a sample Pixel B layer module in the comparison between full simulation (Geant4) and reconstruction (TrackingGeometry). Refined structures can be in the TrackingGeometry separately described by the so-called ReferenceMaterial mechanism. The first plots shows the ReferenceMaterial description in a direct comparison of the material thickness in units of radiation length along the local \(x\) and local \(y\) coordinate of the surface, respectively. The latter two plots show two-dimensional scatter plots of the material distribution within the sensitive area.
+
+is important to monitor the output of the parsing process instead of directly comparing the numbers from detector description database. The GeometryBuilderTest algorithm evokes the building process and parses the TrackingVolume tree. For each TrackingVolume the main information about positioning, bounds, confinement and navigation level is written into a HTML file. Simultaneously, a Javascript based file incorporating the hierarchy tree structure is created and interlinked with the various files describing the TrackingVolume objects of the parsed TrackingGeometry. Any standard HTML Browser can be then used as a TrackingGeometry **Tree Browser**. The concept of generating a purely standalone and easy to use browser has been chosen to guarantee that the TrackingGeometry nodes can be parsed with local software installation kits or even after local code manipulations by users during an eventual development phase. Figure 20 shows a screen snapshot of the TrackingGeometry Tree Browser.
+
+### Visualization of the ATLAS TrackingGeometry
+
+Two different visualisation methods for TrackingGeometry have been enhanced, mainly for debugging possibilities. A dedicated controller for the ATLAS 3D event display, HepVis [16], that is based on the Open Inventor technology [17] has been created. HepVis serves as a fully functional and powerful event display. It allows to show objects of the TrackingGeometry in the context of actual event data, e.g. the track intersection with a given Surface object can be illustrated, Fig. 13 is an example for an illustration done with the HepVis package. Additionally Track objects can be displayed in such a way together with the TrackingGeometry objects.
+
+The TrkDetDescrTools also contain a dedicated TrackingVolumeDisplayer AlgTool capable of writing a ROOT output file that can be interpreted by the ROOT OpenGL viewer. Figure 12 is an example picture produced by the TrackingVolumeDisplayer. The motivation for yet another visualisation technique in parallel to HepVis has been driven by very similar needs that lead to the development of the TrackingGeometry Tree Browser: the TrackingVolumeDisplayer does not need any other precondition to be operated than an existing TrackingGeometry instance in the detector store.
+
+## 7 Extensions to the TrkDetDescr Realm
+
+Two extensions of the TrkDetDescr have been introduced recently to handle specific cases of alignment and calibration issues. They exist only in prototype versions and are not yet part of a production
+
+Figure 19: Comparison of the material budget in terms of radiation lengths for the Liquid Argon volumes (including forward calorimeter, FCAL, and the hadronic endcap calorimeters, HEC) and the entire Calorimeter between simulation (Geant4) and reconstruction (TrackingGeometry) geometry.
+
+release.13 The presented extensions to the Surface class illustrate how a coherent software design that builds on clear interfaces definitions and a polymorphic data structure eases the integration of new tasks into an already existing frame. In both cases this could be realised with minimal intervention to existing code by gaining substantial additional functionality. For convenience and completeness these extensions are described in the following.
+
+Footnote 13: Neither the TrkAlignableSurfaces nor the TrkDistortedSurfaces are part of the ATLAS offline release 12.0.6, which is the base release for this document. The described extensions have been introduced in the ATLAS development release 12.3.0.
+
+### Distorted Surface Objects
+
+The Surface objects in the ATLAS TrkDetDescr realm are realised as ideal geometrical objects. In reality, the detector suffers from distortions to the ideal geometry due to various effects: gravitational sagging, mounting on frames and construction uncertainties. In track reconstruction, some of these effects can be dealt with in a parametric description, but in particular for the large structures of the ATLAS Muon System geometrical distortions may be taken into account directly through a more complex geometrical modeling. This lead to the development of a distorted surface schema, which has been fully integrated into the existing geometry structure.
+
+The distorted surfaces are located in the TrkDistortedSurfaces CVS package that provides the base class for all distorted Surface objects. A concrete implementation of a DistortedPlaneSurface would then extend the PlaneSurface class and the DistortedSurface base class. The main client of the DistortedSurface objects is the extrapolation package that switches to a different strategy once a distorted surface is provided: a first intersection with the nominal or parent surface is performed and a more realistic -- but still geometrically ideal -- surface is provided depending on the local position of the intersection. The second extrapolation to the dynamically provided Surface object is then performed to optimise the track prediction.
+
+Figure 20: The TrackingGeometry Tree Browser for a sample Inner Detector stand-alone TrackingGeometry objects. Both TrackingVolume objects on navigation and container level can be parsed, informations about the TrackingVolume and confined objects are displayed in the right frame.
+
+Line SaggingThe layout of the ATLAS detector consists of two technologies (TRT in the Inner Detector, MDT in the Muon System) that describe drift tube measurements and hence need the concept of a StraightLineSurface for measurement expressions. StraightLineSurface instances, however, describe idealised mathematical objects, but in reality the tube wire described by this line is deformed due to sagging effects caused by gravity. Within the Inner Detector, this effect is very small and it is corrected for by a parametric approach with satisfactory accuracy. Thus the idealised straight lines can be used for track fitting in this context. For the Muon System, since the MDT tubes are by an order of magnitude longer, the sagging of the wire can not be described on calibration level very accurately. A prototype SaggedLineSurface has therefore been introduced that extends the StraightLineSurface with a sagging description. It allows to create an appropriate StraightLineSurface dynamically depending on the local \(z\) direction of the closest approach to nominal (parent) line. Figure 21 shows the UML class diagram for the SaggedLineSurface, and additionally for the common interfaces of distorted surface objects.
+
+### Alignable Surface Objects
+
+The alignment of the ATLAS detector will be a challenging task that requires various different robust, local and global alignment techniques. Recently, local alignment algorithms have been expanded using a Kalman filter formalism to estimate the geometrical correction parameters for the positioning of the sensitive detector modules [18]. In ATLAS, this technique has been first implemented for the SCT and pixel detector. Since the alignment Kalman filtering is an iterative process that requires the correction of module parameters repeatedly, a special flavor -- the AlignableSurface -- of tracking surfaces had to be introduced. Concrete implementations exist currently only as the AlignablePlaneSurface,
+
+Figure 21: Simplified UML class diagram of a SaggedLineSurface. This class extends the StraightLineSurface and can therefore be naturally used within the extrapolation package. A concrete implementation of a LineSaggingDescriptor concentrates the mathematical description of a wire sag and provides a corrected rotation and position with respect to the local longitudinal direction on the line. Constructors and Destructors are omitted in this diagram.
+
+that extends both the PlaneSurface from the TrkSurfaces package and the AlignableSurface base class. This double inheritance schema enhances the use of the alignable surfaces with the extrapolation package, such that the dedicated Kalman fitter can automatically use this instance for the prediction steps after updating the positioning information. The inclusion of the AlignableSurface into the standard ATLAS Kalman fitter is realized by a \(\tt{LI}\)alignableSurfaceProvider interface. If the Kalman fitter is configured to run in alignment mode, the concrete implementation of this interface simply exchanges the nominal measurement surface with an alignable surface for each prediction step.
+
+## 8 Conclusion
+
+A new geometry description for track reconstruction has been introduced to the ATLAS offline software. It serves the challenging needs of modern track reconstruction algorithms in terms of speed, flexibility and accuracy of the material description. It can account for material and geometrical distortions and has been designed in consideration of future calibration and alignment needs when starting real data reconstruction. The intrinsic navigation of the geometry -- together with the coherently developed extrapolation package -- builds a fundamental part of the new offline ATLAS track reconstruction and common Event Data Model. Several large scale test of the new ATLAS tracking chain have been successfully performed using taken data from the ATLAS combined testbeam in 2004, cosmics data in 2005/2006 and large scale Monte Carlo production.
+
+## Appendix A Appendix
+
+### Typesetting
+
+The following type setting conventions are followed throughout this document: Software packages within the ATLAS offline software repository [19] are written in \(\tt{Sans\text{-}sarif}\) face, C++ or python class names are written in \(\tt{Courier}\) face. Namespace definitions as used in the software repository are omitted in this document for readability. An exhaustive list of software packages, their location within the ATLAS software repository and the used namespaces can be found in Tab. 4.
+
+\begin{table}
+\begin{tabular}{|l|l|l|} \hline
+**Container Package** & **Leaf Package** & **Namespace** \\ \hline \hline Tracking/TrkDetDescr & TrkDetDescr & TrkDetDescrAlgs & Trk \\ \hline Tracking/TrkDetDescr & TrkDetDescrTools & Trk \\ \hline Tracking/TrkDetDescr & TrkDetDescrSvc & Trk \\ \hline Tracking/TrkDetDescr & TrkDetDescrExamples & Trk \\ \hline Tracking/TrkDetDescr & TrkDetDescrGeoodedCnv & Trk \\ \hline Tracking/TrkDetDescr & TrkSurfaces & Trk \\ \hline Tracking/TrkDetDescr & TrkVolumes & Trk \\ \hline Tracking/TrkDetDescr & TrkGeometry & Trk \\ \hline Tracking/TrkEvent & TrkEventPrimitives & Trk \\ \hline InnerDetector/InDetDetDetDescr & InDetTrackingGeometry & InDet \\ \hline Calorimeter & CaloTrackingGeometry & Calo \\ \hline LArCalorimeter & LArTrackingGeometry & LAr \\ \hline TileCalorimeter & TileTrackingGeometry & Tile \\ \hline MuonSystem & MuonTrackingGeometry & Muon \\ \hline \end{tabular}
+\end{table}
+Table 4: Software packages described or referred to within this document.
+
+### Nomenclature
+
+#### a.2.1 Three-dimensional Frames
+
+Three different types of three-dimensional frames are used within this document or are referred to by the TrkDetDescr container:
+
+* a coordinate system corresponding to the description of the magnetic field and the detector geometry, referred to as _global frame_.
+* a cartesian frame moving along the track, the so-called _curvilinear frame_; the tangential momentum vector of the track builds the \(z\)-axis of this frame, \(x\)-axis and \(y\)-axis are then constructed with an additional global constraint.
+* three-dimensional cartesian frames, different from the global frame, mainly attached to surfaces and volumes.
+
+The standard cartesian set \(E\) of unit vectors describing the Tracking frame are indicated as
+
+\[E=(\mathbf{e}_{x}\,,\mathbf{e}_{y}\,,\mathbf{e}_{z}\,). \tag{1}\]
+
+The standard base of the cartesian curvilinear frame is, for convenience, indicated as
+
+\[U=(\mathbf{e}_{u}\,,\mathbf{e}_{v}\,,\mathbf{e}_{t}\,). \tag{2}\]
+
+Finally, the standard base \(H\) of a three-dimensional cartesian frame different or eventually different from the Tracking frame is noticed as
+
+\[H=(\mathbf{h}_{x}\,,\mathbf{h}_{y}\,,\mathbf{h}_{z}\,). \tag{3}\]
+
+In conjunction with a Surface object, this frame is sometimes referred to as _helper frame_, since it builds the carrier of the two-dimensional intrinsic surface frame (also called _local_ frame).
+
+A three-dimensional vector in either of the two frames is indicated by bold. It's expression with respect to the different frames is done using the standard base sets:
+
+\[\mathbf{a}=a_{x}^{e}\mathbf{e}_{x}\,+a_{y}^{e}\mathbf{e}_{y}\,+a_{z}^{e} \mathbf{e}_{z}\,=a_{u}^{e}\mathbf{e}_{u}\,+a_{v}^{e}\mathbf{e}_{v}\,+a_{u}^{e }\mathbf{e}_{t}\,=a_{x}^{l}\mathbf{l}_{x}\,+a_{y}^{l}\mathbf{l}_{y}\,+a_{z}^{ l}\mathbf{l}_{z}\,. \tag{4}\]
+
+### Utility Classes in the TrkDetDescr Realm
+
+Several utility classes are used throughout the TrkDetDescr package and are grouped together in a TrkDetDescrUtils package.
+
+#### a.3.1 Binning Schema
+
+The hierarchy schema in the TrackingGeometry requires extended containers that provide a binning structure. The templated BinnedArray class imposes such a functionality, containing a standard STL vector container and a BinUtiliy class, that translates local and global positions into the actual bin of the underlying STL vector. The BinUtility is extended by one-dimensional and two-dimensional concrete implementations deploying, equidistant, bi-equidistant and arbitrary binning. Evidently the complexity of the binning type influences the timing performance during global search actions in the TrackingGeometry navigation. The equidistant binning requires a simple integer division, the bi-equidistant two integer divisions and the arbitrary bin search a loop-like comparison. The binning schema is also used in the material description for the layer based material integration.
+
+#### a.3.2 Reference Counting
+
+The concept of sharing surfaces in the fully connective TrackingGeometry requires - together with the constraint of minimal memory consumption - the sharing of objects between nodes of relative higher hierarchy level. To still guarantee a safe memory cleanup, a reference counting class, the SharedObject class, is used for various objects in the TrackingGeometry.
+
+#### a.3.3 Geometry Statics
+
+The TrkDetDescrUtils package also provides a header file definition containing static objects declarations used within the geometry description: the nominal origin, an identity rotation and transformation, as well as the tracking frame axes are available in a singleton pattern design.
+
+### The main ATHENA Framework Components
+
+#### a.4.1 Service, Algorithm and AlgTool Classes
+
+The ATHENA software framework provides a pattern for the sequence steering of the program flow. Three main component base classes -- a Service an Algorithm and an AlgTool class -- are defined to be extended to concrete implementations of different purposes:
+
+* The Service class is designed to provide dedicated functionality during the entire program execution, e.g. the magnetic field access is realised as an ATHENA Service. Service instances are handled by a central ExtSvc manager, that regulates its initialisation and finalisation.
+* The Algorithm class is dedicated for actions be taken exactly one time at every event, e.g. most of the data preparation algorithms are realised as Algorithm clause. These have to be registered to a central ApplicationMgr in the job configuration that steers initialisation, finalisation and the execution of the Algorithm at every event.
+* Unlike the Algorithm class the AlgTool provides the possibility to be called several times per event, mainly through an Algorithm that either owns the associated AlgTool or retrieves it from the central ToolSvc, where all public Tools are registered. This pattern allows AlgTool instances to be shared between different applications, such as e.g. the same extrapolator AlgTool instance is used at several places within the program flow.
+
+All three framework components are made use of for the creation and validation of the ATLAS TrackingGeometry.
+
+#### a.4.2 The Component Software Structure
+
+As part of the ATLAS ATHENA framework, the new tracking geometry description software is realised in a component pattern design. Data classes and objects that require linking at compiliation time are situated in installed libraries, whereas AlgTool Algorithm and Service classes are grouped in component libraries, which enable dynamic loading of libraries at runtime. All interface definitions for component classes are concentrated in a TrkDetDescrInterfaces package,such tat dependencies between the various software components are kept at a minimum.
+
+## References
+
+* [1] V. Boisvert et al, _Final Report of the ATLAS Reconstruction Task Force_, ATLAS Note, ATLSOFT-2003-010, 2003.
+* [2] Athena homepage, _[http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture_](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture_).
+* A software architecture and framework for building LHCb data processing applications_, Proc. of CHEP 2000, 2000.
+* [4] F. Akesson et al, _The ATLAS Tracking Event Data Model_, ATLAS Public Note, ATL-SOFT-PUB-2006-004, 2006.
+* [5] ATLAS Quality Assurance Group, _Atlas C++ Coding Standard Specifications_, ATLAS Note, ATLSOFT-2002-001, 2002.

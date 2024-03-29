@@ -1,0 +1,288 @@
+[MISSING_PAGE_EMPTY:1]
+
+###### Contents
+
+* 1 Introduction
+* 2 The ATLAS calorimeter system
+* 3 Data input preprocessing
+	* 3.1 Training datasets
+	* 3.2 The coordinate transformation
+	* 3.3 Voxelisation procedure
+	* 3.4 Voxelization validation procedure
+* 4 Conditional WGAN-GP
+	* 4.1 Best epoch selection
+* 5 Results of training
+* 6 Application of GANs in the ATLAS Athena framework
+	* 6.1 Performance on single electromagnetic showers
+	* 6.2 Performance on single pions
+	* 6.3 Performance on di-jet events
+	* 6.4 Other figures of merit
+* 7 Conclusion
+
+## 1 Introduction
+
+The physics program of the ATLAS experiment [1] at the Large Hadron Collider [2] (LHC) at CERN, relies on detailed Monte Carlo (MC) simulation of events describing a large variety of processes. The simulation of the detector response is the slowest step in the MC production chain and about 75% of the simulation time is spent in the calorimeters. Currently, the modelling of the particle showers of electromagnetic and hadronic interactions with a dense absorbing material is performed using a very accurate full detector simulation based on the Geant4 toolkit [3]. This simulation process is very resource-intensive and it is the most expensive step in the ATLAS simulation pipeline [4]. Since it is very challenging to increase the computing capabilities or significantly speed up Geant4, a fast calorimeter simulation is essential to produce the number of simulated events needed to match the increase in luminosity scheduled for the upcoming data taking period (Run 3); the problem is even worse for the High Luminosity LHC physics programme that would be severely impacted without a large use of fast simulation.
+
+The ATLAS Collaboration already employs a Fast Calorimeter Simulation (FastCaloSim) [5] which has been used with success in many analyses as part of the fast simulation tool AtlFastII (AFII) [4]. The most advanced fast simulation, FastCaloSimV2 [6], is still in development. A new fast simulation is required because the current fast simulation is not precise enough to serve the entire physics program; for example, boosted objects and some observables in electromagnetic showers are not well reproduced. Furthermore, the current fast simulation requires its own calibrations for all reconstructed objects, this means a doubling of the work for all calibration teams. In this context, the new fast simulation tool should, ideally, be able to reproduce Geant4 to such extent that the fast simulation could use the same calibrations used for Geant4; if this could be achieved, a significant amount of resources could be saved. To achieve this ambitious goal, this note presents a framework based on deep learning algorithms capable of producing a fast calorimeter simulation of the full ATLAS calorimeter system. The tool is called _FastCaloGAN_ and it is based on the unsupervised learning techniques Generative-Adversarial Networks (GANs) [7].
+
+_FastCaloGAN_ is not the first attempt to apply advanced Machine Learning (ML) techniques to perform a fast calorimeter simulation. Indeed, GANs have been already used to simulate the response of a calorimeter to the traversing of particles [8, 9, 10, 11, 12, 13, 14]. However, _FastCaloGAN_ is the first tool that can perform a full calorimeter simulation and therefore able to assess the performance on physics samples.
+
+In a GAN, a generative network \(G\) transforms a vector of random numbers (input noise) \(z\sim p_{z}\) into a sample carrying some physical meaning. In practical applications, \(p_{z}\) is often a \(N\)-dimensional uniform distribution in the range \([0,1]^{N}\). Subsequently, a discriminative network \(D\) estimates the probability that a given sample comes either from the training data or the generator. The two samples are distributed with probability density functions \(p_{data}\) and \(p_{fake}\), respectively, with \(p_{data}\) fixed and usually estimated using a MC method. The Nash equilibrium (min-max game) is reached when \(D\) is unable to distinguish fake examples from real data, hence the generator has been trained to be a good approximation of the data probability density function (\(pdf\)), i.e. \(p_{fake}\sim p_{data}\). The procedure is equivalent to the minimization of the loss function \(L(G,D)\) evaluated as:
+
+\[L(G,D) = \mathbb{E}_{x\sim p_{data}(x)}\left[\log D(x)\right]+ \tag{1}\] \[\mathbb{E}_{x\sim p_{fake}}(x)\left[\log\left(1-D(x)\right) \right].\]
+
+GANs are powerful generative models but suffer from training instability. The Wasserstein GAN (WGAN) [15] makes progress toward stable training but sometimes can still fail to converge. An alternativetechnique, in the form of _gradient penalty_ term (WGAN-GP) [16] in the critic loss has been recently introduced and does not exhibits the same problems. Thus, based on the success in terms of stability of the training, the _FastCaloGAN_ tool is based on this newly and improved WGAN-GP algorithm.
+
+In the studies shown in this note, _FastCaloGAN_ is used for generating the calorimeter showers for three particle types (electrons, photons and pions) for a wide range of energies. The calorimeter system is sliced in 100 regions along \(\eta\)1 and a GAN is trained in each slice; hence, a total of 300 GANs are used to parametrise the full calorimeter.
+
+Footnote 1: ATLAS uses a right-handed Cartesian coordinate system with its origin at the nominal interaction point (IP) in the centre of the detector. The \(z\)-axis is along the beam pipe, and the \(x\)-axis points from the IP to the centre of the LHC ring. Cylindrical coordinates (\(r\), \(\phi\)) are used in the transverse plane, \(\phi\) being the azimuthal angle around the beam pipe. The rapidity is defined as \(y=(1/2)\ln[(E+p_{z})/(E-p_{z})]\), while the pseudorapidity is defined in terms of the polar angle \(\theta\) as \(\eta=-\ln\tan(\theta/2)\).
+
+The note is organized as follows: the ATLAS calorimeter system is described in Section 2. The training samples and how they are processed before being used in the GAN are described in Section 3. The hyper-parameter and performances of the GAN are described on Section 4. The results of the training are given in Section 5. The tool was also integrated within the ATLAS software framework Athena [17]; a comparison of reconstruction level variables is shown in Section 6 where the output of the _FastCaloGAN_ tool is compared with both Geant4 and FastCaloSimV2. Finally, conclusions and possible extensions are discussed in Section 7.
+
+## 2 The ATLAS calorimeter system
+
+The ATLAS experiment at the CERN LHC is a multipurpose particle detector with a forward-backwards symmetric cylindrical geometry. The ATLAS calorimeter system, described in detail in Ref. [1, 18] is very complex and changes significantly as a function of \(\eta\). Three main regions are identified; the barrel, corresponding to the cylindrical part of the detector, the end-cap (EC), corresponding to the two bases of the cylinder, and the forward region which is the closest part to the beam pipe. An electromagnetic calorimeter is in front of a hadronic calorimeter in both barrel and end-cap regions while the forward region has a single detector used for both type of showers.
+
+The electromagnetic calorimeters are liquid-argon detectors with an accordion shape geometry. This geometry provides several active layers in a compact design without any gaps: three layers in the precision-measurement region (\(|\eta|\) < 2.5) and two layers in the higher-\(\eta\) region (\(2.5<|\eta|<3.2\)). A coverage at higher \(\eta\) (\(3.1<|\eta|<4.9\)) is provided by the FCal. Furthermore, in the region with \(|\eta|\) < 1.8, the electromagnetic calorimeter is complemented by presamplers which provides a measurement of the energy lost in front of the electromagnetic calorimeter. The energy deposited in these calorimeters is read out from cells which define the granularity of the detector; this varies significantly depending on the layer and can be different along \(\eta\) and \(\phi\). An example of this segmentation is provided in Figure 1.
+
+The barrel hadronic calorimeters consist of scintillator tiles that have steel as absorber medium. This tile calorimeter (TileCal) is composed of three parts, one central barrel and two extended barrels. The tile calorimeter covers the region with \(|\eta|\) < 1.7. The region between the barrel and the EC has additional detectors, the Tile Gap layers, designed to increase the coverage in this transition region. The HEC,
+
+Figure 1: Example of the granularity of the LAr calorimeters [18].
+
+a copper/liquid-argon detector, and the FCal, a copper-tungsten/liquid-argon detector provide larger pseudorapidities coverage. The hadronic calorimetry thus reaches a coverage over \(|\eta|\) < 4.9. For tile calorimeters, each tile corresponds to a cell in the detector simulation and reconstruction.
+
+An overview of the calorimeters layers (a total of 24 layers) is reported in Table 1.
+
+As described above, the calorimeter system changes many times along \(\eta\) creating a very complex structure that is hard to model. To simplify this problem, the strategy adopted is to segment the detector in 100 \(\eta\) slices of equal size from 0 to 5; this provides a uniform structure within each slice which simplifies the pre-processing of the events and the training of the GANs. In each slice, a GAN is trained for each particle as described in Section 4.
+
+\begin{table}
+\begin{tabular}{|l|l|l|l|l|l|} \hline Calorimeter & Number of layers & Module & 9-crop & Sampling \\ \hline Electromagnetized calorimeters & 4 & EMBL & 0.0 \(\pm\)1.5 & Pseudesselessel, EMBL, EMBL, EMB3 \\ \hline \multirow{3}{*}{Hadronic calorimeters} & 4 & EMBL & 1.5 \(\pm\)0.3 & Pseudesselessel, EMBL, EMBL, EMB3 \\ \cline{2-6}  & 4 & HEC & 1.5 \(\pm\)0.3 & HEC, HEC, HEC, HEC, HEC \\ \hline \multirow{3}{*}{Hadronic calorimeters} & 3 & Time (Barrel) & 0.1 \(\pm\)0.5 & Trabatron, Trabatron, Trabatron, Trabatron3 \\ \cline{2-6}  & 3 & Time (Barrel) and Smith & 1.0 \(\pm\)0.5 & Trabatron, Trabatron, Trabatron3 \\ \cline{2-6}  & 3 & Time (Barrel) Band & 0.3 \(\pm\)0.7 & Trabatron, Trabatron, Trabatron3 \\ \hline Forward calorimeters & 3 & PCal & 3.1 \(\pm\)0.5 & PCal, PCal, PCal2 \\ \hline \end{tabular}
+\end{table}
+Table 1: Details of the names and types of layers of calorimeter system.
+
+## 3 Data input preprocessing
+
+### Training datasets
+
+The datasets used for training are the same as those used to develop the current fast calorimeter simulation [6]. A total of 4500 single-particle samples were produced with Geant4 using the ATLAS geometry used in the 2015-18 data taking period (Run 2). The baseline settings for simulation and reconstruction were those used for samples used in Run 2 analyses. In order to remove effects not related to the simulation, the particles were produced without beam spread, without cross-talk between cells and without parts of the electronic noise. Furthermore, the vertex of the particles was moved to the surface of the calorimeter to avoid interactions in the ATLAS inner detector. Three particle types, photons (\(\gamma\)), electrons (\(e^{\pm}\)) and pions (\(\pi^{\pm}\)) were considered as these can be used to simulate all particles that reach the calorimeters. Specifically, pions are used to simulate all hadrons because hadronic showers are rather independent of the original particle, especially at high kinetic energies. In each of the 100 \(\eta\) slices, 15 samples were produced starting from a minimum energy of 256 MeV up to 4 TeV increasing each time by a factor 2 (256 MeV, 512 MeV, 1024 MeV,...). The statistic in each sample is 10000 events up to 256 GeV, while, at higher energies, the number of generated events decreases down to 1000 events for the highest energy sample (4 TeV) due to longer simulation time required for such large showers. In each sample, particles were generated on both sides of the detector within the specific \(|\eta|\) range considered and were produced uniform in \(\phi\).
+
+### The coordinate transformation
+
+Several coordinate transformations are performed to allow the comparison of the events as described in Ref. [6]. In summary, the hits produced by Geant4 are transformed from Cartesian coordinates to cylindrical coordinates (\(r\), \(\alpha\), \(z\)), where \(r\) is the distance of the hit from the extrapolated direction of the generated particle in a layer, \(\alpha\) is the angle in cylindrical coordinates and \(z\) the position of the hit along the direction pointing from the coordinate system origin (0,0,0). The latter information is not used as each calorimeter layer is considered independently and does not have a depth. Hence, all hits are defined by the (\(r\), \(\alpha\), layer) coordinate.
+
+### Voxelisation procedure
+
+GANs cannot be trained directly on the hits produced by Geant4 because their large number would impact the training; for example it would not be possible to store in memory all the information and accessing files on disk would make the training extremely slow. The simplest solution to avoid this problems is to group the hits into volumes of space called _voxels_. Given the different nature of particles and the detector structure, the size of the voxels is optimised for each particle and \(\eta\) slice. Studies showed that GANs have difficulties in learning from a very sparse input, as it would be in a voxelisation in which the tail of the showers is binned with the same granularity as the core of the shower. For this reason, the voxelisation only considers "relevant layers"; in each \(\eta\) slice and for each particle, the relevant layers are those in which at least 0.1% of the total energy is deposited in the 1 TeV sample. A layer is considered relevant even if it does not have enough energy deposited but it is in front (along the particle direction) of a relevant layer. For example, in some \(\eta\) slices the EMB0 layer would not have enough energy deposited but it is still considered as EMB1 is always a relevant layer. This energy was chosen as it has large statistics and the showers already reach the maximum depth. All layers considered are binned along \(r\) using a variable bin width which isprogressively larger; in this way, the shape of the shower is preserved minimising the statistical fluctuations of the energy deposited in the voxels at high \(r\) that may affect the training of GAN. The binning in \(\alpha\) is instead uniform and was chosen to be 10 bins; this is a good compromise between granularity and dilution of energy in each voxel, especially at high value of \(r\). To further reduce the statistical fluctuations in the voxels, only layers with a large fraction of the total energy, for example the EMB1 and EMB2 for photons in the barrel, are binned in \(\alpha\). In any other layer the angular position is lost and will be reproduced as uniform at the simulation stage; this should not be a problem for photons as the total energy is preserved and only the layers binned in \(\alpha\) are used for determining the shape of the shower in the ATLAS reconstruction software. For pions, the loss of information may be a more significant limitation as the correlations of the hit position in different layers can be crucial to reproduce the shower sub-structure. As will be shown later, this does not seem to be a major limiting factor. An example of binning used for voxelisation of photons and electrons in the barrel is shown in Table 2. When simulating particles, the voxelisation is inverted as described in Section 6. It must be noted that the validation and performances described in this and the following Section are performed using only the voxels; the performance of _FastCaloGAN_ using reconstructed objects is discussed in Section 6.
+
+### Voxelization validation procedure
+
+The binning of each particle and \(\eta\) region was chosen based on a series of validations including the total energy and energy centroid of the shower in each layer in both \(\eta\) and \(\phi\). The validation could not be carried out directly with Geant4 due to the large number of hits in the samples which makes a large scale processing of the samples very time-consuming. To speed up the validation, a proxy for Geant4 was used consisting in a different voxelisation with a bin size much smaller than the optimised binning. This high granularity voxelisation uses all layers, so it is possible to notice a difference in the total energy if a relevant layer was not considered in the optimised voxelisation. The high granularity also allows for reproducing the shape of the shower with high accuracy. The validation was carried out, for each particle, on the 1 TeV sample in every \(\eta\) slice and then tested on all energies for a selection of \(\eta\) slices to assure that the binning was valid for the whole energy range.
+
+#### 3.4.1 Energy validation
+
+The first test performed is on the total energy and allow to assure that all the layers relevant for an \(\eta\) slice are considered. An example of the comparison is shown in Figure 2.
+
+In addition to the total energy, the energy in each layer was also considered. In this case, it is expected that the curves completely overlap since all the energy in the considered layers should be included. Figure 3
+
+\begin{table}
+\begin{tabular}{|l|l|l|} \hline Layer & r edges [mm] & N bins \(\alpha\) \\ \hline PreSamplerB & 0,5,10,30,50,100,200,400,600 & 1 \\ \hline EMB1 & 0,2,4,6,8,10,12,15,20,30,40,50,70,90,120,150,200 & 10 \\ \hline EMB2 & 0,2,5,10,15,20,25,30,40,50,60,80,100,130,160,200,250,300,350,400 & 10 \\ \hline EMB3 & 0,50,100,200,400,600 & 1 \\ \hline TileBar0 & 0,100,200,400,1000,2000 & 1 \\ \hline \end{tabular}
+\end{table}
+Table 2: Nominal binning for photons and electrons with 0 ¡ \(\eta<1.3\) range.
+
+shows an example of energy comparison for two layers using the 65 GeV photons sample in the range 0.2 < \(|\eta|\) < 0.25.
+
+#### 3.4.2 Validation of energy centroid
+
+To assure that the chosen binning can reproduce the original shower shape, the energy centroid (EC) is used as a figure of merit. The EC, for the three coordinates, is defined as following:
+
+\[x_{EC}=\frac{\sum_{i}E_{i}x_{i}}{\sum_{i}E_{i}},\qquad y_{EC}=\frac{\sum_{i}E_{i }y_{i}}{\sum_{i}E_{i}},\qquad z_{EC}=\frac{\sum_{i}E_{i}z_{i}}{\sum_{i}E_{i}}, \tag{2}\]
+
+where \(i\) in the sum is taken all over the voxels in the corresponding layer.
+
+These coordinates are then converted into the ATLAS (\(\eta\), \(\phi\), R) coordinates. The comparison of EC between optimised and high granularity samples is shown in Figure 4 for photons at 65 GeV in the 0.2 < \(|\eta|\) < 0.25 range. The distribution for \(\eta\) in EMB1 is not centred at zero because the impact angle with which the photon enters the calorimeter causes the shower to be asymmetric with respect to the direction of the photon. This geometrical effect, shown in Figure 5 means the shower can deposit more energy for values greater than the nominal \(\eta\) which shifts the peak position by \(1mm\) in the forward direction.
+
+Figure 2: Comparison of the total energy distribution of 1 TeV photons in the range 0.2 < \(|\eta|\) < 0.25 for the optimised binning (black) and high granularity sample (red).
+
+Figure 3: Comparison of the energy distribution in the (a) EMB1 and in the (b) EMB2 for 65 GeV photons in the range \(0.2<|\eta|<0.25\).
+
+Figure 4: Positions of the EC of photons with an energy of 65 GeV in the 0.2 < |\(\eta\)| < 0.25 range w.r.t. the photon direction. The nominal (black) and high granularity (red) binning are compared for EMB1 (a,c) and EMB2 (b,d) both in \(\eta\) (above) and \(\phi\) (below).
+
+Figure 5: Simplified display of a photon shower interacting in EMB1; the shower propagates symmetrically along the photon direction but this results in more energy deposited in this layer at larger values of \(\eta\) due to the larger volume in this region.
+
+## 4 Conditional WGAN-GP
+
+As discussed in Section 1, the _FastCaloGAN_ tool is based on the WGAN-GP algorithm since it has been demonstrated to provide good performance and stability of the training. For the study reported in this note, the _FastCaloGAN_ tool needs to produce particles in a wide range of energies. This is achieved by using conditional WGAN-GPs and doing the conditioning on the true momentum of the input samples. The WGAN-GP of the _FastCaloGAN_ tool is implemented in TensorFlow 2.0 [19] and has a rather standard structure. The Generator (G) uses a latent space of 50 values and has three hidden layers with increasing size culminating in an output layer having the size of the number of voxels relevant for the specific particle and \(\eta\). The input to the Discriminator (D) has a similar dependency, and each of the following layers maintains the same number of nodes until the last layer, which has the usual single output node; this architecture is presented in Figure 6.
+
+Each node use a Rectified Linear Unit (ReLU) activation function while the optimiser used for both G and D is the Adam [20] optimiser with learning rate of \(10^{-4}\) and \(\beta=0.5\). The training is performed using batches of 128 events and the Discriminator is trained five times every time the Generator is trained. Finally, the gradient penalty \(\lambda\) is set to 10. These parameters are summarised in Table 3.
+
+\begin{table}
+\begin{tabular}{l|l} \hline G & 50 (Input latent Space), 50, 100, 200, NVoxel (pid and \(\eta\) dependent) \\ D & NVoxel, NVoxel, NVoxel, NVoxel, 1 \\ Activation function & ReLU (in all layers) \\ Optimiser & Adam [20] \\ Learning Rate & \(10^{-4}\) \\ \(\beta\) & 0.5 \\ Batchsize & 128 \\ Training ratio (D/G) & 5 \\ Gradient penalty \(\lambda\) & 10 \\ \hline \end{tabular}
+\end{table}
+Table 3: Overview of the parameters of the WGAN-GP.
+
+Figure 6: Schematic representation of the GANs used by _FastCaloGAN_.
+
+A significant difference from the previous work documented in Ref. [14] is the training strategy, specifically how the input data is provided to the GAN. In the previous work, all energy samples were used at once; while optimising _FastCaloGAN_, it was observed that this is not efficient and a much faster training can be achieved if the GAN is trained first on a single energy point while the other energy points are added progressively to the training mixtures starting from those closer in energy from the initial sample. This sequential injection can be summarised as follow:
+
+1. Train first 50k epochs with the middle energy samples alone (32 GeV is used);
+2. Every 20k epoch add a new sample, alternating the direction in which the range of energies is extended. The order in which the samples are added is: 64 GeV, 16 GeV, 128 GeV, 8 GeV, 256 GeV, 4 GeV, 512 GeV, 2 GeV, 1024 GeV, 1 GeV, 2048 GeV, 0.5 GeV, 4096 GeV, 0.25 GeV ;
+3. Once the last energy point is included, continue with all training samples.
+
+The input samples are further manipulated to simplify the learning of the GAN. The energy in each voxel is normalised by the true energy of the sample, in this way all the energy samples are scaled to the same values and the training can focus on the shape of the figure of merit (see Subsection 4.1). The truth energies used as labels for the conditioning are also normalised to the highest energy so that all values are in the range (0,1].
+
+The training continues for 1 million epochs with a checkpoint saved every 1000 epochs. This granularity allows for monitoring the improvements in the training without the need to save too many checkpoints. The training time for each GAN is about 8 hours on the NVIDIA V1002 GPUs available on the CERN HTCondor system3.
+
+Footnote 2: [https://www.nvidia.com/en-us/data-center/volta-gpu-architecture/](https://www.nvidia.com/en-us/data-center/volta-gpu-architecture/)
+
+Footnote 3: [https://batchdocs.web.cern.ch/index.html](https://batchdocs.web.cern.ch/index.html)
+
+### Best epoch selection
+
+The training of the WGAN-GP is a game between G and D, as detailed explained in Section 1. This process is unlike the typical minimisation processes common in particle physics; in particular, it is not assured that the last epoch in the training is the best one. For this reason, a figure of merit specific for the problem has to be defined for selecting the epoch that will be used to generate the showers. In this study, the total energy for each of the 15 energy points is used as the figure of merit. This variable is chosen as it is easy to define while it is difficult to reproduce. Additional variables could be included focussing on the shape of the showers that may lead to a parametrisation better reproducing the shapes of the showers. However, any improvement in the shape would be paid with a worse agreement in the total energy which is, as shown below, a variable that is difficult to modelled correctly.
+
+From the training samples, each total energy distribution is plotted in the range between -3 and +3 RMS around the peak; the RMS is calculated on all events. The range used for pions is wider, ranging from -4 to 3.5 RMS, as these distributions have longer tails. For every checkpoint, 10k events are generated for each energy point. The \(\chi^{2}\) is then evaluated between the binned distributions of the GAN and the training sample. The total \(\chi^{2}\) for a checkpoint is the sum of the 15 \(\chi^{2}\). The checkpoint with the lowest \(\chi^{2}\) is chosen for each GAN.
+
+The evolution of the \(\chi^{2}\) as a function of the epoch is shown in Figure 7 for pions in the \(0.25<|\eta|<0.3\) range. The point with the lowest \(\chi^{2}\) is the checkpoint that is then used for the simulation. The lowest value of \(\chi^{2}\) might correspond to a small probability, nevertheless this is the best value available and does not impact the selection criteria. Furthermore, the evolution of the \(\chi^{2}\) seems to indicate that the GAN keeps improving and it may benefit from a longer training; hence, it may be possible to improve the performance of the tool simply by increasing the training.
+
+Figure 7: Evolution of the total \(\chi^{2}\)/NDF as a function of the number of epochs.
+
+## 5 Results of training
+
+The performance of the selected epoch of the GAN trained on photons in the 0.2 < \(|\eta|\) < 0.25 range is shown in Figure 8. In it, the distribution of the total energy, defined as the sum of the energy in all voxels, is compared between the input samples and the events generated with the GAN for each of the 15 energy points. The selected epoch, the \(\chi^{2}\), the number of degree of freedom (NDF) and the \(\chi^{2}\)/NDF are reported too. The means and RMS of each distribution as a function of the true momentum are shown in Figure 12 and 13 for the barrel and the end-cap region, respectively. It can be seen that the GAN can reproduce all total energies with a similar level of agreement in both regions of the detector.
+
+In Figure 9, the performance of a GAN trained on electrons is presented. It is possible to see that the performance is similar to that obtained with GANs trained on photons, which is expected, considering that the two types of particles interact in the same way. Similarly to the photons, a summary plot for electrons is shown in Figure 14.
+
+In Figures 10 and 11, the performance for two GANs reproducing pions are presented for barrel and end-cap regions, respectively. The first two energy points have a different shape from all other energy points; this difference makes them rather difficult to reproduce. The two highest energy points also show poor agreement given the irregular shape and the limited statistics available in the training samples. It must be noted that these high energy hadrons are rather rare, hence, lower performance in this energy region should not compromise the simulation of physics samples. The performance in the barrel region are also summarised in Figure 15.
+
+The overall performance of the GAN is also summarised in Figures 16- 18 in which the total energy for particles at 65  is shown as a function of \(\eta\). _FastCaloGAN_ can reproduce the full simulation detector response across the whole detector for all particles. Pions produced by the _FastCaloGAN_ tool seem to be slightly less energetic and to have a larger RMS than those produced with a full simulation. This difference is bigger at lower \(\eta\) values corresponding to the region of the barrel. However, _FastCaloGAN_ performance improves in the region of the EC and is almost identical to the input samples in the FCal region. Overall, the difference is not very large and, as will be shown later, does not significantly impact the jets performances. The agreement between _FastCaloGAN_ and  for photons and electrons is within 1% for all energies and \(\eta\) values with only a few exceptions at very high \(\eta\) or in transition regions where the difference is at most 2.5%. Several effects can affect the performance in this region; for example, the rapidly changing geometry may result in a sample that is not completely uniform. It must be also noted that the total energy in this region is non-Gaussian, a symptom of complex effects taking place which makes reproducing the input distribution more difficult. The RMS for photons and electrons produced with _FastCaloGAN_ is similar to the input distributions for most energy points and detector regions with the largest differences observed for very high energies which are caused by the shape differences discussed above.
+
+Figure 8: Total energy response of the calorimeter to photons in the range 0.2 < \(|\eta|\) < 0.25. The calorimeter response for the Full detector Simulation (solid black line) compared to _FastCaloGAN_ (dashed red line).
+
+Figure 9: Total energy response of the calorimeter to electrons in the 0.8 < \(|\eta|\) < 0.85 range. The calorimeter response for the Full detector Simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+Figure 10: Total energy response of the calorimeter to pions in the 0.2 \(<|\eta|<\) 0.25 range. The calorimeter response for the Full detector Simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+Figure 11: Total energy response of the calorimeter to pions in the 2.2 < \(|\eta|\) < 2.25 range. The calorimeter response for the Full detector Simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+Figure 12: Total energy response normalised to the truth momentum for photons in the 0.2 < \(|\eta|\) < 0.25 range as a function of the true momentum. The calorimeter response for the Full detector Simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line). The error on the data point show the RMS of the total energy distribution.
+
+Figure 13: Total energy response normalised to the truth momentum for photons in the 2.2 < \(|\eta|\) < 2.25 range as a function of the true momentum. The calorimeter response for the Full detector Simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line). The error on the data point show the RMS of the total energy distribution.
+
+Figure 14: Total energy response normalised to the truth momentum for electrons in the \(0.2<|\eta|<0.25\) range as a function of the true momentum. The calorimeter response for the Full detector Simulation (solid black line) is iscompared to _FastCaloGAN_ (dashed red line). The error on the data point show the RMS of the total energy distribution.
+
+Figure 15: Total energy response normalised to the truth momentum for pions in the \(0.2<|\eta|<0.25\) range as a function of the true momentum. The calorimeter response for the Full detector Simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line). The error on the data point show the RMS of the total energy distribution.
+
+Figure 16: Total energy response as a function of \(|\eta|\) for photons of 65. The calorimeter response for the Full detector Simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line) while their ratio is shown in the ratio plots. The error on the data point shows the RMS of the total energy distribution.
+
+Figure 17: Total energy response as a function of \(|\eta|\) for electrons of 65. The calorimeter response for the Full detector Simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line) while their ratio is shown in the ratio plots. The error on the data point shows the RMS of the total energy distribution.
+
+Figure 18: Total energy response as a function of \(|\eta|\) for pions of 65. The calorimeter response for the Full detector Simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line) while their ratio is shown in the ratio plots. The error on the data point shows the RMS of the total energy distribution.
+
+## 6 Application of GANs in the ATLAS Athena framework
+
+To exploit the trained GANs, the generator part of the tool needs to be used in the ATLAS Athena software framework. This is done using the Lightweight Trained Neural Network (LWTNN) [21] which allow for the generator weights to be used in the Athena framework. Since LWTNN can only save Keras [22] models, the selected checkpoints are first converted to Keras models. The GANs were not developed directly in Keras as the training was about 10 times faster in TensorFlow 2.0.
+
+The events produced with the generators consists of the energy deposited in each voxel; therefore, an additional step is required to assign the energy in the voxels to the ATLAS calorimeter cells. This is done by dividing uniformly the energy of the voxel among a number of hits. The exact number depends on the voxels itself and is obtained by sampling the area at intervals of 1 \(mm\) for the EMB1 and EMEC1 layers and at intervals of 5 \(mm\) in all other layers. This granularity is used along both \(r\) and the arc defined by the \(\alpha\) bin. Layers that are not binned in \(\alpha\) have their energy uniformly distributed across the whole annulus surface. The resulting two dimension grid has a maximum of size of 10 points along each direction to minimise the number of hits created. The ATLAS geometry used for the assignment of the energy is an approximation of the real cell structure, in particular, it does not include the accordion structure of the electromagnetic calorimeter layers. The GANs trained on pions were used to simulate all hadronic showers; to take into account the mass of the heavier hadrons, the kinetic energy is used as the parameter passed to the GAN to simulate the shower. For anti-protons, the rest mass is included in the deposited energy.
+
+The performance of the GAN and the voxel-to-hit assignment is evaluated using single energy particles produced at the calorimeter surface and from a physics sample, specifically di-jet events. The calorimeter energy deposits produced with the above method are then processed using the ATLAS nominal reconstruction algorithms which allows for the comparison of high-level variables used in physics analyses.
+
+### Performance on single electromagnetic showers
+
+#### 6.1.1 Performance on single photons
+
+The comparison on single photons is performed using particles generated at the calorimeter surface, exactly like those used for the training of the GANs, with an energy of 65 GeV in the 0.2 < \(|\eta|\) < 0.25 range. The events in both Geant4 and _FastCaloGAN_ samples were reconstructed using standard ATLAS reconstruction settings [23]; this includes effects such as simulating the noise and performing the clustering of the cells which were not considered in the previous section. The reconstructed photon energy is shown in Figure 19; it is clear that the average photon energy is lower for _FastCaloGAN_. This is a significant difference from the same plot in Figure 8 where the total energy from _FastCaloGAN_ does not show the same shift. This difference is the sum of several effects; for example, a small difference in the simulated energy deposits between the detailed hits used in the training sample and the standard hits. Another contribution is likely due to some mis-modelling in the lateral distributions of the shower in some layers which may result in a loss of energy during the clusterisation step of the reconstruction; energy deposited far from the cluster centre may be cut away resulting in an energy loss if too much energy is deposited in these regions by the GANs. Although the total energy has a visible shift, this cannot be traced to a single layer as shown in Figure 20. A significant improvement with respect to the AtlFastII simulation is the correct reproduction of the energy in the EMB3 layer which is badly modelled in AtlFastII.
+
+The total energy of the photon cluster is only a component to the four-vector that is used in an analysis, \(\eta\) and \(\phi\) also are crucial distributions that need to be reproduced. The position resolutions are shown in Figure 21; a really good agreement between Geant4 and _FastCaloGAN_ is observed for the resolution along \(\eta\) while the resolution along \(\phi\) is not well reproduced due to the simplified geometry used by _FastCaloGAN_.
+
+The shape of the shower is probed by variables defined as the ratio between the energy deposited in the central cells with respect to a wider area. Specifically, \(R_{\phi}\) is defined as the energy in the central 3x3 cells divided by energy in the 3x7 cells of the EMB2 layer where the first value is along the \(\eta\) and the second is along \(\phi\). \(R_{\eta}\) is defined in a similar way being the ratio between 3x7 and 7x7 cells in the same layer. The two variables are shown in Figure 22. The discrepancy along \(\phi\) is mainly due to the use of the simplified geometry which does not reproduce the accordion structure of the calorimeter (see Figure 1) while the difference observed along \(\eta\) is due to the approximation of calculating the position of the hits from the extrapolation of the particle direction in the middle of the layer.
+
+Figure 19: Reconstructed photon energy for photons generated at the calorimeter surface with an energy of 65 GeV in the 0.2 \(<|\eta|<\) 0.25 range. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+Figure 20: Reconstructed photon energy in different layers for photons generated at the calorimeter surface with an energy of 65 GeV in the 0.2 < |\(\eta\)| < 0.25 range. The full detector simulation (solid black line) is compared to FastCaloGAN (dashed red line).
+
+Figure 21: Position resolution along \(\phi\) (a) and \(\eta\) (b) for reconstructed photons generated at the calorimeter surface with an energy of 65 GeV in the \(0.2<|\eta|<0.25\) range. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+Figure 22: Reconstructed photon \(R_{\phi}\) (a) and \(R_{\eta}\) (b) distributions for photons generated at the calorimeter surface with an energy of 65 GeV in the \(0.2<|\eta|<0.25\) range. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+#### 6.1.2 Comparison between photons and electrons
+
+The comparison between single photons and single electrons is performed using particles generated at the calorimeter surfaces, exactly like those used for the training of the GANs, with an energy of 65 GeV in the 0.2 < \(|\eta|\) < 0.25 range. Figure 23 shows the reconstructed photons and electrons energy in the EMB1 for photons and electrons generated at the calorimeter surface. The distributions of the energies in EMB1 show a good agreement between Geant4 and _FastCaloGAN_.
+
+#### 6.1.3 Position correlation between layers
+
+The ability of the GAN to reproduce the correlation between energies in different layers is assessed using the difference between the \(\eta\) distribution of EMB1 and EMB2 for photons which is shown in Figure 24; _FastCaloGAN_ can reproduce the Geant4 distribution. A similar performance is observed for electrons.
+
+Figure 23: Reconstructed photons (a) and electrons (b) energy in EMB1 for photons and electrons generated at the calorimeter surface with an energy of 65 GeV in the 0.2 < \(|\eta|\) < 0.25 range. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+### Performance on single pions
+
+Pions at 65 GeV energy were produced in the barrel in the \(0.2<|\eta|<0.25\) range. To evaluate the single pions, their showers are reconstructed as jets and the comparison with the full simulation is performed on jet-related quantities. The jets are reconstructed from topological clusters of calorimeter cells [24] using the anti-\(k_{t}\)[25] algorithm with a radius parameter \(R=0.4\) as implemented in FastJet [26]. The calibrations used for _FastCaloGAN_ are the same used for Geant4.
+
+In Figure 25 the distribution of the leading \(p_{T}\) jet is shown for pions at 65 GeV in the \(0.2<\eta<0.25\) range. In this case, _FastCaloGAN_ can reproduce the average \(p_{T}\) of the pions but it is possible to see that the width of the distribution is slightly larger than Geant4. This was already observed in the training of the GAN and is visible in Figure 10. Surprisingly, all variables describing the position, depth and width of the jet, which are shown below, have a better agreement than the total pion energy which was used to train the GAN. This indicates that the GAN can easily pick the correlations between hits and between clusters while it struggles to reproduce the total energy correctly and further motivates the choice made in the section 4.1 of using the total energy as figure of merit for selecting the best epoch. Figures 26 shows the position resolution between the generated pion and the reconstructed jet along \(\phi\) (a) and \(\eta\) (b), respectively; _FastCaloGAN_ can reproduce both distributions with high precision.
+
+Cluster moments [24] are additional figures of merit relevant for jet performance as they are used in calibration; reproducing them accurately is crucial in order to use the same calibrations for both full and fast simulation samples. In Figures 27- 29, _FastCaloGAN_ and Geant4 are compared using the longitudinal (<\(l^{2}\)>) and lateral (<\(r^{2}\)>) extensions of all clusters in the leading jet and the depth (\(\lambda\)) of all clusters for pions with an energy of 65 GeV in both barrel and end-cap regions. _FastCaloGAN_ is not able to well reproduce the distribution for <\(l^{2}\)> up to \(\sim 10\)\(cm^{2}\) but it is able to well reproduce the distribution at
+
+Figure 24: \(\eta\) difference between EMB1 and EMB2 for photons generated at the calorimeter surface with an energy of 65 GeV in the \(0.2<|\eta|<0.25\) range. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+higher values of <\(l^{2}\)>. Looking at the <\(r^{2}\)> distribution, instead, _FastCaloGAN_ can well reproduce the whole distribution. Finally, the depths of the shower are reproduced with only minor difference. The performances of _FastCaloGAN_ are similar in both the barrel and end-cap region of the detector.
+
+Figure 26: Position resolution along \(\phi\) (a) and \(\eta\) (b) for pions with an energy of 65 GeV in the \(0.2<|\eta|<0.25\) range. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+Figure 25: Leading \(p_{T}\) jet for pions with an energy of 65 GeV in the \(0.2<|\eta|<0.25\) range. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+Figure 28: \(\lambda\) distribution for all clusters produced by pions generated with an energy of 65 GeV in the 0.2 < \(|\eta|\) < 0.25 (a) and in the 2.2 < \(|\eta|\) < 2.25 (b) ranges. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+Figure 27: \(<\lambda^{2}\)\(>\) distribution for all clusters in the leading jet for pions generated with an energy of 65 GeV in the 0.2 < \(|\eta|\) < 0.25 (a) and in the 2.2 < \(|\eta|\) < 2.25 (b) ranges. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+Figure 29: \(<\)\(r^{2}\)> distribution for all clusters in the leading jet in the 0.2 \(<|\eta|<\) 0.25 (a) and in the 2.2 \(<|\eta|<\) 2.25 (b) ranges. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line).
+
+### Performance on di-jet events
+
+Although the performance of any fast simulation tool on single pions is relevant, from a physics point of view it is more interesting to consider the performance on jets. Moreover, the overlap between particles in a jet may easily hide some of the mis-modelling in single particles, so a tool may still be capable of reproducing reconstructed objects even if the performance on single particles is not perfect. To evaluate jet performance, a di-jet sample was used. The sample is filtered so that the leading jets have a \(p_{\mathrm{T}}\) of about 2.5. Such high energy jets should be the most challenging to reproduce given the large number of constituents. Moreover, these samples have many additional jets covering the full energy range which allows for a global evaluation of jets.
+
+Several variables are considered to evaluate the performance of jets; the type of jets considered is the same described above for pions. When considering cluster, they are matched to a jet if the angular distance between the cluster and the jet is smaller than 0.4. The comparisons presented in this sub-section includes three simulations; in addition to _FastCaloGAN_ and Geant4, AtLFastII (AFII) is included. A selection of observables is shown in In Figures 30-34. In general, _FastCaloGAN_ can reproduce all Geant4 distributions very well, with some small exceptions, and has a significantly better performance than AFII. The distributions where _FastCaloGAN_ cannot completely reproduce Geant4 is the low values region of <\(\lambda^{2}\)>; this is consistent with what was observed in the single pion comparison. Similar performances are achieved for other types of jet. The most significant improvement with respect to AFII is the number of clusters and in the mass of the leading jet shown in Figure 31.
+
+One significant limitation of the current fast calorimeter simulation is the inability to reproduce sub-structure variables which are used in large-R jets to perform top quark and W boson tagging [27, 28, 29]. Some of these variables are the jet split\({}_{12}\) and split\({}_{23}\), defined as the \(k_{t}\) distance between the sub-jets during merging, and the \(\tau_{21}\) and \(\tau_{32}\), which are the ratios of n-subjettiness [30]. These variables are shown in Figures 35 and 36, respectively. It is clear that AFII cannot reproduce these variables while _FastCaloGAN_ can reproduce the Geant4 distribution with high precision and, therefore, could be used to produce the fast simulation samples needed by boosted analyses.
+
+Figure 30: Jet \(p_{\mathrm{T}}\) of the reconstructed leading (a) and sub-leading (b) jet in the di-jet sample. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line) and AFII (dashed blue line).
+
+Figure 31: Mass (a) and number of clusters (b) in the reconstructed leading jet in the di-jet sample. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line) and AFII (dashed blue line).
+
+Figure 32: Jet \(p_{\mathrm{T}}\) (a) and mass (b) of all reconstructed jets in the di-jet sample. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line) and AFII (dashed blue line).
+
+Figure 34: Depth (a) and \(\lambda^{2}\) (b) of all cluster associated to the leading reconstructed jet in the di-jet sample. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line) and AFII (dashed blue line).
+
+Figure 33: EM fraction for all reconstructed jets (a) and number of reconstructed jets (b) with \(p_{\mathrm{T}}\) > 25 GeV and \(|\eta|\) < 2.5 in the di-jet sample. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line) and AFII (dashed blue line).
+
+Figure 35: Jet split\({}_{12}\) (a) and split\({}_{23}\) (b) of the leading reconstructed large-R jet in the di-jet sample. The full detector simulation (solid black line) is compared to _FastCaloGAN_ (dashed red line) and AFII (dashed blue line).
+
+Figure 36: \(\tau_{21}\) (a) and \(\tau_{32}\) (b) of the leading reconstructed large-R jet in the di-jet sample. The full detector simulation (solid black line) is compared to _FastCaloGAN_(dashed red line) and AFII (dashed blue line).
+
+### Other figures of merit
+
+Two crucial figures of merit for a fast simulation tool are the time to simulate an event and the memory requirement for running Athena. The time needed to simulation a single particle must be significantly lower in a fast simulation tool than in Geant4. The simulation time can be tested using particles generated at the surface of the calorimeter to avoid any simulation of the ATLAS inner detector. The time required to simulate a pion generated at the calorimeter surface is about 70 \(ms\) in _FastCaloGAN_ and does not depend on the energy of the particle. As a reference, Geant4 simulation time on a similar machine for a 65 GeV pion generated at the calorimeter surface is \(6s\), about two orders of magnitude higher than _FastCaloGAN_; this values strongly depend on the energy of the particle and becomes \(162s\) at 2 TeV, more than three orders of magnitude higher than _FastCaloGAN_. Therefore, _FastCaloGAN_ fulfils the requirement of significantly speeding up the simulation of showers in the calorimeter system. Low memory consumption is needed as the typical note on the GRID supports jobs requiring a maximum of 4 \(GB\) of memory. Athena already requires a significant fraction of this value and the weights of all generators need to be kept in memory as accessing them on disk would require too much time. Thanks to the voxelisation optimisation, the number of weights is small resulting in a total memory requirement for an Athena job of about 2.5 \(GB\), well within the limit mentioned above.
+
+## 7 Conclusion
+
+This note describes the studies performed with _FastCaloGAN_, a tool capable of performing a fast simulation of the whole ATLAS calorimeter system. 300 GANs were trained and used to parametrise the detector response to photons, electrons and pions. Validation within the tool shows a good level of agreement between the GAN and the training samples, meaning that the GANs can learn the energy distributions of the particle shower for a wide energy ranges and the full detector. The weights of the trained generators are used in the ATLAS software framework and a comparison of reconstructed variables is performed showing a good agreement for both single particle showers and jets. _FastCaloGAN_ cannot reproduce every considered distribution, with the most notable difference being the total energy of e/\(\gamma\) showers and some of the correlations between layers. The use of the simplified geometry is also affecting the e/\(\gamma\) showers along the \(\phi\) direction. Given the fact that e/\(\gamma\) showers should be well reproduced by FastCaloSimV2, a combination of the two tools, with e/\(\gamma\) showers simulated by FastCaloSimV2 and hadrons by _FastCaloGAN_, may provide a high-performance fast simulation for the ATLAS experiment.
+
+## References
+
+* [1] ATLAS Collaboration, _The ATLAS Experiment at the CERN Large Hadron Collider_, JINST **3** (2008) S08003 (cit. on pp. 3, 5).
+* [2] L. Evans and P. Bryant, _LHC Machine_, Journal of Instrumentation **3** (2008) S08001 (cit. on p. 3).
+* [3] S. Agostinelli et al., _Geant4-a simulation toolkit_, Nucl. Instrum. Meth. A **506** (2003) (cit. on p. 3).
+* [4] ATLAS Collaboration, _The ATLAS Simulation Infrastructure_, Eur. Phys. J. C **70** (2010) 823, arXiv: 1005.4568 [physics.ins-det] (cit. on p. 3).
+* [5] ATLAS Collaboration, _The simulation principle and performance of the ATLAS fast calorimeter simulation FastCaloSim_, ATL-PHYS-PUB-2010-013, 2010, url: [https://cds.cern.ch/record/1300517](https://cds.cern.ch/record/1300517) (cit. on p. 3).
+* [6] ATLAS Collaboration, _The new Fast Calorimeter Simulation in ATLAS_, ATL-SOFT-PUB-2018-002, 2018, url: [https://cds.cern.ch/record/2630434](https://cds.cern.ch/record/2630434) (cit. on pp. 3, 7).
+* [7] I. J. Goodfellow et al., _Generative Adversarial Networks_, 2014, arXiv: 1406.2661 [stat.ML] (cit. on p. 3).
+* [8] L. de Oliveira, M. Paganini and B. Nachman, _Learning Particle Physics by Example: Location-Aware Generative Adversarial Networks for Physics Synthesis_, Computing and Software for Big Science **1** (2017), issn: 2510-2044 (cit. on p. 3).
+* [9] M. Paganini, L. de Oliveira and B. Nachman, _Accelerating Science with Generative Adversarial Networks: An Application to 3D Particle Showers in Multilayer Calorimeters_, Phys. Rev. Lett. **120** (4 2018) 042003 (cit. on p. 3).
+* [10] M. Paganini, L. de Oliveira and B. Nachman, _CaloGAN: Simulating 3D high energy particle showers in multilayer electromagnetic calorimeters with generative adversarial networks_, Physical Review D **97** (2018) (cit. on p. 3).
+* [11] M. Erdmann, L. Geiger, J. Glombitza and D. Schmidt, _Generating and refining particle detector simulations using the Wasserstein distance in adversarial networks_, 2018, arXiv: 1802.03325 [astro-ph.IM] (cit. on p. 3).
+* [12] M. Erdmann, J. Glombitza and T. Quast, _Precise Simulation of Electromagnetic Calorimeter Showers Using a Wasserstein Generative Adversarial Network_, Computing and Software for Big Science **3** (2019) (cit. on p. 3).
+* [13] F. Carminati et al., _Three dimensional Generative Adversarial Networks for fast simulation_, Journal of Physics: Conference Series **1085** (2018) 032016 (cit. on p. 3).
+* [14] ATLAS Collaboration, _Deep generative models for fast shower simulation in ATLAS_, ATL-SOFT-PUB-2018-001, 2018, url: [https://cds.cern.ch/record/2630433](https://cds.cern.ch/record/2630433) (cit. on pp. 3, 14).
+* [15] M. Arjovsky, S. Chintala and L. Bottou, _Wasserstein GAN_, 2017, arXiv: 1701.07875 [stat.ML] (cit. on p. 3).
+* [16] I. Gulrajani, F. Ahmed, M. Arjovsky, V. Dumoulin and A. Courville, _Improved Training of Wasserstein GANs_, 2017, arXiv: 1704.00028 [cs.LG] (cit. on p. 4).
+* [17] G. A. Stewart et al., _Multi-threaded software framework development for the ATLAS experiment_, Journal of Physics: Conference Series **762** (2016) 012024 (cit. on p. 4).
+* [18]_ATLAS calorimeter performance: Technical Design Report_, Technical Design Report ATLAS, CERN, 1996 (cit. on p. 5).

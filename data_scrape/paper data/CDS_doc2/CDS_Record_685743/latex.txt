@@ -1,0 +1,72 @@
+ATLAS DAQ Note 94-27
+
+EAST Note 94-37
+
+December 14, 1994
+
+Algorithms in second-level triggers for ATLAS and benchmark results
+
+R.Hauser, I. Legrand
+
+## 1 Introduction
+
+For the purposes of implementations and modelling, various assumptions about ATLAS detectors, data formats and trigger algorithms had to be made in the course of EAST work over the last years. They are restricted to a few, not all, detectors, and reflect the respective state of overall knowledge, not the very latest detailed definitions, which in turn will not be exactly the final realisations. They are as close as possible to the actual physics and detector assumptions, so that it can be said with confidence that they are representative of what will eventually have to be implemented.
+
+The algorithms are subdivided into the phases region-of-interest (RoI)collection, feature extraction, and global decision, which in turn has an RoI and an event task. Only the event task is truly global; all other tasks can be naturally parallelised, and this is foreseen in the implementation discussion of ATLAS. We define the three phases in more detail:
+
+**Phase 1:**: The full raw detector data for level-1 triggered events are collected in local non-overlapping memory modules (structured into chips, boards, crates), in a detector-dependent modularity. The raw data pertaining to RoI-s have to be selected by some mechanism, which we term _RoIcollection_. This operation is guided by a device realized outside the L2 data stream, which indicates the whereabouts of RoI-s. We assume RoI collection to proceed independently and in parallel for different subdetectors and for different RoI-s.
+**Phase 2:**: Algorithms in the concept of RoI have the initial task to convert a limited amount of local raw data from a single subdetector into _features_, variables containing the relevant physics information, like cluster or track parameters that can be used to corroborate or disprove the different physics hypotheses. This phase is called _feature extraction_. Feature extraction algorithms are local and thus can exploit the natural double parallelism of RoI-s and subdetectors.
+**Phase 3:**: Physics features have to be collected from all subdetectors and from all RoI-s, for forming an overall decision on the entire event. The natural and efficient order of processing is to combine first all subdetectors that relate to the same physics _object_, by an algorithm which is limited to an RoI. This is then followed by an algorithm combining information from all RoIs into an event decision. Both steps together are termed _global decision_.
+
+All algorithms are defined as C programs. For benchmarking and definition purposes, this is desirable, although implementations will not necessarily be on high-level processors or in the particular form of C programs. In a data-driven model, analogous algorithms have already been demonstrated [1, 2].
+
+## 2 RoI Collection Algorithms
+
+The algorithms in this class are representative of the processing that has to be applied to the raw data in the format as they come from the frontend modules, and prepare the data for the feature extraction algorithm both by extracting only the relevant subset relating to an RoI and optimizing the data format. These have been defined for two detectors, the TRT and the calorimeter (details can be found in [4]). For the raw data, we refer to [3] for definitions.
+
+In the TRT, the raw data come uncompressed and for three time slices. The algorithm performs the transformation to a zero-suppressed format. All points in the buffer belonging to the RoI are considered and for each hit a new data word is generated combining the three time slices in a single one, e.g. by a logical OR for the two possible pulse heights. This is done using a lookup table indexed by the full data word including drift time and pulse height. The \(\phi\) and \(\eta\) offsets are computed for a new coordinate system local to the region of interest. The list of these words represents the output of one receiving unit which must be combined in the next stage to provide the full RoI window data.
+
+The calorimeter receives a single time-extracted sample in uncompressed format. The preprocessing task depends on the RoI type identification of the first-level trigger: for _electromagnetic_ RoIs only the channels belonging to the RoI have to be identified, while for _jet-like_ RoIs a granularity reduction of the elementary cells has to be performed. Depending on the requirements of the feature extraction processor the full RoI window data may have to be combined into a single image.
+
+## 3 Feature Extraction Algorithms
+
+The algorithms in this class are representative of the conversion of raw detector data in a limited region of a single subdetector to _primitive_ physics information, i.e. a detector part is analysed for the existence of a phenomenon defined by the level-1 trigger: a suspected high-\(p_{T}\) track in the tracker (SCT), possibly also with electron properties (TRT), or cluster parameters in the calorimeter compatible with electron absorption or isolation criteria, or parameters giving improved jet energies. Three algorithms were defined in this category; in the inner detector, a high-precision track finder in the SCT and an electron-biased tracking algorithm in the endcap TRT, plus a calorimeter algorithm considering the electromagnetic and hadronic parts as single layers. The extrapolation from these to algorithms in other detector parts is largely understood.
+
+1. SCT: It has been shown in [5] that by reformulating the combinatorial search through all possible and meaningful hit combinations in the 4 r-\(\phi\) projections of high precision as a sufficiently fine histogramming task, a major gain in execution time at high occupancy can be achieved without loss in the result's precision. It is this _histogramming_ or _Hough transform_ algorithm for zero-suppressed data input that is given for benchmarking. The benchmark algorithm assumed 4 layers with 1000 bins each. The execution time of this algorithm depends linearly on the occupancy while the combinatorial search shows a \(O(N^{4})\) dependency, where \(N\) is the number of hits in the RoI.
+2. The TRT algorithm used is one of _variable slope histogramming_ or _Hough transform_, much like for the SCT, with the need of building two Hough transforms [9] which get bin by bin combined via a weighting function, in order to extract the _electronness_ along with the existence of a high-\(p_{T}\) track. The image to be analyzed (RoI) for the endcap TRT is in the \(\phi/z\) projection and has the dimension 96 planes (of constant \(z\)) by 16 straws (along \(\phi\)). Tracksin this projection appear as straight lines, with the slope \(d\phi/dz\) directly related to \(p_{T}\), the position along \(\phi\) indicating azimuth, and start and end point crudely indicative for \(z\). The algorithm recognizes patterns of digitizings that correspond to high-momentum tracks, taking into account the pulse height distribution of digitizings for identification of electrons. The times measured for the TRT include only the computing part, assuming that the zero-suppression has been already done in the Rol collection algorithm.
+3. The calorimeter algorithm analyses a Rol raster (\(image\)) of \(20\times 20\) electromagnetic cells (with a basic tower size of \(.025\times.025\) in \(\Delta\eta\times\Delta\phi\)) and \(5\times 5\) cells of \(0.1\times 0.1\) for the hadronic layer. Three electromagnetic and four hadronic layers are assumed. Electromagnetic cells and hadronic cells, properly weighted, are added, the summed \(image\) is analyzed for its transverse profile[7]. Inside the Rol, a near-circular region is defined in which the peak energy deposition is fully contained (cluster area). The cluster center is found as the center of gravity of the combined image. The cluster area is defined by all pixels at a radius of 6 pixels or less from the cluster center (all coordinates rounded to pixel centers). Features like hadronic energy fraction \(F_{had}\), and the second moment of the cluster radius in two dimensions for each \(em\) layer are calculated over the cluster area.
+
+## 4 Global Decision
+
+The two algorithms that make up the feature combination, ending with a final Y/N decision on the entire event, are the Rol task and the event decision.
+
+1. The Rol task converts a set of features from different subdetectors into variables that have been maximised to represent a _probability_ for different hypotheses for the physics object that has given rise to the Rol. As an artifical neural network has been used for the optimisation, the algorithm is a particularly fast one to implement. A feed- forward neural net with twelve input variables, a 6-node intermediate layer, and 4 output nodes (probabilities) is implemented. The algorithm simply multiplies all features with six ('synaptic') weights each, forms the sums (i.e. a \(12\times 6\) matrix multiplication), followed by a ('sigmoid') conversion by lookup table, and followed by the same procedure (\(6\times 4\) matrix), to obtain the final result, four probabilities (for 'electron','muon', 'hadron', 'jet'). The execution time of this algorithm is data-independent and only determined by the size of the neural network.
+2. The event decision goes through the calculation of effective masses, using momentum vectors from all Rol-s. Based on the Rol probabilities and these masses, a sequence of 'IF-THEN-ELSE' statements applies cuts to decide about six different physics hypotheses (multiple 'YES' decisions are possible). The algorithm spends most of its execution time in the computation of the invariant masses. This time is proportional to the \(N_{roi}^{2}\), where \(N_{roi}\) is the
+
+\begin{table}
+\begin{tabular}{|l|c|c|c|c|} \hline Algorithm: & Calorimeter & TRT & SCT (2.5 \%) & SCT (1.0 \%) \\ \hline Min (\(\mu s\)) & 700 & 707 & 3390 & 1840 \\ Max (\(\mu s\)) & 1450 & 940 & 6530 & 3000 \\ \hline \end{tabular}
+\end{table}
+Table 1: Feature Extraction Benchmark Resultsnumber of RoIs in the event. The benchmarks assumed a mean value of \(N_{\mathit{roi}}=5\).
+
+## 5 Benchmarks
+
+All algorithms were benchmarked on different processors in isolation; benchmarking with communication is an ambitious goal for the future, although first results are becoming available [8, 9, 10, 11]. Comparisons between different processors reveal the need for local tuning, but typically the modern RMSCs of about 100 MIPS range very close: PowerPC, Alpha, Sparc10. The tables give the fastest and slowest result achieved on these processors for each algorithm; the relative achievements of processors are different for the different algorithms and are ignored here.
+
+## References
+
+* [1] R.K. Bock et al., A commercial image processing system considered for triggering in future LHC experiments. EAST note 94-26.
+* [2] D. Belosloudtsev et al., Programmable ACtive Memories in real-time tasks: implementing data driven triggers for LHC experiments. EAST note 94-27.
+* [3] R.K.Bock, P. LeDu, Readout data specifications for modelling a level-2 trigger using regions of interest. ATLAS DAQ-NOTE-25.
+* [4] I. Legrand, Data collection and preprocessing for the ATLAS second-level trigger. EAST note 94-30(Rol collection).
+* [5] W. Krischer, L. Moll, Implementation of a pattern recognition algorithm for the Si tracker on DecPeRle-1. EAST note 94-21.
+* [6] L. Lundheim et al., TRT on DecPeRle-1 : Algorithm, Implementation, Test and Future. EAST note 94-20.
+* [7] G. Klyuchnikov et al., A second-level trigger, based on calorimetry only. ATLAS DAQ note 07/EAST note 92-23.
+* [8] R. Hauser, I. Legrand, Global Decision on the CS-2. EAST note 94-28.
+* [9] F. Chantemargue, Communication benchmarks with the Ancor Fibre Channel Fabric. EAST note 94-22.
+* [10] F. Chantemargue, Communication benchmarks with IBMs and HPs. EAST note 94-24.
+* [11] P.E. Clarke et al., DSP beam test results, EAST note 94-34.
+
+\begin{table}
+\begin{tabular}{|l|c|c|} \hline Algorithm: & Rol Task & Event Task \\ \hline Min (\(\mu s\)) & 5 & 13 \\ Max (\(\mu s\)) & 9 & 31 \\ \hline \end{tabular}
+\end{table}
+Table 2: Global Decision Benchmark Results

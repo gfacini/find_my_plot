@@ -1,0 +1,151 @@
+###### Abstract
+
+This note describes the new Event Data Model of the two Atlas silicon trackers, the Pixel detector and the SCT, as it is available in the Data Challenge 0 software (release 3.0.0).
+
+February 27, 2002
+
+**The Silicon Trackers Event Data Model for the DC0 software**
+
+**David Calvet1**
+
+Footnote 1: calvet@in2p3.fr
+
+LPC Clermont-Ferrand
+
+24 avenue des Landais
+
+F-63177 Aubiere cedex
+
+## Introduction
+
+The purpose of this note is to document the new transient event data model of the silicon trackers at the time of the 3.0.0 release, software used for the Data Challenge 0. The goal of this new event data model is to replace the ZebraTDREvent structure (known as "RD's event") by a new model fully integrated into Athena. Although the overall structure is common to all Atlas sub-detectors, most of the implementation is specific to each of them. In the case of the two silicon trackers, the Pixel detector and the SCT, a common implementation has been developed when possible, taking advantage of the inheritance mechanism when two different implementations were needed.
+
+The first section of this note describes the generic model of this new software. The following sections describe in more details the implementations for the hits, the digits and the clusters (although they belong more to the reconstruction software, the clusters make use of the same generic model as the hits and digits). The actual code is located in the SiTrackerEvent and SiTrackerCluster packages.
+
+## 1 The new generic model
+
+The structure of the new generic model has three levels: containers, collections and objects. The container level is the Atlas-wide common part. The two other levels are specific to the silicon trackers.
+
+### Containers
+
+The Atlas generic container is the IdentifiableContainer[1]. It is a templated base class from which are derived the containers for the silicon trackers hits (SiTrackerHitContainer), digits (SiTrackerDigitContainer) and clusters (SiTrackerClusterContainer). A container is meant to be linked (more than to contain) to collections of hits, digits or clusters. This is actually the first object which is used to access those objects, from the user point of view. The granularity of containers is per type of objects (hits, digits, clusters), per sub-detector (Pixel or SCT) and per algorithm which produced them (mostly in the case of clusters). For example, there is a single instance of SiTrackerDigitContainer to contain all the digits of the SCT. These instances are stored in the Athena transient event store (StoreGate).
+
+### Collections
+
+There is one collection type per object type: SiTrackerHitCollection, SiTrackerDigitCollection and SiTrackerClusterCollection. Although they have no common base class, they behave in a very similar way. The collections actually contain the objects (hits, digits or clusters), as data members. Therefore, these collections are the second objects used to access the hits, digits or clusters, from the user point of view. The granularity of collections is per _detector element_, which is the smallest active part, with an homogeneous readout system. The Pixel detector element is a module, i.e. one silicon crystal with sixteen readout circuits and one module control circuit. The SCT detector element is one side of a module, i.e. one or two silicon crystals wire-bonded together with six daisy-chained readout circuits. Each silicon tracker detector element is described by an instance of the SiDetectorElement[2], stored in the Athena transient detector store. Therefore, each collection has a link (pointer) to its corresponding detector element, to allow fast access to geometry information.
+
+The collections are stored directly in the Athena transient event store as individual objects, and not in their corresponding containers, allowing in the future "lazy unpacking" (or clustering). The link between the container and the collections is done through the SiTrackerIdHash class (in the InDetIdentifier package). This class builds a hash table in order to quickly retrieve a unique integer key corresponding to the logical offline identifier [3] of a collection (or more correctly the identifier of the corresponding detector element). This key is used to identify the collection in StoreGate.
+
+### Objects
+
+The lowest level of the new generic model is the object: hit, digit or cluster. They contain quite different information but they all contain, as a data member, a reference to the SiDetectorElement to which they belong. This pointer is extensively used to compute many quantities returned by hit, digit or cluster methods. Therefore, most of the knowledge is located in the detector description classes, in order to reduce the complexity of the hit, digit and cluster classes.
+
+## 2 Hits
+
+A SiTrackerHit object contains the information concerning an amount of energy deposited by a track in the active part of the Pixel detector or theSCT, at a given time. This is the output of the first part of the simulation (before the digitization [4]). Therefore, the hits do not exist for the real data.
+
+The structure of the hit related classes is shown in figure 1. A SiTrackerHit contains six data members:
+
+* the position where the energy deposition started,
+* the position where the energy deposition ended,
+* the amount of deposited energy,
+* the mean time when the energy deposition occurred,
+* the number of the track which deposited this energy,
+* a reference to the corresponding detector element.
+
+## 3 Digits
+
+A SiTrackerDigit object contains the information of a digit from the Pixel detector or the SCT. It can be a "real" data digit or a simulated one, output of the digitization procedure [4].
+
+The structure of the digit related classes is shown in figure 3. A SiTrackerDigit contains three data members:
+
+* a pointer to an object derived from the SiRawData class described in section 3.1 (the pointed object is owned by the SiTrackerDigit). This is the raw data of the digit, either "real" from the ROD or simulated from the digitization,
+* a pointer to an object derived from the SiSimData class described in section 3.2 (the pointed object is owned by the SiTrackerDigit). This is the data available only for simulated digits: "real" digits have a null pointer,
+* a reference to the corresponding detector element.
+
+### Raw data
+
+The SiRawData class and the derived classes contain the raw data of a "real" -- i.e. not simulated -- digit or the simulated raw data of a simulated digit. The raw data being very detector-dependent, the SiRawData class is an abstract base class. Nevertheless, for both the Pixel detector and the SCT, a digit is mainly characterised by an electronics readout cell which has fired. Therefore, a SiRawData contains a readout cell identifier, object of a class derived from SiReadoutCell [2].
+
+#### 3.1.1 PixelRawData class
+
+The PixelRawData class is the Pixel implementation of the abstract base class SiRawData. With respect to its parent, the PixelRawData class contains only one additional data member, the _Time over Threshold_ (ToT) information of this digit.
+
+The readout cell identifier contained by a PixelRawData object is a PixelReadoutCell. An object of this class uniquely identifies a single readout cell within a single module. It contains three data members:
+
+* the FE _circuit number_, within this module, which contains the readout cell,
+* the _column number_ of the readout cell within this FE circuit,
+* the _row number_ of the readout cell within this FE circuit.
+
+#### 3.1.2 SCT_RawData class
+
+The SCT_RawData class is the SCT implementation of the abstract base class SiRawData. With respect to its parent, the SCT_RawData class contains only one additional data member, the cluster size in number of strips of the digit.
+
+The readout cell identifier contained by a SCT_RawData object is a SCT_ReadoutCell. An object of this class uniquely identifies a single strip within one side of an SCT module, by its number.
+
+### Simulation data
+
+The SiSimData class and the derived classes contain information about the simulation process ("simulation truth"). Since the information needed for different detectors may be different, the SiSimData class is an abstract base class. But, some information being identical for the Pixel detector and the SCT, the SiSimData class is more than a simple interface and contains:
+
+* the bunch number of this digit, relatively to the triggered one,
+* four flags to define if the digit was lost because:
+* the connection between the diode and the readout cell (wire-bond or bump-bond) was broken,
+* the charge collected at the input of the readout cell was below the discriminator threshold,
+* the readout cell was disabled (dead cell or disabled because it is noisy),
+the digital information did not reach the data acquisition system due to inefficiencies in the readout chain.
+* the total charge collected in this readout cell and its composition, object of the SiTotalCharge class described in section 3.2.1.
+
+#### 3.2.1 SiTotalCharge class
+
+The SiTotalCharge class is the class used to describe a composite charge deposited by several different processes inside a single element. Therefore, it contains:
+
+* a charge value, which is the total deposited charge,
+* a list of SiCharge objects (see below), describing the composition of the total deposited charge in terms of individual charge deposition processes.
+
+#### SiCharge class
+
+The SiCharge class is the basic class used to describe charges in the silicon trackers digits. A SiCharge object is used to describe a charge created by a unique process. Therefore, it contains:
+
+* a charge value,
+* a time of deposition value,
+* a process type, which can be one of the following:
+* a track number, if the charge was created because of a track.
+
+#### Example of total charge
+
+As an example, if a single diode contains 2691 e\({}^{-}\) deposited by a particle with track number 67 and also 386 e\({}^{-}\) of noise, the total charge of the corresponding SiTotalCharge object will be 3077 e\({}^{-}\) and its composition list will contain two SiCharge objects, one with a charge of 2691 e\({}^{-}\), a process type SiCharge::track and track number 67, the other one with a charge of 386 e\({}^{-}\), a process type SiCharge::noise and track number 0.
+
+#### 3.2.2 PixelSimData class
+
+The PixelSimData class is the Pixel implementation of the abstract base class SiSimData. With respect to its parent, the PixelSimData class contains only one additional data member, a flag to define if the _Time over Threshold_ (ToT) information of this digit has been corrupted by a consecutive particle hitting this cell.
+
+#### 3.2.3 SCT_SimData class
+
+The SCT_SimData class is the SCT implementation of the abstract base class SiSimData. With respect to its parent, the SCT_SimData class contains no additional data member.
+
+## 4 Clusters
+
+A SiTrackerCluster object contains the information of a cluster of digits from the Pixel detector or the SCT.
+
+The structure of the cluster related classes is shown in figure 2. A SiTrackerCluster contains seven data members:
+
+* an object of the SiLocalPosition class [2], which is the position of the cluster centre,
+* two numbers representing the width of the cluster along the two main axes of the silicon detector surface,
+* two pointers to objects derived from the SiClusterError class to implement the errors along the two main axes of the silicon detector surface,
+* the list of pointers to the SiTrackerDigit objects which were used to make this cluster,
+* a reference to the corresponding detector element.
+
+## Conclusion
+
+The software released for the Data Challenge 0 contains a new transient event data model for the two silicon trackers, the Pixel detector and the SCT. This new model is based on the IdentifiableContainer base class, common to all Atlas sub-detectors. The implementation is mostly common to the two silicon trackers, with only a few specific classes, using the inheritance mechanism.
+
+## Acknowledgements
+
+I would like to thank Szymon Gadomski for fruitful discussions during the design of this software, Alessandro Fornaini for his help and Nikos Konstantinidis for reading and correcting this note. I also would like to thank NIKHEF for its hospitality during this work.
+
+## References
+
+* [1][http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/EventDataModel/](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/EventDataModel/)
+* [2] Silicon Trackers Detector Description Package, in the Atlas CVS repository (offline/InnerDetector/InDetDetDescr/SiTrackerDetDescr).
+* [3] RD Schaffer, S. Bentvelsen, _Definition of Offline Readout Identifiers for the ATLAS detector_, ATL-SOFT-2001-004.
+* [4] D. Calvet, _Silicon trackers digitization framework_, ATL-SOFT-2001-006.

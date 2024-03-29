@@ -1,0 +1,404 @@
+###### Abstract
+
+The implementation of the level 2 silicon track trigger in ATRIG is described. The various detector options, the extraction of data from the DICE simulation, the algorithm and possible future improvements are all discussed in detail.
+
+**ATLAS Internal Note DAQ-NO-047**
+
+**The Level 2 Silicon Track Trigger (T2SI) Implementation in ATRIG**
+
+Richard Hawkings
+
+(CERN/PPE Div)
+
+21 September, 1995
+
+Version 1.0
+
+## 1 Introduction
+
+The ATLAS trigger simulation package ATRIG [1] includes a simulation of a level 2 track trigger (T2SI) using the barrel silicon strip detectors (known at various times as SIT, SITV and SCT). This note describes the technical aspects of the trigger algorithm: the geometry of the silicon detectors and their implementation in DICE [2]; the extraction of the appropriate raw digitisations and their preprocessing; and the trigger algorithm itself. It does not detail the physics performance of the algorithm, which has been extensively studied in several detector configurations [3], [4], [5], [6].
+
+Some of the T2SI code is older than ATRIG itself, and it has been extensively modified several times to keep up with new inner detector designs. This is reflected in the code and data structure, which contain several obsolete features and unnecessary complications. It would be possible to simplify the code considerably if only the current inner detector configuration were to be supported.
+
+## 2 Detectors
+
+The barrel silicon detector consists of several layers of silicon strip detectors. Each detector wafer is typically of size \(6\times 6\) cm and \(300\,\mu\)m thick. The layers are tilted in \(\phi\) by typically 5 degrees and arranged in an overlapping tiled structure such that there are no gaps for normally incident tracks. Each wafer has \(\phi\) measuring strips parallel to the beam direction, stereo strips tilted at a small angle to the beamline, or perpendicular \(z\) measuring strips, at a pitch of typically \(50-200\,\mu\)m. The wafers are all individually modelled in GEANT, together with their corresponding electronics boards, support cylinder and (in later designs) materials representing cables and cooling systems.
+
+Three designs of the inner detector are supported in DICE, selected by the *MODE 'INNE' 'GEOM' card. These are (in chronological order) the 'Cosener's House' (CH) design (INNE 1), the 'Panel' design (INNE 2) and the 'Annecy' or 'Technical Proposal' (TP) design (INNE 3). Two variations of the Technical Proposal design are selected
+
+[MISSING_PAGE_EMPTY:2]
+
+of \(\phi\) by up to \(\sim 5\,\)mm across each wafer. In the TP layout, the overlapping of wafers in \(z\) also means the radius of detectors in \(z\) is alternately slightly above and below the nominal value.
+**Wafer size**: This measures the size of the silicon crystals making up each layer--note that 12 cm long wafers are formed by bonding together two physical 6 cm long silicon crystals to form one logical and electrical unit. Each wafer is read out by one or more electronics chips, which sit on a board situated under or beside the wafer. The material of the boards is included in the GEANT simulation, but they have no effect on the conceptual readout model.
+**Number of wafers**: A complete layer is built from a tiled array of wafers in \(r\phi\) and \(z\). The number of wafers in \(r\phi\) increases with radius, and the overlap between wafers is adjusted to give a integer number around 2\(\pi\). The number of wafers in \(z\) includes those at both positive and negative \(z\).
+**Strip size**: Each wafer is divided into strips, parallel to the \(z\) coordinate for \(r\phi\) measuring strips, and parallel to \(r\phi\) for \(z\) measuring strips. Strips run the whole length of the wafer in all cases except layers 3 and 5 of the CH design, where they are divided in two longitudinally to form a \(2\times 128\) array.
+**Number of channels**: In most cases, this is given simply by the wafer width divided by the strip size, however in the TP layout, a dead area of 1.2 mm has been included around the edge of each wafer, reducing the number of channels from 533 to 512.
+**Stereo angle**: The sign convention for the stereo angle is not known to me, and may not be consistent between the three layouts. Enterprising readers are encouraged to derive it by looking at the GEANT code...
+**Tilt angle**: The detectors are tilted about an axis parallel to \(z\) to allow an overlapping in \(\phi\). Due to radial space considerations, this angle usually decreases with increasing \(r\).
+
+The three layouts are described in more detail below:
+
+### The Cosener's House Layout
+
+This layout was the first attempt to mix precision (silicon) and continuous (TRT) tracking in the barrel, and is described in [7]. The silicon detectors are split (somewhat artificially) into two parts: the SITV detector, with pixel layers at \(r=11.5\) and 16.5 cm, and double sided stereo strip layers at 20 and 30 cm; and the SIT detector, with single sided \(r\phi\) strip layers at 30, 52, 79.5 and 105 cm, and \(z\) strip layers at 53 and 80.5 cm. Only the last SITV \(r\phi\) layer and the 5 SIT layers are used in the trigger (see table 1), because of the risk of radiation damage to the innermost layers at high luminosity. The SIT layers extend out to \(z=\pm 95\,\)cm, whilst the 30 cm SITV layer only extends to \(\pm 72\,\)cm. The geometrical acceptance for tracks having hits in all layers is limited to around \(\eta\approx 0.9\) by the length of the last SIT layer.
+
+The SITV has charge division readout, with only every second strip actually read out. Therefore the signals from adjacent strips are summed using an option in the T2SI code, as it is not clear if charge division can be exploited in the trigger system. The pitch of the first trigger layer is then effectively reduced from 50 to 100 \(\mu\)m. The \(z\) measuring side of this last SITV layer is not used in the trigger.
+
+The two \(z\) strip layers in the SIT were included in the trigger, in a second stage of processing. However, studies of the performance of this layout [4], [5], found no significant increase in jet rejection from using the \(z\) layers--using \(r\phi\) layers alone results jet trigger rate already dominated by real tracks from high \(p_{T}\) charged hadrons.
+
+Some tapes were produced with a different version of the SITV detector, with \(\pm\)3* stereo rather than 0 and 6\({}^{\circ}\). These can only be used for trigger studies if the stereo angles are changed using the datacard:
+
+*DETD 'SIT'28=0. 30--6.
+
+The T2SI initialisation will fail if an attempt is made to use stereo layers in the trigger.
+
+### The Panel Layout
+
+The Panel layout was a simplified design, placing all the silicon layers inside the TRT, and is described in [8]. All the inner silicon layers are part of the SITV detector, which in addition to the layers listed in table 1 include a strip layer at \(r=20\) cm and a pixel layer at \(15\) cm. The silicon wafers are rather small (\(3\times 6\) cm), leading to the large number of modules in each layer compared to the CH layout. Again, charge division readout was envisaged, and adjacent strips are summed in the T2SI code, giving effective pitches of 150 and 200 \(\mu\)m for the layers included in the trigger. The layers are double sided, with the back sides being by default fine pitched \(z\) strips. Again, these are not used in the trigger. Each layer extends to \(z=\pm 80\) cm, giving a trigger acceptance out to around \(|\eta|=1.1\).
+
+The trigger performance of this layout is documented in [4], [5], and is superior to the Cosener's House layout due to the smaller amount of material before the last silicon layer (the TRT having been moved entirely outside).
+
+### The Technical Proposal Layout
+
+As regards the barrel silicon, this design is similar to the Panel layout, but with larger wafers and a more detailed design. It is described in [9], [10], and in the Technical Proposal, and remains (with minor modifications) the ATLAS baseline design. All four of the silicon layers are used for triggering, and are implemented in the DICE detector 'SCT'(note the space after T). In DICE, the detectors have a pitch of \(75\,\mu\)m, corresponding to a binary readout option giving the target resolution of \(22\,\mu\)m. However, if charge division is used, the readout pitch can be increased to \(112.5\,\mu\)m without loss of resolution offline. This option has been used in the trigger performance studies of this layout, but it is not the default. It can be enabled with the DICE data card:
+
+*DETD 'SCT'20=0.01125
+
+However, the trigger will still work with the default pitch, and should give slightly better momentum resolution.
+
+In the TP layout, each SCT layer has a \(r\phi\) side with a zero stereo angle, and a 40 mrad stereo side, implemented as two sets of single sided back to back detectors. Physics studies have found that stereo detectors give adequate \(z\) resolution and better pattern recognition capability than \(z\) strips. Again, the stereo detectors are not used in the trigger algorithm.
+
+### The Readout Model
+
+This section describes the readout model--that is, how the wafers are connected up to fibres and read out. Since the Cosener's House and Panel layout are obsolete, only the readout model for the SCT in the Technical Proposal is being worked on, and only this will be described.
+
+Each detector wafer (\(6\times 12\) cm) is read out onto one low speed fibre. The data is kept in a frontend pipeline buffer, and only read out after a level 1 trigger 'yes' decision. Thus the SCT readout has only to keep up with the 100kHz maximum sustained level 1 rate, and not the full 40 MHz bunch crossing frequency.
+
+There are currently three options for readout:
+
+**Binary readout**: in which all the channels are simply tested against a threshold, and a bit pattern is read out indicating which channels are over threshold. This does not use charge division, and requires 75 \(\mu\)m strip pitch to obtain the specified resolution. It is similar to the readout scheme that was proposed for the SDC silicon detector.
+**Digital readout**: in which all the channels are tested against a threshold, and the signal pulse heights of those above threshold and their nearest neighbours are digitised and readout over a digital fibre link. Thus the data is'sparsified' and zero-suppressed.
+**Analogue readout**: with optical modulators (MQWs). In this scheme, no attempt is made at front end zero suppression--the analogue values from all the channels are multiplexed together in series and converted to an analogue optical signal which is sent through the fibre, demultiplexed and digitised in the readout cards before the level 2 buffer. This scheme has the advantage of not requiring zero-suppression on the front end, at the cost of greater transmission bandwidth and complexity in the off-detector readout system.
+
+As an example, the digital readout scheme is described in more detail. Each silicon wafer (512 channels) is connected to four 128 channel chips containing analogue pipelines, sparsification logic and ADC. These are in turn connected by a internal bus on the module to a readout controller chip (ROC). The ROC collects the data from the four frontend chips, formats it and drives an LED connected to the low speed fibre. There is thus one fibre per wafer, each fibre serving 512 detector channels. Only a single bunch crossing is read out for each event--the SCT detector response is fast enough not to require multiple bunch crossings, however the adjacent strips to the strip above threshold are read out to facilitate offline charge division analysis.
+
+The data format for each event is given in table 2[11]. Thus the number of bits transmitted for a given wafer is \(31+36*N_{hits}\), where \(N_{hits}\) is the number of hits on the wafer. This readout model can be combined with simulations of the detector occupancy to give an average data rateon each fibre. This is shown in table 3, where a level 1 trigger rate of 100kHz has been assumed, together with 10\({}^{-3}\) noise. This noise level is given by the SCT electronics specifications, and is required to keep the noise occupancy well below the physics occupancy. The physics occupancy numbers are derived from DICE simulations of the Technical Proposal layout, generating minimum bias events using GENCL[12], and assuming 20 such events per bunch crossing (10\({}^{34}\) cm\({}^{-2}\)s
+
+\begin{table}
+\begin{tabular}{|c|l|l|} \hline Preamble & 5 bits & synchronisation \\ Hea der & 13 bits & event identifier \\ Data & \(N_{hits}*36\) bits & strip ID, 3 pulse heights \\ Trailer & 13 bits & synchronisation \\ \hline \end{tabular}
+\end{table}
+Table 2: SCT fibre data format with digital readout option luminosity). The table also shows the total number of fibres per layer, counting both the \(r\phi\) and stereo sides.
+
+With this model, each silicon wafer maps directly onto one readout fibre. However, the fibres have a low datarate of only \(\sim 1\)Mbyte/s. A single T2 buffer is envisaged to handle a much higher datarate of the order of 50-100Mbytes/s. Thus some 'concentration' of several readout fibres into one T2 buffer is desirable. Which fibres go into each module--the mapping of fibres (and therefore detectors) onto T2 buffers has yet to be defined. It would clearly be advantageous to perform this mapping with reference to the physical regions of interest (RoIs) in \((\eta,\phi)\) space, so that the T2 local processors have to access the smallest number of different T2 buffers to obtain the data for a specific RoI.
+
+A related area is the format of the SCT data in the T2 buffer, after it has been deserialised from the read out fibre. Again, this has yet to be defined.
+
+## 3 Code Structure
+
+This section describes the technical details of the T2SI trigger implementation within ATRIG, giving the details of subroutines, input parameters set via the *DETA 'T2SI' data cards, common blocks, tables and datastructure. The algorithms for region of interest building and track finding are described in the following two sections.
+
+The silicon trigger code resides in the T2SI patch of the ATRIG CMZ file, and the associated sequence definitions are stored in the patch T2SICDE. The code follows all the rules for level 2 subtriggers as defined in the ATRIG manual [1]. Also to be found in the T2SI patch are a documentation deck T2SIOC (which is superseded by this note), and an ADAMODD specification for the common blocks (in deck T2SIDDL). This DDL was used to generate the common blocks in T2SICDE.
+
+### Subroutines
+
+The major subroutines in the T2SI patch are as follows:
+
+**T2SINI**: is the initialisation subroutine, called from T2SUNI via T2ZZINI. It is actually implemented as an integer function, which returns zero if a successful initialisation is completed, and a non-zero error code otherwise. This allows T2SI to switch itself off if it cannot initialise correctly (for example if the subdetector parameters cannot be read from DICE).
+
+The routine begins by attempting to determine the inner detector geometry from the INNE DETM bank. Geometries 1-5 are supported (see section 2). If the geometry bank cannot be found, it is assumed to be an early Cosener's House dataset with no INNE DETM bank. Following this, the T2SI DETA parameters
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|c|} \hline Layer & Number of & Physics & \(N_{hit}\)s & \(N_{bytes}\) & Mbytes/s & Mbytes/s \\  & fibres & occupancy (\% ) & wafer & per event & per fibre & per layer \\ \hline
+1 & 1008 & 0.51 & 3.1 & 18 & 1.8 & 1800 \\
+2 & 1344 & 0.29 & 2.0 & 13 & 1.3 & 1750 \\
+3 & 1680 & 0.20 & 1.5 & 11 & 1.1 & 1800 \\
+4 & 2016 & 0.13 & 1.2 & 9.4 & 0.9 & 1800 \\ \hline Total & 6048 & & & & & 7200 \\ \hline \end{tabular}
+\end{table}
+Table 3: Numbers of fibres, occupancy and data rates in the Technical Proposal SCT detector (see text)(see section 3.2), are read in, with suitable geometry dependent defaults. Then the subdetector geometry parameters are read for the appropriate DICE detectors (SITV, SIT, SCT, BPIX depending on the geometry). For each subdetector the DETP (input parameters), DETD (digitisation parameters) and DETG (derived geometry constants) need to be read--ideally all this information should eventually be put in a unified database structure. Following this, the geometry table (see section 3.4) is initialised with the parameters of each layer to be used in the trigger system. The layers and parameters are printed out, and the routine returns for a successful initialisation.
+**T2SIGET**: is the subroutine for getting the data from the DICE detectors into the 'raw region of interest' banks--T2SR and T2SH (see section 3.5). It is called from T2SUPER via T2ZGET, and is described fully in section 4.
+**T2SIFEX**: is the subroutine for performing 'feature extraction'--finding tracks in the data contained in the T2SR/T2SH banks. Details of the tracks are stored in the T2SF 'extracted feature' bank. This routine and the algorithm are described fully in section 5.
+**T2SIHIS**: is the subroutine for performing histogramming of the T2SI performance. It is called from T2SUPER via T2ZZHIS if the T2SI HIST flag is set. It produces anntuple (number 5002 in the T2SI subdirectory of the SLUG HB0 OK file) with details of the highest \(p_{T}\) truth track and the trigger results. It is called once per RoI, so thentuple may have several entries per event. It calls the utility routine T2RKINE in patch TRECON of ATRIG to get details of the truth tracks in the RoI.
+
+There are also two utility subroutines T2SRWAC and T2SFWAC, which get the T2SR and T2SF banks into the appropriate window commons. They provide a simple interface to the REBANK package, with error checking on bank existence. With a better datastructure manager, they would not be necessary.
+
+### Input Parameters
+
+This section describes the input parameters to T2SI, which are set on SLUG FFREAD data cards in the usual way. The trigger is enabled by the card:
+
+*MODE 'T2SI' 'ANAL' 1 'HIST' 1 'PRIN' 1 The production of thentuple 5002 can be disabled by setting HIST 0, and extra debugging printing can be enabled with larger values for the PRIN card. The T2 supervisor must also be enabled for the trigger to work, this is typically done with:
+
+*MODE 'T2SU' 'ANAL' 3 'HIST' 0 'PRIN' 1 Analy s mode 3 is necessary to select both RoI building (bit 0) and feature extraction (bit 1)--see the ATRIG manual for more details [1]. It is also necessary to have a source of level 1 triggers, e.g. the level 1 trigger must also be enabled, or events with a level 1 trigger datastructure must be read from the input file.
+
+The size of the RoI must be large enough to completely contain the track, bearing in mind the pointing accuracy of the level 1 trigger. It has been found that for 40 GeV electrons with RoIs generated by the level 1 calorimeter trigger (T1CA), an RoI half size of 0.15 in \(\eta\) and 0.08 in \(\phi\) is large enough. The default in ATRIG is \(0.15\times 0.15\), which is somewhat larger than necessary for the tracking. If desired, the smaller RoI can be set by a datacard of the form:*DETA 'T2SI' 10=0.08 which sets the first threshold EM cluster \(\phi\) half width to 0.08. The remainder of the T2SI parameters are stored in the T2SI DETA bank and set via cards of the form:
+*DETA 'T2SI' 20=32. 21=10.
+
+to set for example the first two \(p_{T}\) thresholds to 32 and 10 GeV respectively (note that due to a restriction in FFREAD and SLUG, decimal points are required even for integer values on any cards that begin with a ''). The complete set of T2SI datacards are listed in table 4.
+
+The silicon layers to be used in the trigger are set using data statements in T2SIINI. However, a method exists to alter this via the T2SI DETA datacards. Parameters 50 and onwards are used to determine which layers are used, according to the format shown in table 5. For example, in the TP layout, the barrel pixels can be added (producing a 6 layer trigger) by using the following datacard:
+
+*DETA 'T2SI' 50=6. 51=-1. 52=1. 53=-2. 54=1. 55=1. 56=1. 57=2. 58=1.
+*DETA 'T2SI' 59=3. 60=1. 61=4. 62=1.
+
+### Coordinate System
+
+Hits in the silicon detectors are described in cylindrical polar coordinates (\(r\),\(\phi\),\(z\)), where \(r\) is approximately constant for a particular layer (it varies slightly due to the detector tilting and tiling). In the first implementation, \(r\) was considered constant, and \(\phi\) and
+
+\begin{table}
+\begin{tabular}{|l|c|c|c|} \hline Parameter & \multicolumn{2}{|c|}{Default values} & Description \\ \cline{2-4} number & CH & Panel & TP \\ \hline
+1 & - & - & - \\
+2 & 150. & 150. & 150. & Assumed calorimeter radius (for extrapolations) \\
+3 & 14. & 14. & 14. & Maximum longitudinal vertex displacement (cm) \\
+4 & 16. & 8. & 8. & Number of phi subslices \\
+5 & 0.025 & 0.03 & 0.03 & Overlap between subslices \\
+6 & - & - & - \\
+7 & 4. & 4. & 4. & Number of active \(p_{T}\) thresholds \\
+8 & 1.0 & 1.5 & 1.5 & Maximum \(\eta\) at which to generate silicon RoI \\
+9 & 2.0 & 2.0 & 1.0 & Number of wafers connected to one fibre \\
+10-19 & - & - & - & Not used \\
+20-27 & 80. & 80. & 80. & First \(p_{T}\) threshold (GeV) \\  & 30. & 30. & 30. & Second \(p_{T}\) threshold (GeV) \\  & 15. & 15. & 15. & Third \(p_{T}\) threshold (GeV) \\  & 5. & 5. & 5. & Fourth \(p_{T}\) threshold (GeV) \\  & 4*0. & 4*0. & 4*0. & Four spare \(p_{T}\) thresholds \\
+28-35 & 8*3.0 & 8*3.0 & 8*3.0 & Maximum track RMS for each threshold \\
+36-38 & 3*10. & 3*10. & 3*10. & Digitisation threshold (SITV,SIT,SCT) \\
+39-41 & 3*0. & 3*0. & 3*0. & ADC RMS noise (SITV,SIT,SCT) \\
+42-44 & 3*0. & 3*0. & 3*0. & Fraction of dead channels (SITV,SIT,SCT) \\
+45-47 & 3*0. & 3*0. & 3*0. & Fraction of random hits to add (SITV,SIT,SCT) \\ \hline \end{tabular}
+\end{table}
+Table 4: T2SI DETA input parameters and defaults (part 1)\(z\) were expressed in an integer coordinate system1. Modern processors considered for the T2SI algorithm implementation can deal with floating point numbers, so when the varying radius \(r\) was also introduced for the 'INNE 3' algorithm, it was expressed in centimetres. The integer coordinate system for \(\phi\) and \(z\) should be simplified (i.e. removed) in the next version.
+
+Footnote 1: due to the author’s historical background in 6502 assembler programming, where floating point numbers are distinctly unwelcome!
+
+The \(\phi\) coordinate is measured anticlockwise from \(\phi=0\). The units are chosen to be half the angle subtended by the strips in the highest angular resolution layer--the outermost one if all layers have the same resolution. The number of \(\phi\) units subtended by a strip in layer L is given by the array T2SI_RAdj(L). Inside the RoI, the coordinates are measured from the lower \(\phi\) edge of the RoI (\(\phi_{min}\)). This avoids the problem of \(\phi\) wraparound at \(2\pi\) entering the fit routines.
+
+For \(r\phi\) and stereo strip layers, the \(z\) coordinate of the hit simply identifies the wafer in \(z\), and runs from \(-N_{z}\) to \(N_{z}-1\), where \(2N_{z}\) is the number of wafers along \(z\) in the detector. For \(z\) strip layers in the INNE 1 layout, the individual strips are taken into account as well, the number running from \(-N_{z}N_{z}\) to \(N_{z}N_{z}-1\), where \(N_{z}\) is the number of strips on a wafer in \(z\).
+
+### Geometry Table
+
+In order to (partially) isolate the T2SI region of interest building and algorithm routines from the GEANT implementation of the detector, a 'geometry table' is used. This table presents the various detector parameters of table 1, together with some derived constants, in a uniform format. The table resides in COMMON block T2SIGeo and is filled by the T2SININ subroutine. Unfortunately, as the silicon detectors in DICE have evolved, this table has had to be extended in an _ad hoc_ way, with the result that it is now somewhat more complex and less elegant than it might have been.
+
+The variables in the geometry table are described below, those that are arrays are indexed by layer number:
+
+**T2SIGeo_NLay** Number of layers used in the trigger algorithm.
+
+\begin{table}
+\begin{tabular}{l|c|c|c|l} \hline
+**Parameter** & \multicolumn{2}{c|}{**Default values**} & \multicolumn{1}{c}{Description} \\ \cline{2-5} number & **CH** & **Panel** & **TP** & \\ \hline
+50 & 6. & 4. & 4. & Number of active trigger layers \\
+51 & -4. & -3. & 1. & Layer number to use in SITV/BPIX (-ve) or SIT/SCT (+ve) \\
+52 & 2. & 2. & 1. & Number of adjacent strips to sum (charge division) \\
+53 & 1. & -4. & 2. & Layer number to use \\
+54 & 1. & 2. & 1. & Number of adjacent strips to sum \\
+55 & 2. & -5. & 3. & Layer number to use \\
+56 & 1. & 2. & 1. & Number of adjacent strips to sum \\
+57 & 3. & -6 & 4. & Layer number to use \\
+58 & 1. & 2. & 1. & Number of adjacent strips to sum \\
+59 & 4. & - & - & Layer number to use \\
+60 & 1. & - & - & Number of adjacent strips to sum \\
+61 & 5. & - & - & Layer number to use \\
+62 & 1. & - & - & Number of adjacent strips to sum \\ \hline \end{tabular}
+\end{table}
+Table 5: T2SI input parameters and defaults (part 2—detector layers)
+
+**T2SIGeo_NStripL** Number of'strip' (\(\phi\) measuring) layers used in the trigger algorithm.
+**T2SIGeo_NPadL** Number of 'pad' (\(z\) measuring layers used--the name 'pad' is historical).
+**T2SIGeo_NSBPhi(L)** Number of strips on a wafer in \(\phi\).
+**T2SIGeo_NSBZ(L)** Number of strips on a wafer in \(z\).
+**T2SIGeo_NBPhi(L)** Number of wafers around in \(\phi\).
+**T2SIGeo_NBZ(L)** Number of wafers in half length in \(z\), i.e. total number of wafers in layer is 2*NBZ*NBPhi.
+**T2SIGeo_IStripL(L)** Sequence number of this strip layer, from small \(r\), or 0 if it is a pad layer. Thus in the INNE 1 layout this array is filled with 1,2,0,3,0,4.
+**T2SIGeo_IPadL(L)** Sequence number of this pad layer--in the INNE 1 layout this array is filled with 0,0,1,0,2,0. In other layouts it is filled with 0.
+**T2SIGeo_LayTyp(L)** Type of layer: 1 for \(r\phi\) strip (or stereo) layers, 2 for 'pads'.
+**T2SIGeo_LayDet(L)** Indicates which DICE detector to use for this layer, the magnitude gives the DICE detector layer number, the sign indicates SITV or BPIX (negative) or SIT or SCT (positive). The choices SITV/BPIX and SIT/SCT are made according to the layout INNE number.
+**T2SIGeo_PhiOffs(L)** Offset between centre of wafer and strip 1, in units of strip number. In the SITV this is half the number of strips on the wafer, but in the SIT and SCT it is less, as the detector are asymmetrical with an electronics board on one side.
+**T2SIGeo_Cdf(L)** Charge vision factor--number of DICE strips to be combined into one readout strip for trigger purposes.
+**T2SIGeo_SubWth** Fractional width of one \(\phi\) subslice of the RoI, calculated from the number of \(\phi\) subslices and the overlap between them.
+**T2SIGeo_RLay(L)** Nominal radius of layer (cm).
+**T2SIGeo_DPhi(L)** Angle in \(\phi\) subtended by one strip at the nominal layer radius, taking into account the tilt angle in \(\phi\).
+**T2SIGeo_DZ(L)** Length of one wafer (\(r\phi\) and stereo layers) or one strip (\(z\) strip layers) in \(z\)--i.e. length of one \(z\) measuring element.
+**T2SIGeo_TPhi(L)** Total effective number of strips around in \(\phi\), equal to 2\(\pi\)/DPhi(L). This is less than the actual number of strips given by NBPhi*NSBPhi due to the overlap of adjacent detectors.
+**T2SIGeo_LenBZ(L)** Length of one detector wafer in \(z\) (cm).
+**T2SIGeo_RAAdj(L)** Radial adjustment factor, to convert from strip number in \(\phi\) to \(\phi\) coordinate system (see section 3.3).
+**T2SIGeo_NSEPhi(L)** Effective number of strips on a wafer in \(\phi\) direction, taking into account detector overlaps, such that TPhi=NBPhi*NSEPhi.
+
+**T2SIGeo_Tilt**: Tilt angle in \(\phi\) of wafers in this layer (radians).
+**T2SIGeo_DeltaR**: Distance in \(r\) between adjacent modules in \(z\) (only used in INNE 3 layout which has detector tiling in \(z\) as well as \(r\)).
+**T2SIGeo_Pitch**: Readout pitch of layers in \(\phi\) (cm).
+**T2SIGeo_GRot**: Global rotation of entire layer around \(z\) axis from \(\phi\) = 0. Only used in INNE 3 layout, where the first SCT layer is rotated by 5 degrees with respect to the others to avoid the dead regions of layers 1 and 4 (twice the number of wafers) all lining up.
+**Confused...?**: You will be.
+
+### ZEBRA banks
+
+The T2SI code follows the conventions detailed in the ATRIG manual [1] for ZEBRA banks, which are managed using the REBANK package. There are three types of banks, as follows:
+
+**T2SR**: The silicon raw data bank hangs from the global RoI T2ZD bank, and contains details of the position and content of the RoI within the silicon detectors. The bank contents are listed in table 6.
+**T2SH**: The actual silicon hits are stored in the T2SH banks, three words per hit, in the coordinate system described in section 3.3. These banks hang below T2SR, in a ZEBRA linear chain structure, one bank per detector layer. The contents are listed in table 7.
+**T2SF**: The silicon feature bank hangs below the T2SR bank and contains details of the best track found by the T2SI algorithm, if any. The bank contents are listed in table 8.
+
+The T2SR and T2SF banks are accessed via the T2SR and T2SF window commons in the usual way, via calls to RBPUT and RBGET. The T2SH banks however have no window common (due to their variable length) and are manipulated directly as ZEBRA datastructures (via the IQ() and LQ() mechanisms). They are created with RBSTORE and subsequently extended as necessary with MZPUSH.
+
+\begin{table}
+\begin{tabular}{|l|l|} \hline Item & Function \\ \hline RoiSSiz & Size of RoI measured in strips of last layer \\ MinPhi(L) & Number of minimum \(\phi\) board in RoI in layer L \\ NPhi(L) & Number of wafers in RoI in \(\phi\) in layer L \\ MinZBd(L) & Number of minimum \(z\) wafer in layer L \\ MaxZBd(L) & Number of maximum \(z\) wafer in layer L \\ MinZFib(L) & Number of minimum \(z\) wafer on fibre in layer L \\ MaxZFib(L) & Number of maximum \(z\) wafer on fibre in layer L \\ Nhits(L) & Number of hits contained in T2SH bank for layer L \\ \hline \end{tabular}
+\end{table}
+Table 6: Contents of the T2SR bank
+
+[MISSING_PAGE_FAIL:12]
+
+However, this is not true in \(\eta\), since the longitudinal vertex spread \(v\) makes the RoI wider towards the vertex. The RoI calorimeter \(\eta\) coordinates are first translated into \(z\) calorimeter coordinates:
+
+\[z_{cal}^{min} = \frac{r_{cal}}{\texttt{tan}\left(2\texttt{arctan}\,e^{-\eta^{min}} \right)} \tag{3}\] \[z_{cal}^{max} = \frac{r_{cal}}{\texttt{tan}\left(2\texttt{arctan}\,e^{-\eta^{max} }\right)} \tag{4}\]
+
+where \(r_{cal}\) is the assumed radius of the electromagnetic calorimeter (150 cm by default). Then the minimum and maximum \(z\) coordinates \(z_{l}^{min}\) and \(z_{l}^{max}\), at each layer \(l\) having radius \(r_{l}\) are given by:
+
+\[z_{l}^{min} = \frac{r_{l}}{r_{cal}}(z_{cal}^{min}+v)-v \tag{5}\] \[z_{l}^{max} = \frac{r_{l}}{r_{cal}}(z_{cal}^{max}-v)+v \tag{6}\]
+
+as can be seen by studying figure 1.
+
+### Geometry to Detector mapping
+
+Having obtained the coordinates of the RoI boundaries at each silicon layer, it is then necessary to translate these coordinates into specific detector numbers. Since the RoI is contiguous in \(\phi\) and \(\eta\), a minimum and maximum detector number in each coordinate is sufficient. In fact, to simplify the wraparound in \(\phi\) at \(\phi=2\pi\), a minimum \(\phi\) and number of wafers in \(\phi\) is used.
+
+The GEANT model of the detector introduces some complications at this point, so the problem will first be simplified for an 'ideal' detector layer, consisting of \(N_{\phi}\) wafers around in \(\phi\), numbered from 0 to \(N_{\phi}-1\) and \(2N_{z}\) wafers in \(z\), numbered from \(-N_{z}\) to \(N_{z}-1\). A particular wafer is then addressed by a triplet of numbers giving its layer, position in \(\phi\) and position in \(z\), denoted \((l,i_{\phi},i_{z})\). The wafers with \(i_{\phi}=0\) have the smallest \(\phi\), and their lower edges are offset from \(\phi=0\) by an amount \(\phi_{0}(l)\) (it may be different for each layer). The wafers with \(i_{\phi}=N_{phi}-1\) straddle the \(\phi=2\pi\) discontinuity. The wafers with the smallest \(z\) coordinate have \(i_{z}=-N_{z}\).
+
+Figure 1: Projection of RoI into silicon in longitudinal and transverse plane
+
+With this addressing scheme, the boundaries in \(\phi\) are specified by the minimum \(\phi\) wafer \(i_{\phi}^{min}\) and the number of wafers \(i_{\phi}^{N}\). These are given by:
+
+\[i_{\phi}^{min} = int(\frac{\phi_{l}^{min}-\phi_{0}(l)}{2\pi}N_{\phi}) \tag{7}\] \[i_{\phi}^{N} = int(\frac{\Delta\phi}{2\pi}N_{\phi}+1) \tag{8}\]
+
+where \(\Delta\phi=\phi_{l}^{max}-\phi_{l}^{min}\) (protected at the \(\phi=2\pi\) boundary) and the extra +1 ensures all boards which straddle the ROL are included.
+
+Similarly, the minimum and maximum \(z\) wafer coordinates are given by:
+
+\[i_{z}^{min} = int(\frac{z_{l}^{min}}{z_{len}}) \tag{9}\] \[i_{z}^{max} = int(\frac{z_{l}^{max}}{z_{len}}) \tag{10}\]
+
+where \(z_{len}\) is the length of a wafer in \(z\), and the function \(int(z)\) gives the largest integer smaller than \(z\), even when \(z<0\) (thus \(int(-0.5)=-1\)).
+
+### Detector to GEANT mapping
+
+Having derived the required wafer number in terms of the simplified geometry model described above, it is then necessary to convert these numbers into the actual GEANT addressing scheme. The GEANT DIGI banks are accessed through the ATLAS modified version of GFDIGI [13], known as GFDIG1 [14]. The detectors are referenced through the array NUMVS(6), which is detailed in table 9.
+
+The addressing of detectors in \(\phi\) is more complicated than simply \(N_{\phi}\) as GEANT does not allow the division of a volume into overlapping subvolumes. To allow the simulation of the \(N_{\phi}\) overlapping \(\phi\) detectors, each subvolume contains \(N_{s}\) overlapping wafers, and the overall volume is thus only divided into \(N_{\phi}/N_{s}\) subvolumes. NUMVS(3) then addresses the subvolume number (running from 1 to \(N_{\phi}/N_{s}\)), and NUMVS(2) the wafer number within this volume ('sublayer number', running from 1 to \(N_{s}\)). The positioning of these wafers is not obvious--the division between subvolume \(N_{\phi}/N_{s}\) and subvolume 1 occurs at \(\phi=0\), and the origin of the coordinate system in subvolume 1 is halfway between its edges. This origin coincides with the middle of sublayer 1 (see figure 2). In all the silicon detector layouts, each layer has an even number of wafers in \(\phi\), so \(N_{s}=2\) is used. However, in the barrel pixels of the INNE 3 layout, the first pixel layer has \(N_{s}=3\) and the second \(N_{s}=5\) due to the odd number of wafers in \(\phi\).
+
+In \(z\), the situation is simple for the SIT, SITV and BPIX detectors, where the wafer number in NUMVS(4) runs from 1 to \(2N_{z}\), rather than \(-N_{z}\) to \(N_{z}-1\) in the
+
+\begin{table}
+\begin{tabular}{|l|l|} \hline NUMVS & Meaning \\ \hline
+1 & Detector layer number \\
+2 & Sublayer number \\
+3 & \(\phi\) wafer number \\
+4 & \(z\) wafer number \\
+5 & \(\phi\) strip number \\
+6 & \(z\) strip number \\ \hline \end{tabular}
+\end{table}
+Table 9: GEANT DIGI bank volume structure for silicon detectors in DICE (see text)simple scheme. However, for the SCT detector, things are more complex--again because of the overlapping detectors. A set of 4 wafers (2 \(r\phi\) and 2 \(u\) stereo) is implemented as one module, with the numbering shown in figure 3. The NUMVS(4) number is then made up of the wafer number inside the module plus four times the module number in \(z\). The \(r\phi\) wafers corresponding to \(N_{z}\)={-7,-6,-5,-4,...} are then given by NUMVS(4)={4,2,8,6,...}, and the \(u\) stereo modules by NUMVS(4)={3,1,7,5,...}. The NUMVS(5) entry simply gives the \(\phi\) strip number, from 1 to NSBPhi, and NUMVS(6) the \(z\) strip number. Where there are no \(z\) strips, this number is 1 in SIT and SCT detectors, and 0 in SITV and BPIX.
+
+## 5 Algorithm and Implementation
+
+After the raw RoI information has been assembled in the T2SR and T2SH banks by the T2SIGET subroutine, T2SIFEX can be used to search for high \(p_{T}\) tracks. This subroutine contains the actual trigger algorithm, which can be broken into several sections,
+
+Figure 3: Schematic of layer geometry \(rz\) plane, showing overlapping \(r\phi\) and \(u\) stereo modules, and numbering scheme
+
+Figure 2: \(\phi\) subvolume geometry, showing a layer in the SCT (\(N_{s}\) = 2) and in the BPIX (\(N_{s}\) = 3)
+
+described in more detail below.
+
+The trigger algorithm considers tracks in the \(r\phi\) plane. Tracks starting from the origin with \(\phi=\phi_{0}\) and radius of curvature \(r_{c}\) have a \(\phi\) coordinate given as a function of \(r\) by:
+
+\[\phi=\phi_{0}+\frac{r}{2r_{c}} \tag{11}\]
+
+for \(r\ll r_{c}\). Thus, high \(p_{T}\) tracks from the origin form straight lines in the \((r,\phi)\) plane with gradient \(m=(2r_{c})^{-1}\). From the gradient, the track \(p_{T}\) can be deduced via the equation:
+
+\[r_{c}=\frac{p_{T}}{0.3B} \tag{12}\]
+
+where \(r_{c}\) is measured in metres, the magnetic field \(B\) in tesla and \(p_{T}\) in GeV.
+
+The algorithm divides the RoI into \(z\) slices, which are then further divided into \(\phi\) subslices. All combinations of hits within the subslice are then considered for a straight line fit, requiring 1 hit per layer on either 3 or 4 layers. For each fit, the RMS distance of the fit points from the track is calculated, and a cut is used to select good trigger tracks. The gradient of the track is then used to calculate the \(p_{T}\), and it is retained if it is above the trigger threshold. A quality algorithm is then used to decide which of any candidate tracks to return as the trigger tracks. In the INNE 1 layout, the \(z\) layers can also be used to make a subsidiary fit in \(z\) after the \(\phi\) trackfinding. However, in [4], [5] this was studied and found not to bring any additional rejection.
+
+### Division of RoI into subslices
+
+The division of the RoI into smaller subslices reduces the number of hit combinations that have to be considered. In \(z\), the natural unit of division is the wafer length--the RoI usually straddles 3 or 4 wafers, so each \(z\) wafer in the highest \(r\) layer is considered separately. Unfortunately, the vertex spread means that the narrowed road width at the last layer becomes wider again as the origin is approached, and each wafer in the first layer has to be considered with several of the last layer wafers.
+
+Analogously to equation 6, the \(z\) limits of the subslice in layer \(i\) are calculated from the limits in the last layer \(l\) (set to the minimum and maximum \(z\) positions of each wafer in turn):
+
+\[z_{i}^{min} = \frac{r_{i}}{r_{l}}(z_{l}^{min}+v)-v \tag{13}\] \[z_{i}^{max} = \frac{r_{i}}{r_{l}}(z_{l}^{max}-v)+v \tag{14}\]
+
+The \(z\) subslice is then further reduced by dividing it into several overlapping \(\phi\) subslices. The number chosen (16 for INNE 1 and 8 for INNE 2 and 3) layouts is a compromise between reducing the combinatorial problem and the overlap required to ensure tracks spreading across the boundary are not missed. The 'width' of the track in \(\phi\) is given by \(\Delta\phi=\Delta R/2r_{c}\), where \(\Delta R\) is the difference in radius between the first and last silicon layers. In practice, a somewhat larger overlap is used, to try to retain some efficiency for tracks which undergo bremsstrahlung and hence have a smaller \(r_{c}\) than that of the threshold \(p_{T}\) track.
+
+Having divided the RoI in this way, each subslice in \(z\) and \(\phi\) is considered in turn, and the appropriate hits from the strip layers are selected from T2SR and loaded into the 'layer lists'. The array LSPHI(i,l) holds the \(\phi\) coordinate (in integer units) and LSR(i,l) the \(r\) coordinate of hit \(i\) in layer \(l\). The array NSHITS(l) contains the number of hits in each layer, and the subslice is skipped if more than one layer contains no hits.
+
+### Track candidate search and fit in \(\phi\)
+
+All valid combinations of hits are now checked to see if they lie on a straight line corresponding to a high \(p_{T}\) track. Since one layer is allowed to be missing, the combination selecting logic is a little more complex than might be thought. The algorithm works as follows:
+
+The array LF(L) gives the index into the LSPHI() and LSR() arrays of the hit to be considered from each layer L. If LF(L) is zero, it indicates this layer is to be considered as the'missing' layer, with no hit in the fit. Initially, all the LF(L) are set to zero. Each time a new combination is required, LF(4) (the last layer) is incremented, if it then exceeds NSHITS(4), it is reset to zero, and LF(3) is incremented, and so on with LF(2) and LF(1). This process continues until all the LF(L) are set to NSHITS(L), at which point all the combinations for this subslice have been done.
+
+This algorithm selects all combinations of hits, including a'missing' hit, from each layer. However, it selects combinations with missing hits in several layers, which are discarded before trying to fit. A more efficient algorithm probably exists...
+
+Having selected a combination of hits, a linear least squares fit is performed, and the gradient \(m\), constant term \(c\) and RMS deviation \(d\) are calculated. The following equations are used, where \(J_{\phi}\) is the sum over all hits of hit \(\phi\), \(J_{r}\) the sum of hit \(r\), \(J_{r\phi}\) the sum of \(r\times\phi\) etc. \(q\) is a temporary variable (DN in the code), and \(n_{F}\) the number of points in the fit:
+
+\[q = n_{f}J_{r}-J_{r}J_{r} \tag{15}\] \[m = (n_{f}J_{r\phi}-J_{r}J_{\phi})/q\] (16) \[c = (J_{\phi}J_{rr}-J_{r\phi}J_{r})/q\] (17) \[d = \sqrt{(}(J_{\phi\phi}+m^{2}J_{rr}+n_{f}c^{2}-2mJ_{r\phi}+2mcJ_{r}- 2cJ_{\phi})/(n_{f}-2)) \tag{18}\]
+
+These equations can be derived from the least squares fit to a straight line.
+
+Since the fit is performed in internal 'integer coordinates', the results must be transformed into real space coordinates before the fit can be evaluated. The RMS (\(d\)) is divided by the RAdj value at the last layer to give a value in terms of RMS deviation in strip width at the last layer. Note that this is not really a \(\chi^{2}\), and the fit not a 'proper' least squares fit, as all the measurements are treated as having equal errors in \(\phi\). With a strip pitch that increases with layer radius, this is a reasonable assumption; however the latest SCT layout has a constant pitch to give a uniform module design.
+
+If the fit RMS is acceptable, the track \(p_{T}\), \(\phi_{0}\) (at the vertex) and \(\phi_{cal}\) (at the calorimeter) are calculated:
+
+\[p_{T} = 3.0\times 10^{-3}m\alpha \tag{19}\] \[\phi_{0} = c/\alpha+\phi_{min}\] (20) \[\phi_{cal} = \phi_{0}+m_{cal}/\alpha \tag{21}\]
+
+Here \(\alpha=\)RAdj/DPhi in the last layer, converting back to real \(\phi\) coordinates in radians. The factor \(3.0\times 10^{-3}=1.5\times 10^{-3}B\) contains the magnetic field \(B\) via equations 11 and 12. Since the magnetic field is not stored anywhere easily accessible in DICE, it is hardwired into the code.
+
+If the candidate track \(p_{T}\) is above the appropriate threshold, it is taken forward to the next stage. After this, the next combination of points in the subslice is considered.
+
+### Track candidate test in \(z\)
+
+In the Cosener's House (INNE 1) layout, the two \(z\) strip ('pad') layers can now be used as well. The \(\phi\) position of the track is projected into the \(z\) layers, and all the hits fromeach in the appropriate region are put on a list. What happens next depends on whether valid hits are found in both \(z\) layers.
+
+If there are hits in both \(z\) layers, all combinations are considered and the \(z\) vertex position calculated for each. If the vertex position is within the \(z\) vertex spread from the beamspot, the calorimeter \(z\) position is calculated. Several possible combinations can lead to several calorimeter positions, and the maximum and minimum are found, thus constraining the track-calorimeter match according to the \(z\) hits.
+
+If there are hits in only one \(z\) layer, then the trigger should only be allowed if all \(\phi\) layers are hit. In fact, this situation is flagged by adding 1 plus the total number of layers to the'missing layer' number, allowing such events to be identified offline. The \(z\) hit in the other layer is used together with the vertex spread to constrain the calorimeter \(z\) position of the track.
+
+The current SCT design specifies stereo rather than \(z\) strips for measuring the \(z\) position of tracks. This track candidate test in \(z\) is therefore considered obsolete. It should be replaced in the future by an algorithm using the \(u\) stereo layers.
+
+## 6 Track candidate output
+
+Since the current algorithm is based on overlapping subslices, it sometimes finds the same track more than once. In addition, every track with hits in all layers is also found with a hit missing in each layer. Hence, all these multiple tracks are suppressed, and only the 'best' track found in the RoI is output in the T2SF bank. The current 'best' track is stored, and a newly found track will replace it according to the following rules:
+
+* A four point track (with no missing layers) replaces a three point track.
+* A track replaces one with the same number of fit points if it has a smaller RMS deviation.
+
+This usually selects the most accurate measurement of a particular truth track, and finds an isolated high \(p_{T}\) track even when surrounded with low \(p_{T}\) pileup tracks. Unfortunately, the algorithm suppresses genuine multiple tracks in the RoI, which may be a problem for B-physics. To correctly handle these cases a'same track' test would have to be implemented, using e.g. track separation in \(\phi\) and \(p_{T}\).
+
+## 7 Future Improvements
+
+The SCT track trigger algorithm has been designed to trigger on high \(p_{T}\) tracks in high luminosity events. The emphasis has so far been on the physics performance, which has been demonstrated to be good, rather than questions of algorithm implementation. Other uses of a track trigger in ATLAS have also not received the same attention. This section details possible improvements to the algorithm and code to address some of these issues. It can be seen as a 'wish list' for future improvements to T2SI.
+
+### Algorithm improvements--speed
+
+The main weakness of the current algorithm is the dependance of the execution time on the 4th power of the occupancy (in the 4 layer case). This is due to the combinatoric loop over hits in all layers. The alternative approach, which does not suffer from this weakness, is a histogramming technique, which has been studied mainly for the TRT. In the SCT case however, the low occupancy and good resolution, together with the small number of layers, mean that the histogramming technique does not give good track resolution, and a lot of computing time is wasted creating and searching a very sparse image [15].
+
+However, a coarse histogram gives an indication of where to look in the RoI, without having to divide it up into subslices and spend a lot of time looking at unlikely combinations. The smaller region(s) could then be looked at with the combinatorial method, which makes maximum use of the silicon's high resolution. Some progress has been made using this idea in an online implementation [16], and it would be useful to implement it also in the 'offline' FORTRAN version in ATRIG.
+
+The relatively long strip length (12 cm) and closeness to the vertex of the current layout, compared to the initial layouts, also mean that it would probably be beneficial to drop the subslicing of the RoI in \(z\) as well. With the layout of the inner detector now settling down into a (hopefully) more final form, the algorithm should be reevaluated in terms of this layout, rather than the very flexible but somewhat inefficient implementation used at present.
+
+### Algorithm improvements--B physics
+
+A low \(p_{T}\) track trigger is required for certain B-physics channels, but there are several reasons why the current algorithm is not very suitable for this task:
+
+* The \(\theta\) angle of the tracks is required to calculate invariant masses, in order to reduce the trigger rate to a manageable level. This requires the use of \(z\) information in the stereo layers and/or pixels, which are not used in the present high \(p_{T}\) track algorithm. A more sophisticated version of the \(z\) matching algorithm used in the Cosener's House design will be probably be needed, running on tracks that have been initially found in the \((r,\phi)\) plane. For the stereo detectors, the problems of local pattern recognition and ambiguities will also have to be addressed in order to reconstruct the \(z\) coordinates.
+* The algorithm assumes tracks come from the origin of the coordinate system, so they form straight lines in the \((r,\phi)\) plane (equation 11). If they do not come from the origin, the algorithm gets the track \(p_{T}\) wrong, as is seen in figure 4, taken from [5]. Alignment problems causing the beam to be apparently off centre can be corrected for whilst transforming the hits from local strip coordinates to \(\phi\), providing the alignment has been calibrated. Movements of the beam during a fill are expected to be much less than the 200 \(\mu\)m beyond which this effect becomes significant compared to the intrinsic \(p_{T}\) resolution of the trigger. However, particles from secondary vertices may have significant impact parameters on this scale, and it may be that the fit has to be modified in some way to cope with this.
+* Finally, the RoI definition (section 4.1) assumes that the RoI boundaries are straight lines in \(\phi\), but for low \(p_{T}\) tracks, they should be cured. A simple addition to the RoI definition giving the minimum track \(p_{T}\) required, together with a corresponding alteration in the RoI to geometry mapping, should solve this problem.
+
+### Coding improvements
+
+The current implementation of T2SI in ATRIG contains a lot of redundant features concerned with old detector layouts and ideas. If these were to be removed, the code could be considerably simplified, with a corresponding easing of the translation for benchmarking studies. At the same time, the modularisation using the geometry table to hide the GEANT part from the algorithm could be strengthened, and the pixel detectors better integrated.
+
+The current inner detector design has five different types of precision tracking detectors: barrel SCT and pixels, and forward (endcap) MSGC/SCT, GAAS and pixels. All of these detectors can potentially be used in the precision track trigger. It would be advantageous to have a single set of routines that used data from all four detectors as appropriate, rather than the current split between a barrel SCT algorithm with 'ad hoc' pixel add on, and forward MSCG algorithm with GAAS add on. The geometry table interface could perhaps be extended to present all five detectors in a common format to a single (barrel or forward) trigger algorithm. The forthcoming rewrite of ATRIG to use the new DICE95/AGE simulation package, and the ADAMO data definition package, seems like an opportune moment to try and introduce some of these new ideas.
+
+## References
+
+* [1] J. Carter et. al., ATLAS Trigger Simulation user guide, latest version available on RD11 WWW server.
+* [2] ATLAS Offline Software Group, DICE manual, ATLAS Internal Note SOFT-NO-011.
+* [3] R. Hawkings and A. Weidberg, Second Level Electron Triggering in the ATLAS-A detector, ATLAS Internal Note INDET-NO-13 and addendum.
+* [4] R. Hawkings and A. Weidberg, Triggering a Choice--Second Level Electron Trigger in the ATLAS Inner detector, ATLAS Internal Note INDET-NO-052.
+* [5] R. Hawkings, Tracking and Triggering using silicon detectors and a study of Higgs physics at the Large Hadron Collider, D. Phil thesis, Oxford University, 1994.
+
+Figure 4: Track \(p_{T}(true)/p_{T}(trig)\) measured by T2SI vs. beamspot displacement from nominal centre for 50 GeV muons

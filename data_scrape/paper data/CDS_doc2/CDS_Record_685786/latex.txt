@@ -1,0 +1,91 @@
+###### Abstract
+
+The preprocessing task for the ATLAS-TRT is the transformation of raw data obtained from the ROBs to a new data format that is easier to handle for the following steps of the 2nd level trigger. The raw data contain up to three drift times and thresholds per straw which should be reduced to one drift time and threshold information. Due to the variable length of the raw data information per straw this format doesn't harmonize with word boundaries. Therefore it should be modified during the preprocessing. There are two possibilities to get constant lengths per transmitted straw. The first one is a transmission of all straws with constant length regardless they are hit or not. The second one is a transmission of only the coordinates of the active straws. It is shown that the coordinate format is best suited as preprocessing output. The algorithm which produces the drift times and thresholds of the active straws and puts them into a coordinate list is implemented in standard processors and FPGAs. Then, benchmarks of the two implementations are done and compared.
+
+ATLAS DAQ note 66
+
+Rudy Bock
+
+Klaus-Henning Noffz
+
+Matthias Sessler
+
+21 March 1997
+
+TRT Preprocessing-
+
+Algorithm, Implementations and Benchmarks
+
+## 1 Input data format
+
+This paper is based on the raw data format described in [1]. It is predictable that this format will be changed in the future. The new format will distinguish less cases and the amount of data will decrease. Nevertheless this study is founded on the raw data format outlined in [1], because at present there is no paperwork for the prospective format available and this format is not stable yet. This way the study describes the worst case which could occur.
+
+The raw data for the preprocessing will be the ROB data as described in [2] and summarized in [1]: Each ROB dataset consists of a 32 bit header, sequential data for each straw, and a 16 bit trailer. The sequential straw data consists of \(2,9,16\) or \(23\) bit per straw, depending on the number of bunch crossings with athreshold passed \((0,1,2\) or \(3)\). For each of this bunch crossings there are \(2\,\mathrm{bit}\) to identify the crossing, \(3\,\mathrm{bit}\) for drift time information and a low and a high threshold bit. In addition, every straw also has a \(2\,\mathrm{bit}\) terminator which leads to the above mentioned number of bits per straw. The calculations and measurements in this paper are made for one barrel-RoI which in general consists of \(2\) ROBs each containing \(821\) straws. For the endcap-RoI the changes of the algorithm are marginal.
+
+## 2 Preprocessing
+
+The aim of the preprocessing is to produce one drift time and threshold information per straw from up to three drift times and thresholds given in the raw data. The next step is to get rid of the sequential straw order with different lenghts of the straw entries, because general purpose processors are not very well suited to handle bit-manipulations. There are two main possibilities of data formats which are easier to deal with. First, a sequential dataset of all straws with constant length which results in a constant event volume independent of the occupancy. Second, a transmission of the coordinates of the active straws which results in low event volumes for low occupancies. From these two possible formats the coordinates are chosen, because this format is best suited for the following FEX and the amount of data is up to an occupancy of \(30\,\mathrm{\char 37}\) the lowest, see chapter 3.
+
+The **rules** for the production of the single drift time and threshold information per straw are the following:
+
+* if \(\geq 1\) threshold is high, then the threshold is high
+* the first valid drift time counts:
+* if first valid drift time is produced by first bunch crossing, then drift time := first valid drift time
+* if first valid drift time is produced by second bunch crossing, then drift time := first valid drift time + \(t_{0}\)
+* if first valid drift time is produced by third bunch crossing, then drift time := first valid drift time + \(2\cdot t_{0}\)
+
+## 3 Output data format
+
+The output data format for each active straw is the following:
+
+* \(5\,\mathrm{bit}\) drift time information * (0,1 or 2):\(t_{0}\,\leadsto\,2\)bit
+* first valid drift time \(\leadsto\,3\)bit
+* 1 bit threshold information (high/ low)
+
+In the case of a transmission of all straws with constant length, the first two drift time bits can be used to code if there is a hit or not. But the transmission of only the coordinates of the active straws is easier to handle in the following steps. In this case only the straw number within the ROB (10bit) is submitted and each ROB obtains a header that includes the ROB identification.
+
+**Event volume for entire TRT before/after Preprocessing**
+
+\begin{tabular}{|c|c|c|c|c|} \hline \multirow{2}{*}{[kByte]} & \multicolumn{4}{c|}{**occupancy**} \\ \cline{2-5}  & 0.03 & 0.10 & 0.30 & 1.00 \\ \hline data **before** & 128 & 180 & 329 & 849 \\ preprocessing & & & & \\ \hline
+**all** straws & 318 & 318 & 318 & 318 \\ with **constant** length & & & & \\ \hline only **coordinates** & 28 & 90 & 255 & 849 \\ of straws with hit & & & & \\ \hline \end{tabular}
+
+**Assumptions:**
+
+* drift time information needed for further steps
+* average of 2 bunch crossings in data before preprocessing
+* pixelfield contains 5 bit drift time and 1 bit threshold information
+
+* global address obtained by 9 bit ROB address in ROB header and 10 bit straw number in ROBdata
+* per hit 10 bit straw number, 5 bit drift time and 1 bit threshold
+
+## 4 Implementations
+
+Since general purpose processors are not optimized for bit manipulations, the preprocessing task was implemented in both standard processors and FPGAs. For the implementation in standard processors the programming language C was chosen and the benchmarks were made on a DEC-Alpha machine. For the implementation in FPGAs one Xilinx 4013E-3 like on microEnable [3] was chosen. microEnable is a PCI bus based board with a single FPGA and local SRAM, which has grown out of the concept of being a simple and cheap FPGA accelerator board.
+
+Both implementations have to care about 7 different legal cases per straw: No hit, hit(s) in bunch crossing(s) 1, 2, 3, 1+2, 2+3 or 1+2+3. Hits in bunch crossings 1+3 is excluded because it shouldn't occur. So you have to read the first two bit of a straw. Depending on the contents you then have to do nothing or read the next 7 bit. Depending on the contents of bit 6 and 7 you probably have to read the next 7 bit. Finally, depending on the contents of this bit 6 and 7 you probably have to read the next 7 bit. Now you must have the full straw information and generate the drift time and threshold information.
+
+The idea of the FPGA-algorithm is to store the incoming data in a shift register. Here, 2 bit are read out and depending on the contents the next 2 or 7 bit are read out and interpreted. This means, that in every clock cycle 2 or 7 bit are interpreted. If the shift register is almost empty, you have to read the next word from the incoming data stream and to align it to the shift register content.
+
+## 5 Benchmarks
+
+For the benchmarks on a DEC-Alpha testdata with an average number of two bunch crossings were produced. The probability distribution of the number of bunch crossings was chosen to be 25 % 1 bunch crossing, 50 % 2 bunch crossings and 25 % 3 bunch crossings. These data were stored in the memory of the computer and the measured time is just the time needed for the essential preprocessing.
+
+For the FPGA the preprocessing code was compiled and simulated. This results in an execution frequency of 40 MHz for the XC4013E-3. Due to an utilization of the FPGA-CLBs of only 24 % we are pretty sure that the implementation of 2 or 3 steps in parallel is possible. Especially if one takes into account that the XC4013E-3 can simply be replaced by the XC4028EX-3 which offers more than twice the complexity. In the case of 2 steps in parallel \(4,9\) respectively 14 bit are interpreted within one clock cycle. This results in a slightly lower execution frequency, but obviously a higher data throughput. For the following table a total speedup of the parallel implementation of a factor of two is estimated.
+
+**Time consumption of Preprocessing of one barrel-ROB**
+
+\begin{tabular}{|c|c|c|c|c|} \hline \([\mu\mathrm{s}]\) & \multicolumn{4}{|c|}{**occupancy**} \\ \cline{2-5}  & 0.03 & 0.10 & 0.30 & 1.00 \\ \hline preprocessing & \multirow{2}{*}{60} & \multirow{2}{*}{75} & \multirow{2}{*}{105} & \multirow{2}{*}{165} \\ on DEC-Alpha (300 MHz) & & & & \\ \hline preprocessing & \multirow{2}{*}{12} & \multirow{2}{*}{13} & \multirow{2}{*}{16} & \multirow{2}{*}{27} \\ on microEnable (40 MHz) & & & & \\ \hline \end{tabular} The values concerning the microEnable aren't reached in the actual implementation, because only one bit sequence per clock cycle is treated at the moment. This loses approximately a factor of 2.
+
+## 6 Conclusions
+
+* Coordinates are simplest to process in the next steps and produce the lowest amount of data needed, up to over 30 % occupancy.
+* CPU-time consumption of preprocessing should not be neglected in comparison with histogramming time (700 \(\mu\)s for end cap RoI (6 ROBs) with 30 % occupancy).
+* The usefulness of the drift time information should be tested.
+* Considerable speedups can be obtained by using FPGAs for preprocessing.
+* In the future there will be a new release of the raw data format. The new format seems to be compacter than the old one and easier to preprocess. Perhaps the studies should be repeated at the time the new format is stable. Then the effects on the datavolumes and processing demands can be attained.
+
+## References
+
+* [1]_ATLAS DAQ note 62_, R. Bock and P. LeDu, 27. Jan. 1997
+* [2]_Event Size in the TRT End Cap_, Ph. Farthouat et al., Feb. 1996
+* [3]_A FPGA-based Coprocessor proposed for Preprocessing in ATLAS_, Y. Gal, H. Hogl, A. Kugel, L. J. Levinson, J. Ludwig, R. Manner, K. H. Noffz, S. Ruehl, M. Sessler, M. Sidi, H. Singpiel, R. Zoz, acc. for publ. in Proc. Computing in High Energy Physics (CHEP), Berlin, April 1997

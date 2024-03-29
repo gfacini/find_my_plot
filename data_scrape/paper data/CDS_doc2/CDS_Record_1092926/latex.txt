@@ -1,0 +1,168 @@
+# Readout of the ATLAS Transition Radiation Tracker:
+
+Timing Parameters and Constraints
+
+Michael Hance
+
+University of Pennsylvania
+
+The atlas Transition Radiation Tracker (trt) is a straw tracker capable of detecting both minimum ionizing particles as well as transition radiation. The control and readout of this detector are very sensitive to several timing parameters, the values of which are constrained by the time available to sample data from a given event. In this note, these parameters and constraints are discussed.
+
+## 1 Introduction
+
+### The ATLAS Clock and Trigger Distribution System
+
+The Large Hadron Collider (lhc) will collide bunches of protons at several interaction points at an approximate rate of 40.08 MHz1. The clock from the accelerator is delivered to the atlas central trigger processor (ctp), from which it is sent to the atlas subsystems via a network of local trigger processors (ltp's). Triggers are distibuted via the same path - a trigger decision is made in the ctp and sent to all subsystems via the ltp's. Other signals sent by the ctp include event count resets (ecr's), a marker indicating a gap in the beam's bunch structure (the orbit signal), and other calibration signals for use by specific subsystems. This whole distribution network is called the atlas Timing and Trigger Control (ttc) system.
+
+Footnote 1: The precise clock frequency will be delivered from the accelerator during the run, and may have some small variation or phase offset from the clock used to initialize the detectors before collisions.
+
+Every event is tagged with two numbers - one to identify the number of the trigger that was sent, and another to identify the time at which the trigger decision was made, with respect to the beam clock.
+
+* The trigger number, or Level 1 identifier (l1id), is used by the event building system to combine event data from different subdetectors into a single atlas event.
+* The time indicator, or bunch crossing identifier (bcid), is inserted into the event by the subsystem hardware, and is a counter of the number of clock ticks since the last reset signal.
+
+The bcid is used as an indicator of whether or not a subsystem has lost its synchronization with the rest of the detector2, while the l1id is used by the data acquisition to build an atlas event from fragments created by the individual subsystems.
+
+Footnote 2: For instance, consider two subsystems each receiving two triggers. The first subsystem, **A**, returns data for both triggers, while the second subsystem, **B**, misses the first trigger but returns data for the second trigger. **A** and **B** will each return an event with an l1ID (X), and **A** will also return an event with l1id (X+1). **B**, however, should have returned data for (X+1), as it missed trigger X. The way to see this discrepancy is to check the time at which these data were taken, as opposed to just the order in which the data were received.
+
+Both the bcid and the l1id can be reset, via bunch count reset bcr and event count reset bcr signals, respectively. ecr's will be sent at rate sufficient to ensure the l1id is never more than 24 bits wide3, and bcr's will be sent during the beam gaps, which come at a frequency of 11.245 kHz.
+
+### The TRT Clock and Trigger Distribution System
+
+In the TRT subsystem, the 40 MHz beam clock is used in 3 places:
+
+* The back-end electronics, where:
+* The clock is received from the ltp and sent to the front-end electronics
+* The front-end data are packaged for storage
+* The patch panel electronics [5], which relay signals from the back-end to the front-end and _vice versa_;
+* The front-end electronics, where the analog straw data are digitized and sent to the back-end for processing.
+
+On the back-end, there are two different pieces of hardware - a board which interfaces with the atlas ttc system, called the trt-ttc, and the read out driver (rod), which processes the straw data returning from the front-end. Each are 9U vme modules. There are 48 trt-ttc's and 96 rod's for the trt subsystem.
+
+At the patch panel level, there are two (four) ttc patch panels for each endcap (barrel) trttc, and two data patch panels for each rod. Each patch panel corresponds to one half of one 32\({}^{\mathrm{nd}}\) of either the trt barrel or one trt endcap. See figure 1, which shows one half of one 32\({}^{\mathrm{nd}}\) of the trt, and the connections between the ttc's rod's, patch panels, and the front-end.
+
+For more detail on the connectivity and granularity of the trt readout, see [1].
+
+The trt-ttc controls almost all of the timing parameters for the trt. These parameters allow various signals to be delayed in the trt-ttc by up to 6.375\(\mu\)s, in steps of.5ns. By delaying
+
+Figure 1: Half of 1/32\({}^{\mathrm{nd}}\) of the trt readout chain, from back end modules to the front-end electronics.
+
+the clock, triggers, and resets for appropriate amounts of time, it is possible to satisfy all of the requirements imposed by the machine and the experiment, including stable communication between the trt-ttc and the front-end electronics, and the ability to capture the full pulse created by the passage of a charged particle through a straw within the readout window of the digitizing electronics. The details of all of these requirements and parameters are described in the rest of this note.
+
+## 2 TTC Communication with the Front-End Electronics
+
+The front-end electronics are driven by a copy of the 40 MHz clock generated by the trt-ttc, and distributed to various front-end boards by the ttc patch panel [5]. To handle both the barrel and the endcap, each patch panel has to be able to supply 20 copies of the clock. A single clock signal comes into the patch panel from the trt-ttc, and is split into 20 parallel copies, which go into Delay25 chips [4]. These chips are capable of delaying the output of the clock to the front-end by up to 24.5ns in steps of.5ns. The output clock is then sent, along with command data, to the front-end over four different lines: one clock line, and three command lines. The 3 command lines are:
+
+* Commands going from the trt-ttc to the front-end
+* Responses for register data from the front-end going to the trt-ttc
+* A signal for the front-end chips to hard-reset
+
+The control of the Delay25 chips is via the trt-ttc, which manages all of the communication with the ttc patch panel. So, from a programming and operations perspective, the trt-ttc sets the clock delays for the front-end electronics.4 For the list of real signals and their orientations, see table 1.
+
+Footnote 4: For a more thorough treatment of this material, and the rest of the material in this section, see [2].
+
+### Clock and Data Delays
+
+The ability to delay the clock to the front-end is required for reasons which will be further described in the section 4. Eventually it will be necessary to control the phase of the clock on each set of front-end chips based on the passage of particles through the detector. For now, the fact that the phase of the clock to the front-end can be shifted implies that the phase of the data must likewise be programmable.
+
+For an example of this, consider the front-end digital time measurement read out chips (dtm-rocs) [3], which receive the clock and a command signal from the ttc patch panel. In order to interpret the command signal, the signal must be latched by the dtmroc on some transition of the clock. For the purposes of this discussion, let's assume that the dtmroc latches incoming data on the rising edge of the clock.
+
+\begin{table}
+\begin{tabular}{|l|c|c|l|} \hline Signal Name & TTC to FE & FE to TTC & Special Notes \\ \hline Clock & Yes & No & One clock transmitted to TTC patch panel, split into 10 different signals for FE links \\ \hline Command Data In & Yes & No & DTMROC register writing, threshold setting, triggers, some resets \\ \hline Command Data Out & No & Yes & DTMROC register reading \\ \hline Hard Reset & Yes & No & Power-up reset of DTMROCs \\ \hline \end{tabular}
+\end{table}
+Table 1: The signals going from the TRT-TTC to the front end electronics and back. The TRT-TTC communicates to the front-end chips, the DTMROCs, via a patch panel.
+
+In figure 3, the first high bit of the data line will be seen at BC0, despite the fact that the data line first went high just before BC0. The dtmroc will interpret the above pattern as "10100".
+
+If the data are phase-shifted to just the wrong place, however, the dtmroc may never latch the data correctly. The dtmroc's interpretation of the data in figure 4 are not clear, as the data pattern is rising just as the clock is rising. Depending on the rise time of the clock and the data, the region of instability surrounding the rising edge of the clock can be up to several nanoseconds.
+
+If it's assumed that the clock delay will need to be determined by something besides the stability of the readout (again, see section 4), then there must be a data delay that can be tuned to compensate for the shift in the clock. This data delay is on the trt-ttc, sometimes called the "command data out delay", the "data out delay", the "data delay", or just the "dx delay". The clock delay is either the "clock delay" or the "bx delay". Both are done via Delay25 chips, and can be adjusted from 0 to 24.5ns in steps of.5ns.
+
+In order to determine the appropriate dx delay for a given dx delay, a "fine delay scan" is performed over the entire dx-dx delay space. A typical fine delay scan will, for every point in the
+
+Figure 3: The relative timing of the clock and data lines, as seen at the input of the dtmroc. In this case, the dtmroc will be able to latch the input data on the rising edge of the clock.
+
+Figure 2: The clock and data signal distribution for one stack of the trt barrel, originating in the trt ttc. One stack is one side of one 32\({}^{\rm nd}\) of the barrel, 1642 straws. The “Data” signals bundle the command data in, command data out, and reset signals, while the clock is uni-directional towards the front-end (see table 1 for a breakdown). The triangular boards on the right represent groups of between 9 and 15 DTMROCs which share a link with the TRT-TTC. Nowhere near to-scale. A more thorough explanation of the different signals transmitted to the front-end can be found in [5].
+
+space, set some on the dtmroc, and then read that register back to determine if the transaction was successful.
+
+For an example of a fine delay scan, see figure 5. The \(x\)-axis corresponds to the clock delay, the \(y\)-axis corresponds to the data delay. The blue regions of the plot are where the data transaction between the trt-ttc and the dtmroc failed - everywhere else the transaction succeeded. The diagonal band corresponds to a constant value of (bx-dx), where the rising edge of the data is very close in time to the rising edge of the clock. The vertical band will be discussed in section 2.2.
+
+### TRT-TTC Strobe
+
+Section 2.1 covered the flow of data from the trt-ttc to the dtmroc. However, in order for the trt-ttc to understand data returning from the dtmroc, the trt-ttc must also latch the incoming data to a clock edge. This is accomplished by means of a "stroke", or an "edge", that the trt-ttc uses to phase-shift the incoming data with respect to its own clock. The strobe can also be thought of as similar to the Delay25, but only shifting a line in steps of 25/4 ns. See figure 6
+
+The effect of the strobe is to move the vertical band seen in figure 5 to different values of bx - specifically, the band should shift by 6.25ns as the strobe is incremented. The size of the band is primarily determined by the number of dtmroc's on the front-end board, which communicate back to the trt-ttc via a bus. Data from the chip at the end of the bus will arrive at the trt-ttc later than data from the first chip on the bus. The spread in the arrival times of data from different dtmroc's will vary based on the board layout and the number of chips on the bus, from a few nanoseconds up to 12 nanoseconds. The fine delay scan above is from a board type with the largest number of front-end chips, AR2XS.
+
+The choice of the edge will depend on the choice of the bx and dx delays, with the goal of providing reliable readback of parameters from the front-end. It is important to note, however, that the choice of bx and dx determines whether or not the dtmroc responds correctly to trt-ttc commands, while the strobe only allows the trt-ttc to correctly interpret the response from the dtmroc. The vertical dead band in the fine delay scans represent regions where, except for the overlap with the diagonal band, the dtmroc has responded correctly.
+
+## 3 ROD Communication with the Front-End Electronics
+
+The choices of the clock delay, the data delay, and the trt-ttc strobe allow for good communication between the trt-ttc and the dtmroc. What remains is the communication between the dtmroc and the rod.
+
+Figure 4: The relative timing of the clock and data lines, as seen at the input of the dtmroc. In this case, the dtmroc will _not_ be able to latch the input data on the rising edge of the clock.
+
+The data from the dtmroc are transmitted electrically up to the data patch panel, where they are converted into optical signals by gigabit optical link chips, or gol's [6]. From the gol, the data are sent over fibers directly to the rod, where they are processed and sent to software processes.
+
+The gol has its own clock, which it uses to latch the dtmroc data. The gol clock comes from the rod, which receives _its_ clock from the trt-ttc. When the data leave the dtmroc, they are synchronized to the clock on the dtmroc, which was also provided by the trt-ttc. So, the data are entering the gol at the same frequency as the gol's clock. The phase of the data with respect to the clock on the gol, however, can be quite different from chip to chip, based on the rx delay for that dtmroc, the cable lengths separating the dtmroc and the gol, etc.
+
+To accommodate the different phases of the dtmroc data coming into a single gol, the gol has its own Delay25 chip, which is used to shift its clock from 0 to 24.5ns in steps of.5ns. This gol delay is the last timing parameter necessary to ensure stable communication between all backend modules ( ttc's and rod's) and the front-end.
+
+## 4 Aligning the Readout for Particles
+
+The previous sections have dealt with configuring the system for stable operation. However, it is clearly not sufficient for the system to be stable - the data produced by the system need to be useful as well. This section deals with the use of the various timing parameters to capture the necessary data for effective tracking.
+
+Figure 5: Four ttc fine delay scans for a barrel front-end board, one for each ttc strobe (or edge) (0-3). The diagonal band is caused by clock/data phase mismatches in the dtmroc, while the vertical band is due to poor interpretation of the dtmroc register readback at the trt-ttc. The vertical band can be shifted by adjusting the ttc strobe, while the position of the diagonal band is determined by cable and via lengths between the trt-ttc and the front-end board, and should remain fixed over all scans of that board.
+
+### Physics
+
+When a charged particle passes through the trt straws, Coulomb interactions between the charged particle and the valence electrons in the gas will result in the liberation of some of those electrons from their respective nuclei. In the trt, a wire is strung down the middle of the straw, the outer wall of which acts as a cathode. The wire then attracts the free electrons and forces the ionized gas atoms towards the cathode (the edge of the straw).
+
+If the electrons are liberated close to the wire, the current in the wire from the electrons will be seen almost immediately. Electrons that are freed closer to the cathode will have a drift time that depends on the type of gas used - for a Xenon/CO\({}_{2}\) mixture, this drift time will be around 40ns. A particle passing through the straw will always ionize some of the gas close to the edge of the straw, so the "trailing edge" of the bit pattern should be fixed with respect to the clock. See figure 7.
+
+In figure 7, the time over threshold for the digital output is more-or-less fixed by the point of closest approach of the track to the wire. An example of the effect of moving the track further away from the wire is shown in figure 8.
+
+In order to properly reconstruct the path of the particle through the trt, it's essential that both the leading and trailing edges are present in the readout. The maximum time over threshold, as seen by the digital electronics, is close to 70ns, while the full readout window for the digital chips is 75ns, so the margin for error is quite small. To properly align the data with respect to the clock, the trigger and clock will need to be shifted in time such that the passage of the particle comes at a fixed time relative to the dtmroc
+
+To properly align the data with respect to the clock, the trt-ttc must delay the trigger by
+
+Figure 6: The effect of the strobe parameter on the dtmroc data sent to the trt-ttc, as seen at the ttc. The four settings of the strobe correspond to delays of 6.25ns applied to the input data from the dtmroc’s. A correct choice of strobe will allow the trt-ttc to correctly latch the input data on the on-board clock, shown in red. In this case, strobe 1 would be a poor choice, while the other strobes will allow for good readout.
+
+the proper number of bunch crossings so that the data can be seen at all, and then must use the BX delay to align the data within the window of 75ns.
+
+### Trigger Delay
+
+When the trigger is received by the dtmproc, it will look into its pipeline to retrieve data from a point in the buffer. The maximum depth of the pipeline is 255\(\times\)25ns, and a programmable register in the dtmproc is what indicates where in that pipeline the dtmproc should look for data. The value of that register is called the _pipeline latency_, and should be equal to the number of bunch crossings elapsed between the collision to be read out and the time the trigger signal reaches the dtmproc.
+
+In practice, the pipeline latency, which is programmable by dtmproc, is set to a uniform value for the entire detector, and a separate delay in the trt-ttc is used to delay the transmission of the trigger by some number of bunch crossings. This delay in the trt-ttc is applied at the level of a front-end board, which contains between 9 and 15 dtmproc's, resulting in fewer parameters to tune.5 The coarse grained trigger delay in the trt-ttc is called the tdm delay. See figure 9.
+
+Footnote 5: In reality, the fine delays are set by front-end board, so there is no need to tune each dtmproc’s pipeline latency.
+
+Using the tdm delay, it is possible to tune the timing such that the majority of a track will lie within the time windows seen in figure 7. However, the leading or trailing edge may still be missing. For this, a finer-grained delay is necessary.
+
+Figure 8: In this case, the straw is just barely hit by the charged particle, and the only gas ionized is near the cathode. The trailing edge of the distribution does not shift, as it is fixed by the size of the straw - the leading edge, however, moves later in time to reflect the drift radius of the track.
+
+Figure 7: The passage of a charged particle through the straw ionizes gas, which causes an electron cascade into the anode. The resulting current is read out by the analog electronics and digitized by the dtmproc. The pulse at the right shows the result of that digitization. The blue regions are where the low threshold was crossed - the red region is where the low and the high threshold was crossed. The point of closest approach of the particle to the wire determines the leading edge of the digital pulse, while the size of the straw (and drift speed of the gas) determines the trailing edge.
+
+### BX Fine Delay
+
+To tune the position of the digital pulse within the trt readout window, steps of 25ns are too large. However, delaying the trigger in steps of less than 25ns will not shift the pulse within the time window, as the dtmroc is only aware of the trigger when it latches the trigger to the clock. The solution, then, is to change the phase of the clock such that the trigger is latched some number of nanoseconds earlier or later.
+
+Changing the clock phase is discussed in section 2.1. If one wants to shift the position of the digital pulse such that the leading edge comes later in time, one should reduce the size of the bx delay. To shift the pulse to an earlier time, one should increase the size of the bx delay. See figure 10.
+
+Shifting the phase of the clock allows for fine-tuning within the time window, but it will likely require some re-tuning of the tdm delay before the readout is correct. In figure5, the diagonal dead band corresponds to the region in which the clock and the data (in this case, a trigger signal) are arriving at the dtmroc with exactly the same phase. Moving across that band effectively changes the clock tick in which the data are latched. On one side of the band, the data arrive just before the leading edge of the clock, and are latched almost immediately - on the other side, the data arrive just after the leading edge of the clock, and take almost 25ns to be latched.
+
+Figure 10: The effects of changing the clock (bx) delay on the time position of digitized pulse. Increasing (decreasing) the value of the delay makes the pulse appear to move left (right). In fact, it is the x-axis (time) which moves with respect to the pulse.
+
+Figure 9: The contribution of various delays and cable lengths to finding the right timing for particles. A particle’s passage is shown on the left, which generates a level 1 accept in the ctp. The trigger from the ctp travels to the subsystem ltp. In the trt case, the trigger then goes to the trt-ttc, where it is delayed by some number of bunch crossings such that when it arrives at the front-end, the total time between the passage of the particle and the arrival of the trigger at the front-end is equal to the pipeline latency set in the dtmroc.
+
+There is (at least) one other thing to note in figure 5. The vertical band, at constant Bx, corresponds to the region in which the data from the dtmrocs are not interpreted correctly by the trt-ttc (see section 2.2 for a complete explanation). This vertical band provides the spread in the signal arrival time within a front-end board. More precisely, it says that the spread in the timing distributions for chips from the same front-end board will have a minimum width of roughly half the width of this diagonal band. In the worst case, this means a spread of almost 6ns, which means that the available window of 75ns is almost completely consumed by all of the constraints on the timing parameters.
+
+## References
+
+* [1] TRT Detector Granularity Note (2006) [https://twiki.cern.ch/twiki/pub/Atlas/TrtDAQ/granularity.pdf](https://twiki.cern.ch/twiki/pub/Atlas/TrtDAQ/granularity.pdf).
+* [2] S.Baron, P.Lichard, TRT TTC06 Specification (2005) [https://twiki.cern.ch/twiki/pub/Atlas/TrtDAQ/TTC05specs.pdf](https://twiki.cern.ch/twiki/pub/Atlas/TrtDAQ/TTC05specs.pdf).
+* [3] TRT Collaboration, TRT DTMROC Specification (2003) [http://www.hep.upenn.edu/atlas/dtmroc/dsm_dtmroc/DSM_DTMROC_Specs_v1_12.pdf](http://www.hep.upenn.edu/atlas/dtmroc/dsm_dtmroc/DSM_DTMROC_Specs_v1_12.pdf)
+* [4] H. Correia, A. Marchioro, P. Moreira and J. Schrader, Delay25 (2005) [https://edms.cern.ch/document/599915/1.1](https://edms.cern.ch/document/599915/1.1)
+* [5] The ATLAS TRT Collaboration, The ATLAS TRT Electronics (2008) Submitted to JINST, publication pending.
+* [6] P. Moreira et al., GOL reference manual. [http://proj-gol.web.cern.ch/proj-gol/](http://proj-gol.web.cern.ch/proj-gol/)

@@ -1,0 +1,162 @@
+ATLAS Event Filter
+
+Test Results for the Supervision Scalability
+
+at ETH Zurich, November 2001
+
+C. Bee, C. Meessen, Z. Qian, F. Touchard
+
+CPPM Marseille, CNRS-IN2P3 and Universite de la Mediterranee
+
+_Abstract_
+
+We present here the results and conclusions of the second tests of the PC based Event Filter prototype performed in November 2001 at the _asgard_ cluster of the Department of Physics of ETH Zurich.
+
+## 1 Introduction
+
+First scalability tests of the Event Filter (EF) Supervisor have been performed at ETH Zurich in July 2001. A detailed report can be found in [1].
+
+These tests have demonstrated the ability of the Supervision system to launch a large number of processes in a distributed environment. However, the means to measure with a good accuracy the execution time of the administration tasks have shown some limits-tions. Some limitations of the protocol used for the naming service and of the implementation of the server have also been shown.
+
+A new testing session on the _asgard_ cluster has been organised at the end of November 2001 thanks to the Department of Physics of ETH Zurich. The aim was to make more precise measurements of the performance of the Supervision system in terms of execu-tion time. Moreover, we have made a new implementation of the Name Server taking into account the results of the July test.
+
+This document summarises the obtained results and the first drawn conclusions.
+
+## 2 Test items
+
+* The Event Filter Supervisor, as it is implemented for the PC-based EF prototype [2].
+* The Name Server (NS) used to establish the communication between the event servers and clients of the EH [3]
+
+## 3 Features to be tested
+
+### Supervisor performances
+
+* Time to boot a configuration as a function of
+* the number of sub-farms (will modify the number of components D1, D2, C2)
+* the number of processing tasks (will modify the number of processes)
+* the number of mobile agents (degree of parallelism)
+* Time to shutdown a configuration as a function of the same parameters as above
+* Time to visit, i.e. collect monitoring data from, a configuration as a function of the same parameters as above
+
+### Name server
+
+The behaviour observed in July when some processes did not start properly if there were too many mobile agents sent in parallel had been interpreted as due to the overload of the name server combined with a too simplistic protocol to handle unsatisfied requests. Some modifications in the protocol have been introduced as well as a new implementation of the database containing the stored information. The effect of these new features were to be checked.
+
+We also need to have a better understanding of the interactions between the processes requiring access to the naming service and the server itself.
+
+## 4 Features not to be tested
+
+N/A
+
+## 5 Principles of the mobile agent operation
+
+The number of nodes which are visited by a mobile agent is an adjustable parameter. The smaller is the number of nodes to be visited, the larger is the degree of (nearly) parallel-ism of the Supervision. Practically, one sends first a mobile agent per sub-farm in charge of creating the D1 and D2 components (see [3] for a description of these components) as well as the other required components on the machines on which D1 and D2 are running. Finally, the mobile agents in charge of creating the other components (D3, processing tasks, etc...) are sent. In every target machine, D3 and C1 are started first, then the processing tasks. The identity of the visited nodes by a given mobile agent is in general random. An option in the Supervisor allows to attribute mobile agents on a sub-farm basis.
+
+## 6 Modified features in the implementation
+
+### Measurement of Supervisor performances
+
+One of the limiting features of the Supervision as it was implemented during the July test was the absence of an automated and accurate way to measure the time necessary to perform an operation such as starting the required processes on all the machines of the Farm. This has been obtained by modifying the Name Server capabilities.
+
+When the supervisor reads the new configuration file, it sends the names of the expected processes to the Naming Service. This operation triggers clearing of the database and the counters. The Name server computes the time in seconds between the first and the last naming service request. This value is appended to a file every 5 seconds with counters reporting the number of each type of operation received so far. Once the delay and the counters keep the same value after two append operation, the starting process is considered finished. The file content evolution is followed by use of the UNIX command "tail -f".
+
+This method does not work for the measurement of the time required for the shutdown operation and to collect component statistics. We considered that this drawback was not so important for the present measurements, the order of magnitude obtained by the old visual observation described in [1] being sufficient.
+
+This method also showed some limitation when spurious request arrived at the Naming Service just after reloading the new list of expected components and before starting the event filter farm. These requests started the time measurement too early.
+
+### Name server
+
+A component wanting to interact with the NS (either a server registering its identification or a client requesting the location of the server it must connect to), it sends a UDP mes-sage containing the proper information and waits for the answer from the NS, coming also as a UDP message. Two delays are used during the transaction between the NS and the components :
+
+* **nstmo** is the delay (in ms) defining the occurrence of a timeout for the answer of the NS to the component. This timeout may be due to the loss of the first message sent by the component (and therefore the NS has not been notified) or to the loss, or a too long delay, of the answer. The default value is 500 ms.
+* **nsdelay** is the delay (in ms) elapsed before a new request is made after the occurrence of a timeout. The default value is 2000 ms. A fraction of the delay is randomly ad-justed in order to avoid systolic effects.
+
+Those delays are now adjustable (this was not the case in July). Two counters have been implemented to distinguish the two causes of loss (i.e. the loss of the first message or the late arrival of the answer).
+
+The protocol for the communication between the different processes accessing the Name Server has also been modified. In the previous implementation, server processes failing to register with the NS three times exited. When the load of the NS was too heavy, a large number of processes failing to start was observed. Such a protocol had been chosen because it was thought that it could avoid deadlocks in the communication. We have decided to remove this limitation by having a dynamic parameter for the maximum number of attempts. The default is an infinite number of attempts.
+
+Finally, the mechanism to store and retrieve information gathered by the NS has been modified. The previous implementation used a C\(++\) STL map. The time to reload the da-tabase when restarting the NS could be very long if the number of entries was large (of the order of several thousands). Access to the information has also been improved. In the new implementation, we use a memory mapped file to store the information and a hash table in a memory map to retrieve it. Delays to store and retrieve information have been significantly improved for very large configurations.
+
+## 7 Test conditions
+
+### The _asgard_ cluster
+
+The whole _asgard_ cluster (240 bi-processor compute nodes) has been dedicated to our tests during 2 days. The processors are Pentium III 500 MHz (for 192 nodes) or 600 MHz (for 48 nodes). Each machine has 1 Gbyte of RAM and a 6 GB IDE hard disk. Frames of 24 machines are linked by 100 Mb/s Ethernet switches and between the frames by a 1 Gb/s Ethernet switch. Three login servers and two file servers (Pentium III 500 MHz) are connected to the 10 frames via a 1 Gb/s Ethernet switch.
+
+All machines run Red Hat Linux 6.2 (except the file servers which run SuSE Linux 6.3).
+
+### Observed problems
+
+In this section, we report briefly some problems which have been observed only when performing the test on a large scale, but had not been detected during the development phase in the laboratory.
+
+It has been noticed (unfortunately while the available time for the test was nearly over) that spurious requests could, from time to time, upset the measurement by starting the timer too early. This could explain some of the fluctuations observed in the results reported below. We have not been able to fully understand the origin of these spurious requests because of the lack of time. Further investigations should be undertaken, possibly first on a much smaller prototype. When taking care that no spurious request is present, fluctuations observed for the different measurements were of the order of 5 seconds.
+
+Several minor bugs in the implementation of the NS have been discovered when performing the test. They concerned mainly the filling of the NS database (when dynamically increasing the size of the database). These bugs had not been observed before be-cause we had not large enough configurations on the small farm used for development.
+
+We also noticed some strange behaviour of the Voyager mobile agents. From time to time, an agent was "blocked", frozen on a host, and could not move further to visit the other nodes on its task list. By killing the agent server on the host, the situation was generally deblocked and the agent continues its work. The tasks which had not been started on the faulty node had however to be started manually. At shutdown time, we have also observed from time to time the failure to terminate some processes. The version of Voyager we are using is rather old. It is now a licensed product and we only have the last freely available release. We do not have access to the source of the code and therefore no debug operation is possible. We consider nevertheless that the problem is only a minor drawback for the evaluation of the mobile agent technology. Moreover, Voyager will allow us to test at a minimum change in the code different communication technologies (peer to peer, publisher-subscriber) in a near future. Finally, let us note that we use a Java Swing table to display the 10,000 odd rows of the status of the Farm. The display is sometimes dramatically slow, taking about one minute to be updated. Revisiting the implementation code is needed to improve the situation.
+
+## 8 Test results
+
+### Effect of the number of mobile agents
+
+We have measured the time necessary to start a configuration consisting in a single sub-farm of 240 nodes, and 2 processing tasks per compute node1. The Distributor components D1 and D2 and the Collector component C2 were running on one of the compute nodes (n001). There were therefore 963 components (processes) to start.
+
+Results are gathered in Figure 1.
+
+When parallelism is increased by increasing the number of sent mobile agents, The time to start the configuration decreases as expected. A minimum is observed when 10 to 20 agents are used in parallel. Then the time to start the configuration increases slightly when the number of mobile agents increase above 40. This behaviour is not fully under-stood and we need further tests, possibly using other technologies than mobile agents, to identify clearly the causes.
+
+The same measurement has been made with a configuration made of 20 sub-farms, therefore increasing the number of servers (D1, D2 and C2 components). Results are shown on Figure 2.
+
+The general behaviour is the same as in the previous measurement. Times are slightly larger but the difference is not really significant, considering the slightly increased number of components. This could also be attributed to a larger number of servers, which are
+
+Figure 1: Time to configure a single sub–farm of 240 nodes
+
+Figure 2: Time to start a 20 sub–farm configuration
+
+more demanding on the system since the name server cannot answer requests of clients trying to connect to a server as long as the current one has not been started.
+
+The most noticeable fact is the optimum number of mobile agents working in parallel, of the order of 20 in both cases. This could be expected because too many agents working in parallel mean too many simultaneous requests to the name server which cannot handle them, therefore generating timeouts and retry operations which delay reaching the steady state.
+
+### Effect of the total number of processes to be started
+
+We have studied the ability of the Supervision system to launch very large configurations, i.e. a very large number of processes.
+
+We have varied the number of processes to start by changing the number of processing tasks running on every compute node. We have chosen to use a configuration of 20 sub-farms served by 20 mobile agents, every agent being in charge of a single sub-farm. The 12 compute nodes of a given sub-farm being on the same Ethernet switch, the network configuration was in the most favourable state for communication. Results are shown on Figure 3.
+
+During our measurements, we have noticed the occurrence of rather strong fluctuations of the results, when the number of launched processes became large. The origin of these fluctuations is not clear. It could come from the hash table used for information retrieval (see Section 6.2) the size of which was not large enough, forcing the NS to dynamically increase it, or to the occurrence of some spurious requests fouling the measurement. Again, there was not enough time to understand and improve the situation and the accu-racy of the results displayed in Figure 3 is not as good as it could have been. However the general trend is clear and the results show the ability of the Supervision system to manage a large number of processes in a reasonable time. Let us point out that the time measured here takes into account not only the process creations but also the synchronisa
+
+Figure 3: Time to start a configuration as a function of the number of processes
+
+tion between the different clients and servers. It is effectively the time necessary to have a complete farm in a working situation.
+
+We have also tried a massive use of the rsh command to launch the processes, instead of the mobile agents. The processes were started following the order used to store the configuration in the database, without regard for their client or server nature. This resulted in a saturation of the NS with unsatisfied requests and the global failure of the operation. A more organised operation, where servers would be started first, then the clients, should give better results.
+
+### Effect of the various timeouts
+
+We have varied the nsdelay and nstmo (See section 6.2, page 4) parameters for a configuration consisting of 20 sub-farms, 5340 processes to start and 20 mobile agents.
+
+For a value of nstmo of 500 ms (default value), we have varied nsdelay from 500 ms to 2000 ms. We have not observed any variation of the time to start the processes (\(\sim 21\pm 1\) s). This shows that the nsdelay being kept to 500 ms, we have decreased nstmo down to 250 ms. The time to start the processes has increased from 21 to 24 s. Such an increase is not really significant (it was anyway reproducible within \(\pm\) 1 s), but it shows that we do not wait long enough before trying to initiate a new connection between the process and the name server and that extra collisions are generated which slow down the whole operation.
+
+### Time to collect monitoring information
+
+As explained before, we have no built-in automatic procedure to measure the time necessary to collect the monitoring information gathered by the data flow processes (e.g. the throughput). This time has been measured manually, with all the associated uncertainties. For a configuration containing 5340 processes and using 40 mobile agents (i.e. 6 agents per node), the collection time was of the order of 15 seconds. Some extra delay was introduced by the display as explained in Section 7.2, page 5. In the same conditions, a more simple measurement using serialised UDP messages took only approximately 2 seconds to collect the data.
+
+## 9 Test conclusions
+
+With a much better accuracy, we confirm the results obtained in July 2001 on the same _asgard_ cluster. The enhancements brought to the implementation of the Name Server protocol have allowed to increase dramatically the number of mobile agents sent in parallel.
+
+It has been observed that there is an optimum number of mobile agents working in parallel to supervise the Farm. It stands between 10 and 20 mobile agents, each one being therefore in charge of 12 to 24 nodes. It is independent of the number of sub-farms.
+
+The Supervision mechanism proposed in the present prototype has shown a good ability to manage a very large number of processes. The graphical user interface [2] has proved to be rather convenient to access the status and monitoring information collected by the mobile agents. Work has still to be done to achieve a better ergonomy.
+
+The internal parameters of the Name Server used for timeouts in the process synchronisation have no dramatic influence on the global performances. The present default values gives a reasonable behaviour, where requests are not lost during the UDP based transac-tions. It does not seem worth making further investigations in this direction.
+
+## 10 Acknowledgements
+
+We would like to thank the Department of Physics of ETH Zurich and in particular, Dr. C. Grab, Dr. A. Biland and G. Sigut, for the use of the _asgard_ cluster and for their kind assistance before and during the tests.
+
+## References
+
+* [1] ATLAS Event Filter Tests on the ASGARD cluster at ETH Zurich (ATL-DAQ-2001-007), C. Bee et al., [http://documents.cern.ch/archive/electronic/cern/others/atlnot/Note/daq/daq-2001-007.pdf](http://documents.cern.ch/archive/electronic/cern/others/atlnot/Note/daq/daq-2001-007.pdf)
+* [2] PC-based Event Filter Supervisor : Design and Implementation, Z. Qian et al., [http://documents.cern.ch/archive/electronic/cern/others/atlnot/Note/daq/daq-2001-002.pdf](http://documents.cern.ch/archive/electronic/cern/others/atlnot/Note/daq/daq-2001-002.pdf)
+* [3] Event Filter Dataflow Software, C. Meessen et al., [http://documents.cern.ch/ar-chive/electronic/cern/others/atlnot/Note/daq/daq-2001-001.pdf](http://documents.cern.ch/ar-chive/electronic/cern/others/atlnot/Note/daq/daq-2001-001.pdf)

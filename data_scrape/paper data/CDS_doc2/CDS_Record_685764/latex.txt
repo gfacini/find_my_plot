@@ -1,0 +1,141 @@
+# ATLAS Internal Note DAQ NO. 46
+
+31 August 1995
+
+Event Building Protocols
+
+VERSION 1.0 June 1995
+
+Andre Bogaerts\({}^{1}\), Manfred Liebhart\({}^{1}\), Jean F. Renardy\({}^{2}\), Ralf Spiwoks\({}^{1}\), Per Werner\({}^{1}\)
+
+\({}^{1}\) CERN, ECP Division, 1211 Geneva-23 Switzerland
+
+\({}^{2}\) CEA SACLAY DAPNIA/SPP P91191 Gif/Yvette CEDEX France
+
+###### Abstract
+
+_Control Protocols for parallel Event Building in HEP DAQ Systems are described. It is shown that these can be based on two simple data structures suitable for a wide class of architectures. A few examples of different push and pull architectures are given._
+
+## 1 Introduction
+
+A _parallel Event Builder_ is illustrated in Figure 1. Data is produced by a _Data Sources_ each containing event _fragments_, numbered sequentially 1,2,..,.., which are combined into whole events in one of the m _Data Destinations_.
+
+We allow that only a subset of the sources contributes to the Event Building process. Examples of Event Builders can be found in the proposed implementation of the CMS [1] "Virtual Level-2" and Level-3 Trigger as well as the ATLAS [2] Second and Third Level Trigger. The sources may be thought of as Read-out Dual-Port Memories (RDPM, for CMS [1]) or LVL2 Buffers or Processors (ATLAS [2]), the destinations as Second or Third Level Trigger Processors, interconnected by a network.
+
+First, we shall describe a broad class of Event Building protocols and show that these can be based on two elementary data structures which keep track of the location of the fragments which eventually will constitute the whole event. Event Building protocols may then be described by algorithms which update the data structures. These may either be executed directly by the sources and destinations if the tables are located in shared memory, or indirectly by the exchange of messages with an _Event Manager_ that controls the tables. Event management and tables may be distributed if required for scalability or modularity of the detector. Protocols have to address a multitude of issues such as data copying or just data access, push/pull architectures in case of copying, trigger decision latencies, scheduling of processors, distributed or centralized event management and robustness/error recovery [3]. A strategy for choosing control protocols is given in [4]. The choice of actual protocols and implementation details may depend on the technology. A few examples will be given. Detailed results from demonstrator systems and simulations can be found in specialized literature [5],[6],[7].
+
+## 2 Event Building Protocols
+
+### Terminology
+
+Event building protocols are naturally layered in _data transmission, dataflow control_ and _configuration_.
+
+Event and control data may be _transmitted_ over a unique or separate network for which drivers and higher level software are often required.
+
+The _dataflow_ is _controlled_ by Event Building protocols which assign destination processors. They ensure correct movement of data and synchronisation of processors. Ideally, they make maximum use of the bandwidth of the interconnect, do not leave processors idle, minimize trigger decision latencies (to minimize memory), recover from malfunctioning of equipment and allow flexibility in the implementation of trigger algorithms.
+
+_Configuration_ is traditionally part of the Run Control and involves selection and initialization of all the components (processors, memories, interconnects, trigger algorithms). The Run Control will need to continuously monitor the system, log anomalies and reconfigure in case of persistent malfunctioning.
+
+The term _source/destination driven_ indicates how the data flows. In a source driven architecture, data is _written_ by the sources. In a destination driven architecture, data is _read_ by the destinations. In systems supporting shared memory it is possible that data is (remotely) accessed (read) rather than transferred in its entirety. This is a particular case of a destination driven architecture.
+
+Fig 1: Parallel nxm Event BuilderThe term _push/pull_ relates to the dataflow control and indicates that the source/destination _initiates_ the transfer. It is thus possible to have a destination driven push architecture, e.g. when the source has the possibility to activate a DMA device in the destination.
+
+This is perhaps the place to dispel a few myths. Push architectures allow multiple parallel data transfers to the same destination, but this may unfortunately overload the receiving port resulting in data loss (ATM), long delays (in establishing a connection, Fiberchannel) or thrashing (caused by retry traffic, SCI). Sources cannot start pushing data as soon as this is available but must wait till the destination is ready to accept it. Equivalently, in a pull architecture a destination may initiate a transfer when it is ready and data is available in the source. Push architectures cannot therefore guarantee low latencies in general and the choice depends on detailed considerations.
+
+Destination processors can be assigned centrally by an Event Manager or the task may be distributed over sources and destinations. Several strategies are possible to determine the destination for an event. In addition, it must be known if the destination processor has queue space available and in some cases the address of the destination buffer must be supplied.
+
+Non-deterministic algorithms (e.g. based on pseudo random number generators to associate a destination with an event) are for this reason not very suitable. Deterministic algorithms may investigate the queue sizes of the destinations to make the "best" decision. A very simple deterministic algorithm is round-robin scheduling where the destination is a simple function of the event number that can be calculated by any source and destination. The algorithm can easily be distributed. Another popular algorithm is to choose a processor which has no or the least number of events queued. This minimises latencies.
+
+## 3 Data Structures
+
+It is assumed that data is collected and buffered in the data sources. In push architectures destinations must also buffer events. How this is done (random access buffer, fifo, circular buffer, linked list,...) and what the buffer size should be is outside the scope of this paper (see [4] for more details). Event Building and data management becomes much simpler if it is not required that an event occupies a contiguous block of memory. This allows sources to push blocks of data of unknown size, or for certain pull architectures, direct access to data without memory remapping. Fortunately, most Physics Analysis Software assumes that data is organized in smaller logical entities ("banks").
+
+Two data structures form the basis for the Event Building protocols. Although we shall refer to these structures as tables they may be implemented in different forms such as linked lists or fifos.
+
+A local, one-dimensional _Fragment Table_ (indexed by event number) in each source or destination keeps track of the buffered event fragments. Each entry consists of an event fragment descriptor which contains all the information necessary to access a data fragment such as: a pointer to the event fragment data, its size and status.
+
+A global, two-dimensional _Event Table_ keeps track of all stored events (and its fragments) which are being processed ("alive"). The elements are also event fragment descriptors. One dimension ("row") is indexed by event number and associates all fragments belonging to one event with a destination. The second dimension ("column") is indexed by source identification and associates fragments with the source from which the data originated.
+
+Figure 2 shows an example of these tables for a _pull_ architecture. Rows in the Event Table contain pointers to fragments in all _sources_ that contribute data to the event (some may be empty). A destination can start building an event as soon as it has the information of a complete row. A scheduling algorithm assigns rows to destination processors.
+
+Figure 3 shows an example for a _push_ architectures. Each row of the Event Table contains pointers to the buffers in the _destinations_ to which each source must transfer the data. A source can start transferring data to the various destinations once the column information becomes available; a destination can start event analysis as soon as a row is complete (some fragments may be empty).
+
+The Event Building process can be viewed as read and update operations of the Event and Fragment Tables which requires communication between sources and destinations. There are two practical ways to achieve this.
+
+The tables may be accessed through messages to a unique owner e.g. a data source or destination for the Fragment Table, or an Event Manager for the Event Table.
+
+Alternatively, tables may be kept in shared memory. If data items are modified by several processors access may have to be protected by (global) semaphores. This method can be very efficient and is particularly suited to SCI. Updates may have to be accompanied by messages, or even simply interrupts, if immediate action is required though simple polling in the "event loop" is often sufficient.
+
+Figure 2: Event and Fragment Table for a _pull_ architecture
+
+[MISSING_PAGE_FAIL:3]
+
+spending time in context switching for normal event processing.
+
+For a pull architecture, event building consists of reading the event data fragments serially. Several choices are available: transfer the totality of the event (using DMA), transfer blocks piecemeal or just access the data in situ (SCI transparent read/write memory access).
+
+The task of event management is distributed over the sources and destinations. The number of messages (read/write operations which must traverse the switch) in this implementation is 4n (could be reduced two 2n). Assuming n \(\sim\) 200 and an 10us event arrival time this results in a data rate of hundreds of Megabytes/s just for synchronisation.
+
+### Source driven Push Architecture
+
+Many data networks can only support source driven architectures and these have therefore received more attention. To benefit from the potentially low latencies one has to be careful in the design to avoid overloading the I/O system of the destination as well as waiting times in the receiving data queues.
+
+In this SCI implementation we shall use shared memory for the passing of messages, as in the preceding example. Since the destinations need to buffer events, they each hold a Fragment Table accessible by the sources. Each entry in the Fragment Table now contains a pointer where to receive the data of the fragment as well as a data ready status indicator. This indicator must be read and tested by the source which, when it indicates ready, transfers the data and sets the status to data available. The Data Destination should fill the Event Table with valid pointers ahead of time for as many events as it wishes to buffer. The Data Banks and Fragment Table combined with the corresponding entry in the Event Table creates a ZEBRA-like scattered data structure in each Destination Processor as illustrated in Figure 5.
+
+## 5 Examples of Event Building with HIPPI
+
+### Source-Driven Push Architecture based on HiPPI
+
+Another source-driven push architecture can be implemented using the HiPPI standard [9].The data sources and data destinations are connected via a HiPPI switch [10].
+
+Each source holds an Event Fragment Table for all the arriving event fragments. This table can be implemented as a linked list of event descriptors which contain pointers to the actual data. The sources assign the destination to a given event fragment in a round-robin manner or use a field in the event
+
+Figure 4: Data Producer, Event Builder and Run Control
+
+Figure 5: Data Structure in Destination Processors
+
+descriptor filled by some earlier stage (e.g. T2 Trigger Supervisor). The sources then send the data to the destinations using the HiPPI protocol. In this protocol the sources can "camp-on" the switch waiting till the requested destination becomes available. Several camp-on requests are arbitrated by the switch in a round-robin manner. The end of a transfer is defined in the HiPPI protocol by a destination signal propagating back to the source which can then start "pushing" the next event fragment.
+
+The event assembly is done in the destinations which hold each one its part of the Event Table, this table being implemented as a linked list of the event descriptors of full events which point to a linked list of event fragment descriptors.
+
+This architecture which uses no other feedback from the destinations than the one defined in the HiPPI protocol can equally be implemented using FibreChannel class1 connections [7],[11].
+
+### Source-Driven Pull Architecture based on HiPPI
+
+A source-driven pull architecture can be implemented with the same setup as described in section 5.1 on page 5. Instead of assigning the destination statically in a round-robin manner the data will wait for a destination to send a request. This request can be generated by the destination whenever it has enough buffer space to build a new full event. The request is broadcasted to all the sources by a network which has to ensure that no request gets lost and that they arrive at all the sources in the same time-order they were produced at the destinations. In this way the request can be used by the source to assign the "next" event fragment. A possible implementation is done using the VMEbus for this purpose [12].
+
+The Event Fragment Tables are kept in the sources, the Event Table in parts in the destination and they are both implemented as linked lists.
+
+This architecture can equally be implemented using FibreChannel class 1 connections in which case the FibreChannel links could also be used to transport the destinations' requests.
+
+## 6 Event Building with ATM
+
+Examples of ATLAS Level-l2 and Level-3 architectures are given in [13].
+
+## 7 Trigger Scenarios
+
+The protocols discussed above are fairly general and applicable to both second and third level triggering. To be discussed: ATLAS/CMS model, RoIs & ATLAS T2, T2 buffering and event management, assignment of destination processors, local processing, parallelism, farms, massively parallel systems, phased event building, role of latencies, impact on memory usage, switch capacity, CPU usage, algorithms, software aspects, drivers, libraries, operating systems, flexibility.
+
+## 8 Robustness and Error Recovery
+
+Design of a robust system requires careful analysis of the cause of expected errors, their frequency and the amount of error recovery which is built into the communication network. Treatment of residual errors and, in some cases, recovery of data complicates and obscures production quality code considerably. It may also lead to the choice of a particular control protocol. For clarity, this aspect has been ignored in all the examples.
+
+## References
+
+* [1] CMS Collaboration, "Technical Proposal", _CERN/LHCC 94-38 LHCCP1 CERN, Geneva, Switzerland 15 Dec. 1994_
+* [2] ATLAS Collaboration, "Technical Proposal", _CERN/LHCC 94-43 LHCCP2 CERN, Geneva, Switzerland 15 Dec. 1994_
+* [3] R. Spiwoks, Requirements of an Event Building System, _RD13 Technical Note 111, April 1994_
+* [4] J.F. Renardy, "A taxonomy of control protocols for event building with switches", _To appear in the Proceedings of RT95, IEEE Conference, Michigan_, 1995
+* A System for Modelling DAQ/Trigger Systems", _To appear in the Proceedings of RT95, IEEE Conference, Michigan_, 1995
+* [6] B. Wu, A. Bogaerts, H. Li, B. Skalali, "Modelling of the ATLAS Data Acquisition and Trigger System with SCT", _To appear in the Proceedings of RT95, IEEE Conference, Michigan_, 1995
+* [7] W. Greiman et al., Design and Simulation of FibreChannel Based Event Builders, RD13 Technical Note 132, Oct. 1994
+* [8] M. Liebhart, A. Bogaerts, P. Werner, "Event Building with SCI", _RD24 Report_, 1995
+* [9] HiPPI-PH, ANSI standard X3T9.3/91-005
+* [10] S. Buono et al. (RD13 Collaboration), Prototype of an Event Building System based on HiPPI, to appear in Proc. of. Int DAQ Conf., Fermilab, 1994
+* [11] Fibre Channel Standard, ANSI working group X3T911/FC-PH
+* [12] G. Ambrosini et al. (RD13 Collaboration), Studies on Switch-Based Event Building Systems in RD13, submitted to CHEP 95, Rio de Janeiro, 1995.
+* [13] D. Calvet et al. "A Study of Performance Issues of the ATLAS Event Selection System Based on an ATM Switching Network", _To appear in the Proceedings of RT95, IEEE Conference, Michigan_, 1995
+
+Figure 6: Push Architecture based on HiPPI Protocol
+
+Figure 7: Pull Architecture based on HiPPI Protocol

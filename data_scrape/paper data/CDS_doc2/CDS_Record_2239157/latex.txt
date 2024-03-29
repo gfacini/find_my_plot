@@ -1,0 +1,695 @@
+The ATLAS RunTimeTester is a job based software test system. The RunTimeTester runs jobs, and optional tests on the job outputs. Job and test results are reported via a web site. The system currently runs \(\approx\) 8000 jobs daily, and the web site receives \(\approx\) 25K hits a week. This note provides an overview of the system.
+
+Introduction
+
+The RunTimeTester (RTT) is a software framework used in ATLAS to run jobs, and to examine the results of those jobs.
+
+ATLAS software developers devise the jobs and tests to run. They communicate their needs to the RTT via configuration files in their code base.
+
+The RTT production system is synchronized with the ATLAS build system. The RTT is run over sixty times a day on different ATLAS builds.
+
+During the build process, the code is checked out of the repository. The RTT locates the configuration files using CMT (Code Management Tool).
+
+The configuration file is parsed to discover the jobs and tests to run. In the production system, the jobs are sent to a batch system, where the large resources available allow substantial jobs and tests to be run.
+
+The status of an RTT run, its jobs and results of the jobs and tests are recorded in the RTTSummary file. This file is used as input to downstream displays such as the RTT web site. The information in the summary file is also made available to RTT clients to allow them to produce their own displays, or to perform further processing.
+
+The RTT is also run in non-production contexts. The development version is configured to run in a manner similar to the production version (it submits jobs to the batch system), but is usually configured to run fewer jobs.
+
+The RTT can be configured to run in stand-alone mode. The jobs are then submitted to the local host. This mode is useful to debug test jobs. The lack of computing power on local machines relative to the batch systems prevents the jobs typically run in the production system from running locally.
+
+## 2 Configuration
+
+### Package Configuration
+
+Package requests to the RTT are recorded in the package configuration file. A line is added to the package CMT requirements file to specify where the configuration file is located. This allows the RTT to find the configuration file via CMT commands.
+
+The package configuration file is of XML format, and is checked using a validating parser and a Document Type Definition (DTD) file. The DTD can be found at:
+
+[http://www.hep.ucl.ac.uk/atlas/AtlasTesting/DTD/unifiedTestConfiguration.dtd](http://www.hep.ucl.ac.uk/atlas/AtlasTesting/DTD/unifiedTestConfiguration.dtd)
+
+The configuration file is used to specify the type of job to run (Athena or job-transform), along with options for running these jobs.
+
+The configuration file allows the specification of job chains. A job chain is a set of jobs which obey certain synchronization conditions. In particular, it is possible to require that a job is run only after another specified job has finished. The chaining mechanism also allows the output of an earlier job to be used as input for later jobs.
+
+Common combinations of RTT job options can be bundled together to form a job group. A job can specify that a specific job group be used, in which case the options of that job group are applied. Job groups are a convenient way of reducing repetition when specifying options.
+
+Job groups can be part of a hierarchy. Job groups lower in the hierarchy inherit all the options of the jobs higher in the hierarchy. The immediate parent of a job group is specified in the the job group tag.
+
+### RTT Run Configuration
+
+The RTT configuration file is of XML format, and is checked using a DTD located at:
+
+[http://www.hep.ucl.ac.uk/atlas/AtlasTesting/DTD/RTT.dtd](http://www.hep.ucl.ac.uk/atlas/AtlasTesting/DTD/RTT.dtd)
+
+This configuration file allows the release to be specified (the current nightly, or a specific nightly build), which of the detected packages to run and the details required to run in the non-production modes.
+
+Further, run specific information may be provided such as email addresses to which error notification is to be sent.
+
+## 3 RTT Core Design
+
+The inputs to an RTT run are:
+
+1. Environment variables
+2. Command line parameters
+3. RTT configuration file
+4. User configuration file(s)
+
+During an RTT run, user jobs are submitted to computing elements and user specified actions are carried out. These activities, and their results, are recorded in the RTT summary file, which is used by monitoring and display software.
+
+An RTT run starts by creating the dynamic structure. By dynamic structure we mean the set of interacting objects that submits user jobs, and collects the results, and which outputs information to the RTT summary file.
+
+The dynamic structure is built using the RTT setup functions, and the inputs listed above. Once constructed, the dynamic objects are set in motion. Their actions include submitting and monitoring jobs. When all jobs are complete, the RTT closes down.
+
+### Dynamic Structure
+
+Fig. 1 shows the class relationships among Tester, TestRuns, Minders and the various reporters. Minders represent individual jobs (but see section 3.2). A TestRun, which represents an ATLAS offline softwarepackage will generally own a number of Minders (that is, a software package will generally have a number of jobs for the RTT to run).
+
+The Tester object starts the TestRun threads. When these exit their run methods, it executes some finalization code and exits. The TestRuns periodically poll the Minder objects. The Minder object forwards the call to its state engine which has a list of Minder methods to call. At any particular time, the method invoked will depend on the minder state. On successive calls to the state engine poll method, the function corresponding to the current state is called. If the method detects that the required conditions are met, it returns the name of the new state to which the state engine is to move. When the minder state engine has reached the final state, the minder has no further work to do (usually because the job has completed, and all post-processing has been done), and the minder is removed from the running minders list maintained by the TestRun. When a TestRun has no further active minders, it exits its run method. When all TestRuns have completed their run methods, the RTT run terminates.
+
+To prevent packages which require extensive computing resources from blocking less demanding packages, each TestRun runs on its own thread.
+
+The class structure of the objects performing these actions is shown in fig. 1. Fig. 2 provides a sketch of the activities for these objects. Fig. 3 shows further details for the minders associated with a single TestRun.
+
+### Minders
+
+Section 3.1 gave a description of the interaction among Tester, TestRun and Minder objects. The behavior of this framework is varied by using different kinds of Minders. Minders must provide a number of methods - most importantly the _poll_ method.
+
+Minders have methods for carrying out specific tasks associated with the purpose of the minder. The purpose of worker minders is to handle running user jobs. Container minders coordinate the running of other container minders and worker minders.
+
+The specific minder tasks are coded as minder methods. A minder method is called as a result of calling the state engine poll method. The method to be called is determined by the minder state machine which contains the minder state, and the look-up table used to determine the method to be called. The method called returns the new state which may or not be the same as the old state.
+
+The minder and minder state engines are tightly coupled: the minder maintains a reference to the state engine, and the state engine maintains references to minder methods. The motivation for splitting-off the state engine code from the minder code includes the following points:
+
+* The state machine classes encapsulate code shared by different minder classes, such as maintaining a history of the minder state trajectory. The use of the state engine reduces code duplication.
+* Writing the code to determine what to do next directly in the minder (perhaps in the poll method) would be less clear than using a look-up table.
+* The use of a state engine has allowed further complexity to be factored off into its own class. Initially, the state of the minder was represented by a string. As the code developed it became a class to allow increased functionality such as time stamping.
+
+[MISSING_PAGE_EMPTY:5]
+
+[MISSING_PAGE_EMPTY:6]
+
+[MISSING_PAGE_EMPTY:7]
+
+#### 3.2.1 Worker Minders
+
+Fig. 4 shows the part of the Minder hierarchy which deals with worker minders. The ChainJobMinder hierarchy is described in section 3.2.2.
+
+Worker minders (of type WorkerJobMinder) run jobs on a computing element. The various WorkerJobMinder sub-classes deal with the details of the various elements. In particular, there are minders which run a job on the local machine (ShellMinder), or to the LSF batch queues. Here, further variation is possible: the jobs can be submitted to the RTT prod queues (ProdLSFBatchJobMinder) while others submit jobs to ATLAS LSF queues (PrivateLSFBatchJobMinder).
+
+#### 3.2.2 Minder Chains
+
+Jobs can be chained using container minders. A chain of jobs specifies the order in which jobs are to be run. In its simplest form, a chain is a linear sequence of jobs. Jobs are placed in chains when they are affected by an earlier run job. For example, the earlier job may provide the input files for the later job.
+
+The concept of 'chain' has been expanded by allowing a number of jobs to be run in parallel as part of a chain.
+
+A chain is made up of container and worker minders. A container minder may be a SequentialMinder or a ParallelMinder. A container minder can contain other container minders or a ChainJobMinder. ChainJob minders provide a mechanism is to allow deferred worker minder instantiation: ChainJobMinders have a worker descriptor as an attribute which is instantiated at RTT setup time. This descriptor can be told to convert itself to a worker minder according to the current environment. When the ChainJobMinder object starts to run, it tells the descriptor to make the conversion, using the environment in place at that moment. The most common use of this mechanism is to allow the minder to select its input data sets from those available, possibly including data sets created by jobs run earlier in the chain.
+
+Figure 5 shows the ContainerMinders class hierarchy. Organizing the classes in this manner reduces code duplication.
+
+Figure 6 shows the ContainerMinders class associations. The self-association of the container minder allows complex (non-linear) chains to be created.
+
+#### 3.2.3 Minder State Engine
+
+Minders encode various tasks. The order and timing of these tasks depend on the minder state engine and the state. When a minder is polled, its state engine checks the state, and calls the associated minder methods. These methods return the new state - which may be the state of the minder before it was polled. For example, on being polled, a minder in the 'running' state will check for evidence that the job has completed (exactly what that evidence is is up to the minder). If it decides the job is still running, the method called by the state engine will return 'running' _i.e._ no change. On the next poll the same method will be called to check if the job is still running. On the other hand, if the minder decides the job is finished, the method called while in the 'running' state will return a new state. On the next poll, the function associated with this new state will be called.
+
+Fig. 7 shows the state diagram for batch minders. Fig 8 shows the state diagram for container minders.
+
+The two state diagrams show that the 'unrecoverable' state can be imposed externally, from outside theFigure 4: Minder Hierarchy. Only the worker minder part of the hierarchy is shown. For the remainder, see fig. 5 The WorkerJobMinder sub-classes run jobs under various conditions (differing production queues, atlas queues, user machine etc.).
+
+Figure 5: Container minder hierarchy. Only the chain minder part of the hierarchy is shown. For the remainder see fig. 4 Container minder sub-classes are used to constructed chain jobs. Container minders can either run their minder attributes in series or in parallel.
+
+Figure 6: Container minder associations. Container minders can contain other container minders (_e.g._ a SequentialMinder can contain a sequence of other minders including a mix of SequentialMinders and ParallelMinders), allowing complex chains to be created. Fig. 14 shows an example of a job chain. A container minder can also contain ChainJobMinders. ChainJobMinders are instantiated when the RTT is initialized. When the ChainJobMinder run() method is called, it instantiates a worker minder (in the environment that is in place at that moment), and calls its runs method. The presence of a ChainJobMinder as a proxy for the WorkerJobMinder allows the full chain structure to be present at the end of the RTT initialization.
+
+state engine _i.e._ without it being the return value of a minder method. This allows error detection code (see sec. 3.9) outside the minder to request the close down of the minder.
+
+### Construction of the Dynamic Structure
+
+Up to this point, this section has described the dynamic core of the RTT: the objects that collaborate to perform the job of the RTT. This section describes how the RTT setup functions use the RTT inputs to assemble the core objects in a way they can be set in motion with a single execute command.
+
+A simplified sequence diagram showing how the Tester object is created is shown in fig. 9. A sequence of functions are called, either from cron, or from the command line.
+
+The first to be called is a Unix shell script that takes the run type (prod, dev, batch or shell) and the run parameters (parameters used to specify the ATLAS build to be used). This then calls RTTRunner.py, which in turn calls RTST setup.
+
+RTTSetup instantiates a number of objects, RTTSetup_RTTConfig, RTTSetup_RTTPackageConfig, and a number of RTTSetup_TestRun objects. The attributes of the setup objects are the tools used to construct the Tester object and its internal objects. The setup objects themselves are a convenient container for these tools.
+
+Once the Tester is constructed and returned, RTTSetup terminates, the setup objects go out of scope and the build tools are deleted.
+
+Figs. 10-12 show the RTTSetup objects and their attributes.
+
+#### 3.3.1 Inputs
+
+There are two main explicit information sources - the RTT configuration file, and the user's package file (UnifiedConfigurationFile). These are separate as the RTT run parameters are not known to the user (is this to be a rel_0 run?), while the needs of the package developer are not known to the authors of the RTT configuration file (which job options are to be used for a particular job?).
+
+These two files could be the sole inputs to the RTT, and the RTT could be started up from the command line giving a path to the RTT configuration file. However, it is more convenient to pass certain parameters on the command line, rather than read them form the configuration file. These parameters are used by the RTT to build the dynamic objects, and also to deduce the path to the configuration file. As the RTT is run many times a day in production mode with different parameters, providing a regularity for the path to the configuration file improves the controllability of the project. The regularity in the path of the RTT configuration file is an example of the use of a fixed directory structure - see sec. 3.5
+
+Information required by the RTT before it reads its configuration file is passed via environment variables. For production running these variables are set in a shell script which then calls the RTT setup functions.
+
+There is further information which the RTT 'knows'. This implicit information is stored in python modules, and is coded in the setup functions. Effort has been made to avoid writing the string data in the computational modules as was done in earlier versions of the RTT: having such constants in the code made the system difficult to understand. Today, such information is kept in the PathConstants, PathRegexes and RTTConstants modules. The necessary code for calculating commonly needed paths is performed by a PathNameBuilder object. This object is passed to other objects whenever calculated path 
+
+[MISSING_PAGE_EMPTY:13]
+
+Figure 8: State Engine for container minders.
+
+information is required.
+
+#### 3.3.2 RTTSetup Objects
+
+The attributes of the set-up classes shown in figs. 10-12 are instantiated in the _init_ methods of the RTTSetup classes. The details of the construction of the attributes can be obtained from the code. The following notes provide a brief description of these attributes:
+
+**RTTSetup_RTTConfiguration.cObj**: Contains the information found by parsing the RTT configuration file.
+**RTTSetup_RTTConfiguration.startTimes**: Startup time information in different formats.
+**RTTSetup_RTTConfiguration.pathNameBuilder**: Object that 'knows' the RTT directory structure. Can provide path information as far as the package parameter (_i.e._ no job specific information).
+**RTTSetup_RTTConfig.atlasSetupLinesWriter**: object used to collect parameters to construct the atlasSetup command. Provides the shell script lines to do so.
+**RTTSetup_PackageConfig**: UserStuffRetriever. Local variable. Used to find the package configuration files. The exact type depends on whether the RTT is being run from an installed release only, or if it also uses checked-out code. Creation done via a factory.
+**RTTSetup_PackageConfig.closeDownKeyManager**: Looks after close-down keys. Close-down keys are part of the mechanism that shuts down a nightly run when a new nightly run starts up.
+**RTTSetup_PackageConfig**: JobGroupKit objects. Global Variable. Constructed using jobGroupKit information provided by package configuration files and an RTT configuration file. A JobGroupKit stores information to be used by all jobs associated with a kit (the association is declared in the job tags of the package configuration file.) JobGroupKits can be in an inheritance relationship, hence JobGroupKits is a tree structure.
+**RTTSetup_PackageConfig.CVSPackages**: CVSPackages is a container of CVSPackage objects. It is constructed after combining package objects constructed using package configuration files, and RTTProvides packages constructed from data in the RTT configuration file. The packageAccept and packageVeto requests are implemented by manipulating this container (_i.e._ by rejecting packages which do not conform to these parameters which are input from the RTT configuration file.). A CVSPackage object contains information about the location of a package configuration file, and the DOM document obtained by parsing that file.
+**RTTSetup_PackageConfig.testReporter**: The TesterReporter that will be used by the Tester object. This is the first of the dynamic core objects to be constructed.
+**RTTSetup_TestRunConfig**: jobDescriptors. Local variable. A list of jobDescriptors. A JobDescriptor is constructed by parsing the package configuration file. JobDescriptors are instantiated when the configuration file is parsed.
+**RTTSetup_TestRunConfig**: DescriptorMaker. Local Variable. Processes a node from the package configuration file job list to produce a job descriptor. The job node is decoded using one of the XMLReader objects. ChainJobXMLReader constructs a descriptor that is the top of a tree of descriptors. In order to construct the lower elements of the tree, it itself uses a DescriptorMaker.
+
+[MISSING_PAGE_EMPTY:16]
+
+Figure 11: RTTSetup_PackageConfig and its attributes. See text in section 3.3.2 for details.
+
+Figure 10: RTTSetup_RTTConfig and its attributes. See text in section 3.3.2 for details.
+
+[MISSING_PAGE_EMPTY:18]
+
+**RTTSetup_TestRunConfig.minders**: A list of jobMinders. All JobMinders can be instantiated from a jobDescriptor. However, in the case of ChainJobMinders, the instantiation is deferred to when the job is to be run, as only at that time can it be ascertained which data sets should be used by the job.
+**RTTSetup_TestRunConfig.testRun**: The TestRun object can be either a UniversalConfigurationTestRun object, or a FailureTestRun (in the event a UniversalConfigurationTestRun cannot be constructed). This type variation is handled using a factory.
+
+### The Use of Factories
+
+The is section lists the modules which contain factory functions. These functions instantiate objects of different types, according to the RTT input parameters. The types instantiated by each factory share method names, allowing the objects to be used interchangeably.
+
+* Factory_AtlasSetupLines.py
+* Factory_BaseClass.py
+* Factory_Commander.py
+* Factory_DataSet.py
+* Factory_DeferredDataSet.py
+* Factory_FileSystemCommands.py
+* Factory_Launcher.py
+* Factory_Minder.py
+* Factory_MinderReporter.py
+* Factory_MinderStateEngine.py
+* Factory_ScriptWriter.py
+* Factory_UserStuffRetriever.py
+* Factory_XMLReader.py
+
+### Directory Structure
+
+Fig. 13 shows the layout of the directories used by the RTT. The value of RTTBaseDir depends on the run type (a run parameter passed on the command line). If the run type is set to 'prod' or 'dev', the base directory is taken from the PathConstants module, otherwise it is read from the RTTBaseDir environment variable.
+
+### Run Scripts
+
+Worker minders submit shell scripts. Sub-classes of BatchJobMinder submit the run script to a batch system, while ShellJobMinder runs the script in a sub-shell.
+
+Different jobs require different scripts. The script to be run is selected using the jobGroup property of the job. The scripts are written by sub-classes of ScriptWriter. Currently about 10-20 scripts are available. Most of these are small variations on:
+
+1. Run Athena or job transform job.
+2. Run post processing user tests.
+3. Return results from the computing element.
+
+If a new job group is provided by a user, the RTT developers are contacted and the mapping code that connects job group to script is updated. It is also possible to request a new script.
+
+### User Tests
+
+User Tests are code that is run by the RTT framework as part of post processing (sec. 3.6). The following describes what is done when post-processing is carried out.
+
+User tests are specified by supplying a python module and class names, and arguments for the test in the package configuration file. The module must be on a path reachable via the PYTHONPATH environment variable.
+
+The information is stored in a user test descriptor object, together with information provided by the RTT framework. These descriptors are placed in a python shelve database in the job work directory. When the job is run, the run script copies the database to the local disk of the computing element. The run script then opens the database, reads the descriptors, and instantiates and runs the tests. In order to provide a common interface for all user tests, these are made attributes of RTTTestRunner objects. The test runner calls the mandatory _run_ method of the user test, and stores the results.
+
+The RTT provides a library of useful tests. One of these, ExeRunner, takes the name and arguments of an executable module (_e.g._ a python module with an adequate '#!' first line, a shell script, or a linked program) and which it runs. Standard out is captured, and redirected to an output file. The return code is treated as the result of the test. See the online RTT documentation (sec. 7) for more details.
+
+### Message Logging
+
+Logging is performed using the python 'logging' module. After a number of attempts, the current logging policy chosen is to send all logged messages to a single file. Previous approaches have includes having separate files for all minders and test runs. An advantage of using a single file is that it is easier to time-correlate effects which occur in more than one RTT object. For example there may be correlations between what is happening in a TestRun, and what is happening in one of its minders.
+
+It is often useful to split-off messages from a single object. However, as the format of the logger messages includes the module name, it is simple to parse the log file and extract the lines of interest.
+
+User test objects also need the services of a logger. As the objects are stored in a python shelve database for transport between the launch and computing nodes, and as the logging module logger cannot be shelved, an RTT logger object is used, which simply stores the strings sent to it. Once the tests are run on the computing element, the test objects are written to a shelve database which is copied back to the launch node by the run script. The test objects are retrieved from the data base by the job minder, which extracts the logger messages and injects them into the minder logger.
+
+### Error Handling
+
+Errors encountered result in exception objects being created. These are raised or simply stored for later display. All raised exceptions are caught by the RTT.
+
+Functions in the RTTRunner module create and run the tester object. These actions, and others, contain try blocks which catch exceptions, report them to the logger, and shut down the run. Examples of such errors include: an invalid RTT configuration file, an environment variable (_e.g._ RTTBaseDir) which does not point to an existing directory, an RTT coding error or invalid run parameters.
+
+If an error is detected which does not affect the RTT run globally, an attempt is made to isolate the problem, store information about it for later display, and to continue the run. Examples include errors in creation of dynamic core objects.
+
+If a package configuration file is invalid, the package is represented by a FailureTestRun rather than a UnifiedConfigurationTestRun. FailureTestRun has a simple run method: its reporter object reports the error condition to the the tester reporter object (fig. 1) and then exits, which causes the thread (sec. 3.1) to terminate. A record of the failure occurs in the summary file, and can be reported in any information display that uses the summary file.
+
+If an error is detected during Minder instantiation, the minder is replaced by an ErrorMinder object. Error minders have simple state engines that go to the done state from the run state after reporting information about the error to the TestRun reporter.
+
+Errors may be encountered while executing minder functions. Exceptions raised due to the error are stored and logged. The minder state is put into an exception state, which helps to diagnose the problem. From the exception state, the state engine steps through states to reach the final 'done' state. The state trajectory of the minder is reported.
+
+### Debugging Techniques
+
+Many techniques have been used to debug the RTT as the code evolved. A brief list of these techniques is presented.
+
+**RTTobject base class**: RTT classes derive from RTTobject, which in turn is a sub-class of object. This makes it easy to inject system wide monitoring of all objects when desired, and to remove it when the study is complete.
+**norun flag**: When the RTT is run with a -norun flag, the dynamic core is built, but not run. The summary file is written out, allowing an examination of the RTT at this point.
+**Use of the setup functions**: The various RTTSetup objects can be constructed. The build tools are attributes, which allows them to be examined, _e.g._ from the python interpreter.
+
+**Chain file diagrams**: The structure of a chain of RTT jobs can be visualized using graphs produced with DOT, where the minders are shown as nodes. The state of a minder is denoted by the fill color of the node. An example is shown in fig. 14.
+**memcheck flag**: Memory usage and lifetime tracking is enabled by the --memcheck flag. This uses the Pympler module [1].
+**Runtime object diagrams**: Decorator functions were used when refactoring RTT code to capture run time information about object attributes and the flow of information. Fig. 15 shows an example as such a diagram. The method had the following useful points:
+
+* The information was obtained as the program ran. The RTT configuration file could be edited to obtain the information flow under different running conditions.
+* The information displayed was readily varied by editing the decorator. Information on data types, object identity and size could be captured. An example of information display was the coloring of the exception container information when the container was not empty, which allowed a quick visual identification of errors.
+
+An RTT run that incorporates many packages contains many thousands of objects, which made the the diagrams difficult to interpret. The technique was most useful when the RTT run is configured to run only a small number of packages.
+**Prod/Dev comparison scripts**: Extensive scripts have been provided to perform comparisons between production and development runs. The inputs to these are scripts are the production and development summary files for corresponding runs. Direct comparisons of the summary files is not possible for reasons including:
+
+* The run environment is time-dependent. Disks quotas can be exceeded, AFS may become unreliable, batch queues can be busy. These changes can change the output of the RTT.
+* User job output files sometimes have time-dependent names.
+* Changes in the RTT code may produce changes in the structure of the summary files.
+
+The 'diff' of the summary files therefore needs to be more intelligent than a simple Unix diff. The current strategy is to look for the presence of various output files. Even this cannot be a direct comparison as what is a 'keep file' (a file to be copied to AFS at the end of post processing) may become an 'archive file' (a file copied to mass storage if its size exceeds a set threshold).
+
+The scripts currently identify pairs of jobs (in dev and prod) that have finished successfully. They look for the list of keep files, archive files, chain store files and tests. They check for files that occur in one summary file, but not the other. They also checks a list of sub-nodes for these summary file nodes to ensure certain conditions are met (_e.g._ keep, archive and chain files should agree on whether the copy was successful). Regex patterns on part of the file name may need to be used if the file names have time dependent names. When nothing else reasonable can be done, a simple count of files is made.
+
+The prod and dev systems are not identical, which leads to differences in the results from the two systems. For example, Perfmon (an external package used by the RTT for monitoring performance) is run only in prod, as it makes very high demands on external services, and running it from dev is not viable.
+
+### Code Formatting and Documentation
+
+The PEP8 (code formatting) recommendations have been followed. Emacs was configured to use the PEP8 and pyflakes modules [2] which greatly helped this process, while pyflakes decreased development time by automatically identifying syntax errors as the code was being written.
+
+As these recommendations were adopted long after the RTT project started, certain aspects have been ignored - in particular camel case is used for variable names, as changing this to the PEP8 recommendations was considered infeasible.
+
+## 4 Production System
+
+The RTT production system is based at CERN and comprises the following software and hardware components:
+
+* acron
+* 5 launch machines
+* 69 dedicated worker/batch machines
+* Disk space
+* AFS and EOS file systems
+* The LSF batch system
+* 1 dedicated web server
+
+The production system requires these components be available and functioning correctly. The production manager (PM) and a helper (section 6.3) monitor the system and respond to any issues observed.
+
+The PM is also responsible for monitoring communication channels:
+
+* the RTT e-groups forum
+* the Savannah bug reporting and tracking system
+* the RTT email address
+* the PM's personal email address
+
+Communication may take the form of announcements of upcoming changes or real-time problems in the production system (these go to the forum), helping individual clients, providing feedback on Savannah reports, responding to client requests for new job groups, setting up and starting new RTT runs (or shutting down obsolete ones) as requested by clients or release coordinators. The PM should also be aware of announcements concerning components that will affect RTT running e.g. failures in EOS, LSF, AFS, the ATLAS nightly build procedure, and, if necessary, should make this information known on the RTT e-groups forum.
+
+[MISSING_PAGE_EMPTY:25]
+
+[MISSING_PAGE_EMPTY:26]
+
+### Current Production
+
+#### 4.1.1 Overview
+
+At time of writing, the RTT launches 63 times daily via acron on one of five launch machines. Each RTT run processes a particular ATLAS nightly build. A build corresponds to a branch/platform/project hierarchy combination e.g. devval/x86_64-slc5-gcc43-opt/AtlasProduction, and a specific release (e.g. rel_2) within that combination.
+
+When launched, the RTT first looks for the appropriate "build ready" flag on AFS as published by the ATLAS NICOS build system. If not found, the RTT sleeps for 5 minutes then checks again. If not found by 19:00 CERN time (start of the NICOS "day" ), the RTT shuts down. If a flag is found with today's date, the RTT:
+
+* Reads the nightly release that the flag is pointing at (soft link) e.g. rel_2.
+* Sets up the appropriate shell environment for the nightly release using the AtlasSetup package.
+* those which have RTT jobs to be run.
+* Parses the unified test configuration XML file for each such package into a TestRun and Minder objects. (section 3.1).
+* Creates the required directory structures for each job and fills each one with a runScript.sh that will run the job, and a Python shelve database that has instructions on how to set up the worker node.
+* Submits each runScript.sh to a worker batch node using the LSF bsub command.
+* Publishes state changes for each job to the summary XML file on AFS.
+* Shuts down once all jobs are done.
+
+Once per hour an acron job on a dedicated web server launches a process which takes new summary XML files from AFS and fills a local database which is currently implemented as an SQLite database. This results database can be queried by clients through the RTT results web pages (section 11).
+
+#### 4.1.2 External Hardware Dependencies
+
+##### Nodes
+
+There are five dedicated launch nodes and 69 dedicated worker batch nodes (584 cores). All nodes run Scientific Linux CERN (SLC) v5.8 (Boron). Node stability is acceptable: the average uptime for worker nodes being 151 days, and for launch nodes 83 days (there is a policy of reboot after 200 days uptime, hence this number reflects in fact the time since the last reboot).
+
+The launch nodes are built from 8-core Intel Xeon CPUs clocked at 2.33GHz, with 2GB of memory per core. Memory is the important factor for these nodes. While CPU usage remains below 10%, memory usage is continually around 80%.
+
+The batch nodes are slightly more heterogeneous:* Eight nodes with 12-core Intel Xeon CPUs clocked at 2.27GHz with a total of 32GB of memory for each node.
+* Sixty one (61) nodes with 8-core Intel Xeon CPUs clocked at either 2.27GHz or 2.33GHz, and with 2GB of memory per core.
+
+Batch node CPU usage is higher: \(\sim\)60% for most of a day, and dropping to \(\sim\)20% for a few hours around midnight. This corresponds to the pause before the next nightlies are available on AFS from NICOS. Memory usage follows the same shape as CPU usage: continually around 90% for most of the day, and dropping to \(\sim\)60% around midnight for a few hours.
+
+### Lsf
+
+The RTT relies on LSF (v7.3) for job submission to one of three batch queues mapped onto lxbatch/atlasrtt dedicated cluster of 69 nodes (584 cores).
+
+The three batch queues available are:
+
+* 72 hours CPU
+* 8 hours CPU
+* 1 hour CPU
+
+accessible to users in their package XML file by the <queue> tag and values short, medium, or long. In a typical month of running, \(\sim\)210000 jobs are submitted. The job submission failure rare is (\(\sim\)0.02%) of the jobs. A job fails submission if no PID (job identifier) is returned by the submission command. In such cases, RTT terminates the job and sets the Minder state to batchError. This information is propagated via the summary XML file to web pages.
+
+Jobs can specify minimal resources required from a node in order to run via the options of the _bsub_ command. Currently, a minimum available 2.5GB of memory per job is requested. Approximately 0.06% of the jobs use excessive memory and are killed by the batch system.
+
+This memory constraint limits the number of concurrent jobs on a batch node to \(\sim\)6,and hence the throughput. The batch farm runs \(\sim\)430-480 jobs at a given time. As \(\sim\)8000 jobs are submitted every 24 hours many jobs spend some time in queue before being processed. At peak traffic this backlog is \(\sim\)3000 jobs, while in the period from 21:00 to 6:00, all jobs are running.
+
+### Eos/afs
+
+The RTT uses the EOS mass storage system for archiving job-produced keepfiles that are larger than 20MB. Other criteria could be added if necessary. EOS commands are available on the batch nodes, so to reduce network activity archiving is performed straight from batch local disk. Keepfiles smaller than 20MB are transferred back to the AFS results directory. These are downloadable from the results web site. The EOS files are not directly downloadable, but their path is provided which allows clients to access them using EOS commands in the shell.
+
+The RTT creates directories on EOS with identical structure to the AFS results directories:
+
+[base_dir]/[framework]/[release]/[branch]/[platform]/[project]/[package]/[job]The EOS base path is: base_dir=/eos/atlas/atlascerngroupdisk/proj-sit/rtt/prod
+
+This directory sits on the 20TB quota proj-sit pool. Currently, The data on EOS generated by one week of RTT activity is about 10 TB, while all other data uses 4TB. (all other users cumulated = 20%). The RTT usage increases with time as once an EOS path is created for the first time - for example when a new nightly branch is started, or a new job in an existing branch is added by an RTT client - it remains untouched thereafter. Files transferred to the "job" directory (last in the tree) remain there - RTT does not delete EOS files, it only overwrites existing files and transfers new files. An acron job that deletes files older than one week, once free space on the pool drops below 12%. Weekly AFS space usage is \(\sim\)2 TB.
+
+The error rate for EOS transfers is \(\sim\)0.05%. This failure rate is three times less than the failure rate for AFS transfers of small keepfiles of \(\sim\)0.16%. This difference may be explained by the AFS quota being exceeded.
+
+In a typical week, \(\sim\)146K files are copied to EOS and \(\sim\)11M files are transferred to directories on AFS.
+
+## 5 Use of Externals Packages by the RTT
+
+The RTT uses two external packages: DCube and Dozer. These packages were written by K. Ciba.
+
+### DCube
+
+DCube [3] is a facility that allows ROOT [6] files generated by a user job to be compared with reference files. Various options are available to evaluate the statistical significance of differences.
+
+To run DCube from the RTT, the user gives the necessary test tags to the package configuration file. This causes the RTT test DCubeRunner to be run. DCube runner creates the commands to run DCube, along with the requested command line options, and submits the command to the shell as a subprocess.
+
+Plots and an accompanying php file produced by DCube are stored in the local work area. These are copied to the job work area at the end of the RTT run. A link to the php file appears on the job page of the RTT results display. To visualize a formatted display of the plots, and the accompanying comparison statistics, the user clicks on the php file link.
+
+### Dozer
+
+The Dozer package [4] enables the storage of data over an extended period of time, and its display. The RTT provides a facility, PerfMonDozer, which is used to store resource information, such as time and memory usage, for Athena jobs.
+
+Running PerfMonDozer as a test causes the specified data to be stored in the database. Data for a designated time interval is retrieved and plotted. Graphics files showing this data are stored in the job work directories.
+
+RTT Monitoring
+
+### RTTMon
+
+RTTMon is a simple framework for running RTT monitoring tasks. Configuration is implemented using an XML file, which declares which tasks are to be carried out, and any parameters to be passed to the task. Tasks are coded in separate python modules, and the configuration file gives the path to the module with respect to a base path.
+
+The monitoring is started up at regular intervals using acron. An initial shell script is called to set up environment variables which give locations of the source, log and work base directories, and then calls the python monitor.py script.
+
+The monitor.py script calls the task modules in turn, passing them the parameters obtained from the configuration file. Each task is run in a sub-shell. In case of error, the tasks return an error code and optionally string output which is logged, otherwise a success message is logged.
+
+This approach allows various monitoring instances, for example production and development to run concurrently. The task list can be extended.
+
+The tasks format their results as HTML files, which allows web access. To help evaluate the data shown in these pages, critical values are marked in red.
+
+#### 6.1.1 Disk Quota Tables
+
+The RTT results, logs and chain files are written to different directories. These directories, or one of its parents, correspond to an AFS mount point, which has an allocated quota. There are several hundred of these mount points. The initial quotas are set automatically, but any increases needed during a run are performed manually.
+
+#### 6.1.2 Exceptions
+
+Counts of exception objects raised during RTT runs are monitored. Panic exceptions - exceptions requiring rapid intervention - are shown on a separate page from warning exceptions.
+
+#### 6.1.3 Shift Helper
+
+Displays a table where each run gives information pertaining to an RTT run. Information displayed includes start and end times, run parameters, number of jobs in each state engine state, number of exceptions, numbers of jobs by exit code, and the number of jobs by state engine exception state.
+
+#### 6.1.4 Scheduled Runs
+
+Displays a table of runs scheduled by acron. Each row corresponds to a run, with the acron time, run parameters and the presence of expected files (NICOS flag, summary file, log file). Various conditions (such as missing files) are highlighted in different colors.
+
+#### 6.1.5 EOS Usage
+
+Displays how much mass storage (EOS) space is being used, together with an comment indicating whether the value is acceptable.
+
+### Other Monitoring
+
+The following monitoring tasks are not part of the RTTMon framework, and are run straight from acron:
+
+#### 6.2.1 Jobs Running in Batch
+
+Displays a list of all jobs running in batch. Shows batch state and queue, and RTT job name, package and run parameters including release.
+
+#### 6.2.2 Daily Runs
+
+Displays runs by acron start time. Shows node where RTT is run, run parameters and packages participating in the run.
+
+### RTT Shifts
+
+A number of times a day the RTT shift person examines the monitoring described in secs. 6.1 and 6.2 and completes an electronic log entry. Error conditions are reported by email to the RTT production manager.
+
+## 7 RTT Documentation
+
+The RTT provides an online user guide at:
+
+[https://atlas-rtt.cern.ch/prod/docs/site/guide](https://atlas-rtt.cern.ch/prod/docs/site/guide)
+
+which is linked from the RTT web site
+
+[https://atlas-rtt.cern.ch/](https://atlas-rtt.cern.ch/)
+
+The user guide gives detailed instructions for setting up package configuration files, as well as background information about how the RTT will use this information.
+
+## 8 ATLAS Developer Statements Concerning the RTT
+
+The RTT provides a service, but the RTT developers have only indirect evidence of the extent to which the service is used. Files generated by jobs run by the RTT are accessible by AFS as well as by HTTP, and no attempt is made to monitor this access. However, the growth in the resources used by the RTT given in tab. 1 indicates the extent that the community is using the service.
+
+Further, we asked a number of users informally how they used the RTT, and we report their answers here.
+
+### User Activity Reports
+
+#### 8.1.1 Trigger - from D. Strom
+
+In the trigger we use RTT for many purposes, in rough order of importance they are:
+
+1. Tracking the physics performance, e.g. counts, of the trigger on signal event samples
+2. Tracking the physics performance, e.g. counts of the trigger on background event samples
+3. Tracking the CPU time used by the trigger across different releases
+4. Tracking the AOD, ESD size of the trigger across different releases
+5. Looking for crashes, floating point failures and other bugs
+6. Looking for memory leaks
+
+We have weekly shifters from the individual trigger signature group that are watching the various releases and looking for changes important for their signature group.
+
+#### 8.1.2 Simulation - J. Chapman
+
+In the simulation group we use RTT for the following purposes:
+
+1. Tracking the consistency of simulation and digitization output.
+2. Tracking the CPU and vmem usage of simulation and digitization in the development nightlies.
+3. Looking for crashes and other bugs.
+
+\begin{table}
+\begin{tabular}{|l|r|r|r|} \hline  & January 2011 & July 2011 & January 2012 \\ \hline \hline No. of ATLAS builds tested & 42 & 52 & 66 \\ \hline No. of ATLAS software packages tested & 1884 & 2600 & 3691 \\ \hline No. of ATHENA jobs run (x\(10^{3}\)) & 32 & 48 & 75 \\ \hline AFS space used (TB) & 0.9 & 1.0 & 2.4 \\ \hline Mass storage used(TB) & 2.8 & 4.6 & 10.5 \\ \hline \end{tabular}
+\end{table}
+Table 1: The evolution of RTT activity for a typical week.
+
+4. Looking for memory leaks.
+
+We have weekly shifters who monitor the RTT jobs from the currently supported releases and those under development.
+
+Web site (extensive details):
+
+[https://twiki.cern.ch/twiki/bin/viewauth/Atlas/SimulationDigitizationNightlyValidation](https://twiki.cern.ch/twiki/bin/viewauth/Atlas/SimulationDigitizationNightlyValidation)
+
+We're working to improve the depth of our monitoring and hope to add regression tests for simulation and digitization this year and improve/update the testing of pile-up digitization particularly (manpower allowing).
+
+#### 8.1.3 Reconstruction - J. Tuggle, R. Seuster and M Hodgkinson
+
+For summaries of TCT (Tier0 tests) and the FCT (Full Chain tests), including the role of the RTT, see refs [7] and [8].
+
+**From J. Tuggle:** I am one of two prompt reconstruction operations coordinators (PROC). We define the athena releases that are used to reconstruct data at the CERN Tier0. These software releases are kept updated in nightly builds. Every day the PROCs check the FCTs and RTTs to make sure the standard reconstruction transforms work properly. We also have a suite of TCTs specifically aimed at testing the types of jobs that run at Tier0. Besides checking that the TCTs finish successfully, we also do a daily comparison of the job output to the previous nightly to make sure that the reconstruction results do not change. This is how we enforce the frozen Tier0 policy.
+
+**From R Seuster (Reconstruction Integration, future Software Coordinator):** The reco shifter is looking at all reco tests in most, if not all open releases. They manually check the summary pages from RTT and if they indicate to a problem look closer in the logfiles. Then, they send shift reports about their findings, submit savannah bug reports, etc.
+
+This is really essential in having good and reliable software we can use to reconstruct billions of events (cm and real data).
+
+**From M Hodgkinson (Software Validation):** ATLAS has simulation shifters, and less frequently muon and trigger expert shifters, who are all looking at the output of rtt based tests to find new problems, create bug reports and move towards solving them thus ensuring the high quality of the offline software.
+
+**From D Rouseau (Software Coordinator):** In Atlas we have 2000 packages, with 4 million lines of C++, and 1.4 Millions lines python. There are 3000 users of atlas software (measured as the number of people with voatlas grid certificate), 1000 developers (have committed in SVN offline repository for last 3 years), of which 300 are active at a given time (measured on last 6 months). 25 package modification submitted every day We don't have the manpower to do a-priori control of all these contributions so our model is to rely very much on a posteriori control, for which the RTT infrastructure is essential.
+
+Testing Section of the RTT note
+
+### RTT Core Testing
+
+#### 9.1.1 An Early Attempt
+
+At a certain point in the RTT development it became clear that the complexity of the RTT core made it difficult to make changes without having unexpected side effects. A regression testing program was seen to be the way forward. The approach used was to run new RTT code and compare the resulting summary file with the production RTT summary file. To increase the coverage of the code base, the RTT was run with different configuration files.
+
+This approach was abandoned as the demands it made on the developers was not sustainable. Maintaining the framework, organizing the reference files and analyzing the differences was not viable with the manpower levels available.
+
+#### 9.1.2 Unit Tests
+
+Some time later, work started on writing unit tests using the python unittest module, which is a core python module. An immediate advantage was that the framework is well designed, and needs no maintenance. After an initial learning period, it was found to be flexible in the sense that tests can be run individually, or aggregated into larger groups and run together. This means quick turn around is possible when developing a single test which can be run in isolation, but a global run can be done less frequently, for example before committing code to the code repository.
+
+While it is straight forward to write unit tests for simple classes, complex classes with attributes that are objects made from classes that themselves may be complex requires more effort.
+
+We proceeded along two paths. As the RTT is written in python, it is relatively straight forward to write tailored dummy objects that act as the attributes of the class under test.
+
+Another approach was to use "real RTT objects". To avoid re-writing the RTT to produce these objects, the RTT set-up functions (see sec. 3.3.2) are called. To obtain variation needed for good code coverage, different configuration files are used. The set-up functions create set-up objects. The attributes of these objects are then stored in a data structure known as a TestRepository. TestRepositories are identified by the configuration files used to run the set-up functions. Generally, a pair of configuration files were used: the RTT configuration file, and a package configuration file. Thus objects of the same type, but constructed under different conditions could be retrieved from the various repositories and tested.
+
+The coverage module[5] was used to measure the coverage and to guide the construction of the tests, either by helping to tailor the dummy objects, or to vary the configuration files in such a way as to increase coverage.
+
+To allow comparisons and check coverage progress while developing the unit tests, it is possible to run the RTT unit tests in a manner that logs the coverage information to a database. The unit test scripts display the coverage changes. This is also useful when the code base changes, as happens when new RTT functionality is added.
+
+Writing the unit tests consumes a lot of developer time. At present approximately a third of the RTT code base is covered by the tests. Code development and code testing development happen at different times.
+
+#### 9.1.3 Integration Tests
+
+Unit tests are very useful in that their writing has uncovered bugs in the RTT code, and the constraint of making a module testable has often induced re-factorization of the code to make its structure clearer. It has lead to the removal of out-of-date code. Moreover, the chances of introducing bugs while incrementing RTT functionality are reduced.
+
+However, unit tests often do not test inter-object collaboration. To this end we have set up some simple RTT self-tests, which are RTT jobs which are run by the RTT. Clearly, if the RTT is seriously broken these jobs will not run. However it is certainly possible for an RTT run to go to to completion but without all tasks being carried out correctly. The RTT self-test jobs test various functionality supported by the RTT (_e.g._ file routing and copying, the running of tests). These jobs are run on a daily basis. They require very little CPU (typically they write strings to files, and other simple tasks), and the results in the summary file are straight forward to check. These tests serve as a check of chains of RTT functionality, and so serve as a complement to the unit tests.
+
+## 10 Installation
+
+To facilitate setting up of a new RTT code base and associated directory infrastructure, an installation script has been created. It is obtained over http using the curl command:
+
+curl -sok [https://atlas-rtt.cern.ch/prod/deploy/deploy.sh](https://atlas-rtt.cern.ch/prod/deploy/deploy.sh);chmod u+x deploy.sh
+
+The deploy.sh script is run passing a single command line parameter: the path to the deploy configuration file. When run with the help (-h) option, the deploy.sh script prints some useful information, including the curl command to execute in order to fetch locally an example configuration script. The latter is a Python module that configures what the deploy script should do. Configured actions take place within a deploy directory, the path to which is an obligatory parameter in the configuration file. Currently the deploy script can be used for the following actions:
+
+1. Create, if inexistant, the deploy directory (if exists: confirmation to continue is sought from the user).
+2. Create within the deploy directory the required subdirectories for RTT running.
+3. Place in the appropriate sub-directory, certain required files for RTT running.
+4. Setup one or more nightlies (rel_X) in the cycle for a particular branch e.g. devval/x86_64-slc5-gcc43-opt/AtlasProduction. This involves creating the results sub-directory tree and the top level configuration file. The latter will then require editing by the user for their specific case (this fact is made obvious in the deploy script output to screen).
+5. Checkout an RTT tag from the SVN repository into the deploy directory (if the tag exists locally, no checkout occurs)6. Create in the deploy directory a launch script called runrtt.py which the user will execute in order to run the RTT (this fact is described in the deploy.sh help blurb)
+
+The following is an example configuration file:
+
+```
+# -- import the cfg object, and then configure it from cfg import cfg
+# - obligatory cfg += 'deploydir', '/full/path/to/directory/in/which/to/deploy/'
+# - optional
+- setup a specific nightly... cfg += 'nightly', 'rtt/rel_3/devval/x86\_64-slc5-gcc43-opt/AtlasProduction'
+-- setup all nightlies in the cycle... cfg += 'nightly', 'rtt/rel_X/devval/x86\_64-slc5-gcc43-opt/AtlasProduction'
+# -- checkout the latest RTT code.... cfg += 'rttsrc', 'latest'
+# --- OR checkout a specific tag cfg += 'rttsrc', 'RunTimeTester-00-04-11'
+```
+
+The following are configuration file scenarios:
+
+1. The user does not provide a deploy directory \(\rightarrow\) the deploy.sh will exit with a message and status code non-zero.
+2. The user provides only the deploy directory path \(\rightarrow\) the deploy.sh script will create if inexistant the various required sub-directories for RTT running, as well as checkout the latest RTT source code (if no source code is present locally). It will also write (if missing) the runrtt.py executable. If these items already exist, the script simply exits - there is nothing to be done.
+3. The user provides the deploy directory and one or more nightly setups \(\rightarrow\) if inexistant, the results directory structures will be created and top level configuration files will be copied from the cache in the local RTT checked out package. If no RTT code is available locally, the latest tag will be first checked-out.
+4. The user provides the deploy directory and an RTT SVN tag to checkout \(\rightarrow\) if no code exists locally, the tag is checked out. If the requested tag exists, the script exits with a message. If a different tag exists, it will be removed and the requested tag checked out.
+
+Running the runrtt.py script in the situation that no nightlies have been set up, provokes a message and a non-zero exit code.
+
+The deploy script's main purpose is to set up the required structures for RTT running, including the RTT source code. Once these are in place, it can subsequently find a use as a convenience tool. For example, re-running sometime after first deploy with cfg += 'rttsrc', 'latest' in the configuration file, is a quick and easy way to ensure you have the latest version and, if not, to download the newer one.
+
+### 11 RTT Results Web Site
+
+#### Overview
+
+The results of daily production running are made available at the web site:
+
+[https://atlas-rtt.cern.ch](https://atlas-rtt.cern.ch)
+
+The front page provides a summary of all known runs that the RTT currently processes (Figure 16). Users select which packages, runs, releases are of interest to them, and then press the "Show me Results" button. This performs a query on a database back-end, and any matches found are displayed.
+
+Running on a dedicated web server, the technology behind the site is relatively simple:
+
+* Once per hour a Python script is run via acron, taking the last week of summary XML files produced by the RTT, and filling a local, SQLite database (other database technologies could be used if required).
+* The front end is coded using PHP; the javascript library JQuery is used for some minor page animations to improve user experience.
+* Database connection and queries are implemented using the PHP PDO (PHP Data Objects) interface.
+
+#### 11.2 Database
+
+#### 11.2.1 Table Structure
+
+The database is comprised of a number of tables adhering to the first three normal forms and fully describing the summary XML file produced by the RTT. Figure 17 shows the tables and the foreign key links between them.
+
+There are four main tables representing runs, packages, jobs and batch-submitted jobs ("runjobs"). Jobs that cannot be constructed by the RTT and submitted to batch - for example due to missing datasets - have an entry only in the jobs table. The runjobs table, for successfully constructed and submitted jobs, contains added information related to running - batch queue, job exit code, results directory,...
+
+Figure 16: Screen capture of the RTT results web site front page.
+
+#### 11.2.2 Querying the Database via URL
+
+Users can access results for their package via the front page gateway. They can also directly enter the appropriate URL once they know the syntax for querying via URL. If the querying URL syntax used is incorrect, an error page is displayed with a link to documentation on how to construct URL queries.
+
+The basic structure of a URL is:
+
+https://...base_url.../index.php?q=(..query1..)(..query2..)...(..queryN..)
+
+A URL may contain multiple queries to the database, each enclosed within (...) parentheses. A query is comprised of semi-colon separated key, value pairs with multiple values for a particular keyword being comma-separated:
+
+(keywordl=value1;keyword2=value2,value3;...)
+
+keywordN is one of a set of legal search keywords:
+
+* release
+* branch
+* cmtconfig
+
+Figure 17: Database table layout (FK=foreign key, PK=primary key)* project
+* packagename
+* jobname
+
+Wildcards may be used, for example packagename=RecEx* would match all package names that start with RecEx. If a keyword is not provided, a search will be made against all possible values of the keyword. Key/values in the URL are used to filter the results.
+
+Two key words relate to how results are displayed:
+
+1. verbosity - 3 legal values: v, vv or vvv; corresponding to the level of detail to be shown (overview, package-level or jobs-level). Default is package level (vv).
+2. viewby - 2 legal values: packagename and branch; corresponding to the primary manner by which to display results. Default is by package.
+
+### Front end Design and Information Flow
+
+The website front page consists of a form which enables the user to specify the results they wish to see. On submission, the form invokes the server-side script _submitquery.php using the HTTP POST method. This script collects user input from the form and constructs the appropriate URL (_cf_. section 11.2.2) to query the database. It then redirects to this URL, and results of the query are sent to the client.
+
+The PHP front end is made up of a number of classes, the most important of which are shown in Figure 18. The entry point to the process - index.php - begins by invoking urlparse.php which dissects the URL looking for various HTTP GET parameters:
+
+1. q - the main query parameter. Takes as value the queries to execute on the database. If missing, the site redirects back to the front page.
+2. page - The presence of the parameter indicates that detailed information about the matching job in the q query should be provided. If more than one job matches the query, a message is displayed requesting refinements to the query. Otherwise, the job display with detailed information is presented. If the parameter is absent, the site defaults to the overview display which summarises numbers of jobs succeeded/failed.
+3. cfg - provides the path to a PHP configuration file containing various required paths used by the site. If absent, the site will load the production version. Useful for selecting alternative databases and results in development version of the RTT.
+
+If the q parameter is present but its value not properly-formed, the site displays an error message indicating what the problem is, and provides a link to an information page on how to query the database via the URL.
+
+If however the parameter value is properly-formed, the module urlparse.php returns a list of strings, each string being a query taken from the URL. A connection to the database is made using an instance of SQLiteDB, which itself utilizes the PHP PDO (_P_HP _D_ata _O_bjects) interface. If the database is not found, or there is a connection problem, the site aborts the process and emits an error page displaying the problem. Otherwise, for each query string in the list:
+
+* The string is passed to the Query class which parses and converts it into component key-value pairs (e.g. branch=dev, release=rel_1,rel_2,...), binding this to the searchterms instance attribute list.
+* The Query instance, along with the SQLiteDB instance, is then passed to an instance of the QueryHandler class.
+* The QueryHandler object constructs (using the dbschema.php helper module) an SQL database query across the four main tables: runs, packages, jobs, runjobs (Figure 17). It passes that query to the database instance for execution. After execution, the database returns a results set which is a list of objects (using PDO call: setFetchMode(PDO::FETCH_OBJ)).
+* If the job display (page GET parameter in the URL) has been requested, SQL queries are performed as necessary on secondary database tables (jobtests, jobfiles...) and the results object for the job is augmented with the returned results of these queries.
+
+The list of result objects for all queries is then passed for display to the display.php module.
+
+Figure 18: Main classes of the PHP front end.
+
+### Navigating the Display
+
+Figure 19 shows the summary display page for a single package in all runs where it occurs, and across all nightlies rel_0 \(\rightarrow\) rel_6. The query that resulted in this is seen at the very top of the figure in italics. The display priority is packagename (by-packagename view). The level of verbosity is set to the lowest level (**v**) and hence for each nightly release a sum over jobs in all branches is output. The four boxes in each release are the job totals for success/error/running/problem categories. A job is displayed as'success' if its exit code is zero. Otherwise it is displayed as 'error'.
+
+The problem category groups any jobs which for some reason could not be run or were shut down. Increasing the level of verboseness to the "jobs-level" (vvv) reveals individual problem jobs and the cause of the problem.
+
+Clicking on the link "All branches" performs the same query with an increased level of verbosity (vv) - the outcome is seen in Figure 20. Then, the display priority, or viewby parameter, can be switched to "by-branch" by clicking on the link "Switch to by-branch view". Doing so yields the display shown in Figure 21. In Figure 20 we can increase verbosity level (from vv to vvv), thus seeing individual jobs in the package, by clicking on any link in the table. The link selected determines what is seen:
+
+* Clicking on a branch/run link (row header): shows the jobs for that package in that specific branch/run, across all nightlies
+* Clicking on a day (column header): shows the jobs for that package in all branches, in the nightly release selected.
+* Clicking on a cell (colored boxes): shows the jobs for that package in that branch and on that specific day (rel_X)
+
+Figure 22 shows the display obtained by clicking on a branch/run link. The content of each cell is different to the previous two levels of verbosity. Here the cell represents a single job. The top box in each cell represents the job outcome, and the lower box is the combined outcome of the job's tests. The colors representing specific outcomes are maintained from the previous verbosity levels i.e. green=success, red=error, blue=running and yellow=problem. The status text is also added to the boxes as a reminder of the color scheme, but equally as an aid to color-blind users.
+
+By clicking on a cell in Figure 22 the site displays detailed results for the job selected. The URL will include the HTTP GET parameter page. The display is seen in Figure 23. It is split into a left and right column:
+
+Figure 19: Display for a single package at the overview-level verbosity (**v**) across all nightlies and branches* Left column \(\rightarrow\) overview info for the job (status, individual tests, batch queue history,...)
+* Right column \(\rightarrow\) list of all files output by the job and summary of the disk space used
+
+Some jobs, as here, have a red bar at the top of the page. When clicked it will unfold to reveal one or more exceptions related to the job e.g if a dataset could not be found for example, or a test could not be run. When there are no exceptions for a job, there is no red bar.
+
+Figure 20: Increasing the verbosity level by one compared to Figure 19. The list of runs in which this package has results is now expanded.
+
+Figure 21: Same query and verbosity as in Figure 20 but with viewby priority set to “by-branch”.
+
+Figure 22: Example of “jobs-level” (vvvv verbosity) - individual jobs are seen with outcome of the jobs and its tests displayed
+
+[MISSING_PAGE_EMPTY:45]
+
+## References
+
+* [1] Pympler, [http://packages.python.org/Pympler](http://packages.python.org/Pympler)
+* [2] PEP8-PyFlakes, [http://reinout.vanrees.org/weblog/2010/05/11/pep8-pyflakes-emacs.html](http://reinout.vanrees.org/weblog/2010/05/11/pep8-pyflakes-emacs.html))
+* [3] Dcube, [https://twiki.cern.ch/twiki/bin/view/Sandbox/RTAndDCube](https://twiki.cern.ch/twiki/bin/view/Sandbox/RTAndDCube)
+* [4] CoolDozer, [https://twiki.cern.ch/twiki/bin/view/Main/CoolDozer](https://twiki.cern.ch/twiki/bin/view/Main/CoolDozer)
+* [5] Coverage, [http://pypi.python.org/pypi/coverage](http://pypi.python.org/pypi/coverage)
+* [6] ROOT, [http://root.cern.ch/root/doc/RootDoc.html](http://root.cern.ch/root/doc/RootDoc.html)
+* [7] D Costanzo, A Pacheco, I Vivarelli 2010 J. Phys.: Conf. Ser. 219 032064 [http://iopscience.iop.org/1742-6596/219/3/032064](http://iopscience.iop.org/1742-6596/219/3/032064)
+* [8] N Barlow 2011 J. Phys.: Conf. Ser. 331 032004 ([http://iopscience.iop.org/1742-6596/331/3/032004](http://iopscience.iop.org/1742-6596/331/3/032004)

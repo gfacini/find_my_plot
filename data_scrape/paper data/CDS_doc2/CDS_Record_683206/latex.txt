@@ -1,0 +1,381 @@
+**ATLAS Internal Note**
+
+**SOFT-NO-028**
+
+**26 August 1996**
+
+Benchmarking the
+
+Structure of a Raw Data
+
+Event\({}^{\dagger}\)
+
+**Lassi A. Tuura,** _CERN_**, Lassi.Tuura@cern.ch
+
+**Kors Bos,** _NIKHEF_**, Kors.Bos@cern.ch
+
+\(\dagger\). This document is the printed version of the Web document at
+
+[http://wwwcn.cern.ch/~lat/notes/soft/objy-bench](http://wwwcn.cern.ch/~lat/notes/soft/objy-bench)
+
+**Abstract**
+
+This document is a report of the benchmarks we run with Objectivity 3.5 at CERN during December 1995 - January 1996. We set out to run these tests to be able to determine a good structure for raw event data, where by "good" we mean that the access to individual cell values should be reasonably efficient. In particular we wanted to find out if it makes sense to make every cell a persistent object. This is interesting because every persistent object has unique address, the object ID.
+
+The benchmark results indicate that it is not feasible to make every cell persistent because of the overhead both in processing time and in database size. We also noticed that there are quite some variance in the results depending on the compiler used, machine load situation and database file location (local disk compared to networked). As could be expected, the network latencies can dominate database access times.
+
+[MISSING_PAGE_EMPTY:2]
+
+###### Contents
+
+* 1 Purpose of the Objectivity benchmarks
+* 2 Decoding the jargon
+* 3 Execution environment setup
+	* 3.1 Objectivity settings
+	* 3.2 Benchmark runs
+* 4 Benchmark results
+	* 4.1 Batch one
+		* 4.1.1 Observations common to results from all the cases
+		* 4.1.2 Case 1 results
+		* 4.1.3 Case 2 results
+		* 4.1.4 Case 3 results
+		* 4.1.5 Case 4 results
+	* 4.2 Batch two
+		* 4.2.1 Observations common to results from all the cases
+		* 4.2.2 Case 1 results
+		* 4.2.3 Case 2 results
+		* 4.2.4 Case 3 results
+		* 4.2.5 Case 4 results
+* 5 Conclusions from the benchmarks
+* 6 References
+
+[MISSING_PAGE_EMPTY:4]
+
+Purpose of the Objectivity benchmarks
+
+We decided to run these benchmarks to be able to design proper object structures for database resident raw data events. In particular, we wanted to study the effects of various object size granularities. Another important question was that is it reasonable to make every single cell persistent.
+
+In all these benchmarks we were _not interested_ in absolute speed figures, nor in I/O performance. These have been studied separately [1] by others. In contrast, we did study the effects of using different compilers, optimizations and database configurations. To lesser extent we also looked into the effects of different computer load conditions.
+
+To summarize, here are the questions we were trying to answer by running these benchmarks:
+
+**1.** What are the effects of different object structures?
+
+**2.** Is it reasonable to make every single cell persistent?
+
+**3.** Does it make sense to use virtual functions in iterators?
+
+**4.** What is the accuracy of the numbers? What differeces cause putting the database on a local disk and behind a network, different compilers and their optimization abilities, machine load and memory shortage?
+
+In the light of these goals, it should be clear that only the relations or even only the orders of magnitude of the presented timings are interesting.
+
+## 2 Decoding the jargon
+
+We assume that you more or less know Objectivity and how to use it, and in particular how to use the C\(++\) language interface. In case you don't, there are some useful terms at the end of this section.
+
+Here are the descriptions of the most important terms related to this particular benchmark.
+
+**Event** or **raw data event**
+
+A collection of cell values in the electromagnetic calorimeter. The cells are structured in a 3D mesh, the dimensions of which are 1024 times 64 times 3 (eta, phi and sampling, respectively). The mesh size is approximately right for densely stored calorimeter events, and should give realistic picture of event behaviour since the EM calorimeter is one of the larger detectors data wise. The cells are stored in a single array by towers, that is, with sampling varying fastest, eta dimension next fastest and phi varying the slowest.
+
+**Cell**: A class that wraps a double precision floating point number (a double in C++ parlance). It overloads some operators to make the class look a lot like a normal double.
+**Persistent cell**: A class that inherits from ooObj and from cell; it does not extend either interface.
+**Tower**: Three cells from different samplings on top of each other (see also event structuring).
+**Type 1**: A storage scheme where an event contains the cells in a normal C/C++ built-in array.
+**Type 2**: A storage scheme where an event contains the cells in an ooArray.
+**Type 3**: A storage scheme where every cell is a persistent cell and the array is an ooArray of ooRefs to the cells. The event is also the container that is used as a structuring hint.
+**Iterator**: A STL-like iterator class that knows the structure representation and can be used to traverse over it. All the methods in the iterator classes are declared inline so that the compiler can inline them if it is capable of doing that. In addition to the inline functions the classes provide a separate polymorphic interface via normal virtual functions. The virtual functions are declared in a generic cell structure iterator from which all the other iterators inherit.
+**Scan operation**: Scanning over all the cells in an event in memory-optimal way, reading the value and summing it to total value. There are two variants of this operation: _Raw scan_: Using direct access to the cells by their integer coordinates. The coordinates are looped over in three nested loops with hardcoded loop limits. _Iterator scan_: Using iterators to do the scan.
+
+**Mask operation**
+
+Summing up three cells high towers in 5x5 rectangular mask area. The mask slides over all the cells so that it is always covered, thus leaving the borders unprocessed. There are two variants of this operation:
+
+_Raw mask_
+
+Using direct access to the cells by their integer coordinates. The coordinates are looped over in five nested loops with hardcoded loop limits.
+
+_Iterator mask_
+
+Using iterators in the mask. The mask consists of 25 iterators, and is re-initialized for every phi line. The center iterator is used to detect when to quit advancing the iterators in the mask.
+
+Some general and Objectivity terms:
+
+**STL**
+
+The container part of the standard library that will be part of the upcoming ANSI/ISO C++ standard.
+
+**Objectivity**
+
+OODBMS (Object Oriented Database Management System) made by Objectivity, Inc+. It is currently being evaluated by RD45++ for use in LHC experiments.
+
+Footnote †: [http://www.objy.com/](http://www.objy.com/)
+
+Footnote ‡: [http://wwwcn.cern.ch/pl/cernlib/rd45/](http://wwwcn.cern.ch/pl/cernlib/rd45/)
+
+ooObj
+
+Objectivity's base class for persistent objects. Objects acquire persistency abilities by inheriting from this class.
+
+ooContObj or **Container object**
+
+Objectivity optimizes object placement in the database file with containers, so that objects stored in one are placed as close to each other as possible. The class ooContObj implements containers.
+
+ooHandle(T)
+
+ooRef's cousin that is faster to use because it pins the object into a fixed memory location in the database cache.
+
+ooRef(T)
+
+Objectivity's association type, which also behaves as a sort of a smart pointer.
+
+oVArray(T)
+
+A dynamic, parametric vector data type similar to STL's vector<T>.
+
+## 3 Execution environment setup
+
+All benchmarks were run on HP 9000 712/80's with 64MB of memory. In the tests where the machine is reported to be otherwise idle, I tried to keep all other activity out. However, as it is evident from the graphs in the next section, there are some activity spikes.
+
+There were two types of networked databases: AFS and NFS (I haven't tested Objectivity's AMS server -- others have claimed it to be faster than plain NFS). For the NFS tests both machines were on the same subnet - actually they were on the same cable; I did not measure network load, but it should have been negligible. The configurations for these were:
+
+\begin{tabular}{l l l}
+**Type** & **Database** & **Test program** \\ \hline AFS & In a directory on AFS & In a directory on AFS \\ NFS: server & On the local disk, in /tmp & Not seen \\ NFS: client & Seen over a NFS mount & On the local disk, in /tmp directory \\ \end{tabular}
+
+The workstation acting as NFS server did not have any other activity.
+
+**Note:** A word of warning is in place because I learned afterwards that Objectivity does not officially support AFS. The numbers are interesting but it is hard to draw any real conclusions from them.
+
+All tests measure real time in seconds. Only for creation and initialization tests the reported times include transaction startup and commit overhead.
+
+### Objectivity settings
+
+The full optimization benchmarks were run with a large Objectivity cache size: minimum 24MB, maximum 32MB. Since the database size was either about 3MB (Type 1 and 2) or about 12MB (Type 3), there was ample room to keep all the three and record keeping data in memory. The smaller cache settings were minimum 4MB, maximum 6MB. Database page size was 8kB in every test.
+
+### Benchmark runs
+
+The test consisted of ten cycles, in each of which the test program was run twice. For cell access tests this gives 40 test runs in cycles of two plus two. This frequency is clearly visible in many results.
+
+At the beginning of a test cycle any existing databases were removed. Then the program was run twice (thus producing the 2+2 cycle: two results for the first run and another two results for the second run). On the first run the program creates the databases as described below. However, on the second time around, the databases already exist, and those steps are ignored.
+
+The program performed tests in the following order:
+
+**1.** If the Type 1 database does not exist, create and initialize it.
+
+**2.** Perform Type 1 test twice. The test is:
+
+**1.** Do raw scan
+
+**2.** Do iterator scan
+
+**3.** Do raw mask
+
+**4.** Do iterator mask
+
+**5.** Report the results.
+
+**3.** If the Type 2 database does not exist, create and initialize it.
+
+**4.** Perform Type 2 test twice. The test is as above for Type 1.
+
+**5.** If the Type 3 database does not exist, create and initialize it.
+
+**6.** Perform Type 3 test twice. The test is as above for Type 1.
+
+## 4 Benchmark results
+
+Because the benchmarks were run twice, once for the Moose week presentation and another time for the Objectivity workshop, I'll present both of them here as well. Remember to keep in mind that the AFS results are not worth of many conclusions. Like in the presentations, only the the results from Type 2 and Type 3 cell access tests are described because they are the most interesting ones. If you want to see the results from other tests, download the archive1 and examine all the benchmark-results.\(n\) files.
+
+Footnote 1: [http://wwwcn.cern.ch/~lat/exports/objy-bench.tar.gz](http://wwwcn.cern.ch/~lat/exports/objy-bench.tar.gz)
+
+Footnote 2: [http://wwwcn.cern.ch/~lat/slides/96-09/design-rd45-1.html](http://wwwcn.cern.ch/~lat/slides/96-09/design-rd45-1.html) and
+
+[http://wwwcn.cern.ch/~lat/slides/96-04/design-1.html](http://wwwcn.cern.ch/~lat/slides/96-04/design-1.html)
+
+In my personal opinion the results from the later presentation (page 14) are more interesting. To stay consistent with the transparencies3, the results are given here in chronological order.
+
+Footnote 3: [http://wwwcn.cern.ch/~lat/slides/96-04/design-7.html](http://wwwcn.cern.ch/~lat/slides/96-04/design-7.html)
+
+### Batch one
+
+For the first batch I run all the tests with HP C\(++\) compiler. The different configurations I tried were:* High optimization (+04) versus less optimization (-0)
+* Local disk versus AFS
+* Large cache versus small cache.
+
+Of these variants I only presented the four most extreme cases:
+
+**1.** Highly optimized code running with a large cache and the database on the local disk
+
+**2.** Less optimized code running with a small cache and the database on the local disk.
+
+**3.** Highly optimized code running with a large cache and the database on AFS.
+
+**4.** Less optimized code running with a small cache and the database on AFS.
+
+#### 4.1.1 Observations common to results from all the cases
+
+First you should note what is being presented: on the X-axis there is the test number, ranging from 1 to 40. Time in seconds is shown on the Y-axis. For each case there are four figures in two rows. In the top row there is Type 2 scanning on the left, and Type 2 masking on the right. In the bottom row there is Type 3 scanning on the left and Type 3 masking on the right. For each of these figures the time scales are different, but they are mostly the same from one case to another. If the scale is different for some of the graphs, it is explicitly noted.
+
+In all figures the red line is for the raw operation, blue line is for the iterator operation and the black line is for the iterator operation executed via the virtual function interface.
+
+#### 4.1.2 Case 1 results
+
+First of all you should notice the clear visibility of the 2+2 cycle. First there is a fast test, because the database is completely in memory after initialization. The next test is also fast for the same reason. However, the first test of the second run takes a significant hit because it has to load the database contents from the disk. The second test of the second run is again fast because everything is already in the database cache. This cycle is only visible in the scan operation because that is always executed first. The cycle behaviour is the same for both the Type 2 and Type 3 because they have separate database files.
+
+The spikes are significant: for many reconstruction jobs we will be reading events in only once, and thus we will always take the performance hit. The difference between virtual and normal iterators is also too large to be ignored.
+
+There are also secondary spikes caused by other system activity. From these you should note the approximate amount of variance they cause, but otherwise they can be ignored.
+
+Secondly, you should note the difference between Type 2 and Type 3, which is a bit over an order of magnitude for both scanning and masking operations. Finally, you should note that the difference between the raw and iterator versions is not at all too big, especially for the Type 3 events.
+
+\begin{tabular}{l l}
+**Compiler** & HP C++ \\
+**Optimizations** & Full (+04) \\
+**Database files** & Local disk \\
+**Cache** & Large \\ \end{tabular}
+
+Type 2 scan: Raw vs. iterator vs. virtual
+
+Type 3 scan: Raw vs. iterator
+
+Type 3 mask: Raw vs. iterator
+
+#### 4.1.3 Case 2 results
+
+Comparing the results to case 1, the effects of the cache size become evident (the HP compiler seems to do quite good a job even with less optimization). Some of the lines have shifted upwards slightly, but not by much. More importantly, the cycle length has been shortened to two because there is no more room to keep everything in the cache. Thus, for Type 2, the first test is slow but the second is fast. For Type 3 this is not so evident because the database is larger than the cache, although it seems that the HP-UX's file system cache is helping a bit.
+
+You should also notice that the difference between iterator and raw operations got slightly larger, as well as the difference between normal and virtual iterators.
+
+#### 4.1.4 Case 3 results
+
+**Warning:** For this case the scale of the Y-axis is different from other cases! This test suite was actually run on a different machine, although it had exactly the same configuration. It just seems to suffer from inferior network connection.
+
+There is not much new to say about these figures, other than the above warning. Notice that we just jumped to almost twice the previous numbers, and if compared to the next case, it seems that the network latency is dominating the timings..
+
+\begin{tabular}{l l}
+**Compiler** & HP C++ \\
+**Optimizations** & Full (+04) \\
+**Database files** & AFS \\
+**Cache** & Large \\ \end{tabular}
+
+#### 4.1.5 Case 4 results
+
+We are again back to the normal figure scale. From these results it seems that the AFS is not having any real significance at all. I started to wonder whether the database is taking the AFS into account+ at all -- and came back with the answer from Objectivity that AFS is not officially supported.
+
+Footnote †: footnotemark:
+
+\({}^{\dagger}\) AFS or Andrew File System is a very scalable, distributed file system. The most relevant feature to these benchmarks is that it caches all accessed files to the local disk. Once the file is opened all reads and writes go to the locally cached copy. Only when the file is closed is the version on the server updated.
+
+**Compiler**
+
+HP C++
+
+**Optimizations**
+
+Some (-0)
+
+**Database files**
+
+AFS
+**Cache**
+
+Small
+
+### Batch two
+
+For the second batch I run most of the tests with Photon C++ compiler, and the rest with the HP C++ compiler. The different configurations I tried were:
+
+Footnote 1: [http://www.kai.com/C_plus_plus/](http://www.kai.com/C_plus_plus/)
+
+* Photon versus HP C++ at high optimization levels
+* Local disk versus NFS
+* Idle machine versus loaded machine
+
+Of these variants I only presented the four most extreme cases:
+
+**1.** HP C++ and the database on the local disk, with a large database cache
+
+**2.** Photon C++ and the database on the local disk, with a large database cache
+
+**3.** Photon C++ and the database on NFS, with a large database cache
+
+**4.** Photon C++ and the database on NFS and the test machine with lots of other load and the smaller database cache.
+
+#### 4.2.1 Observations common to results from all the cases
+
+The presentation system is the same as in the previous batch. Note however that the time axis is different in these figures.
+
+#### 4.2.2 Case 1 results
+
+These results are the same as in the previous batch. They are just shown with a different scale here.
+
+\begin{tabular}{l l}
+**Compiler** & HP C++ \\
+**Optimizations** & Full (+04) \\
+**Database files** & Local disk \\
+**Cache** & Large \\ \end{tabular}
+
+Type 2 scan: Raw vs. iterator vs. virtual
+
+Type 3 scan: Raw vs. iterator
+
+#### 4.2.3 Case 2 results
+
+The first results from the Photon compiler are very interesting. First off you should notice the absolute speed difference if compared to the code of HP's compiler: Type 2 test is about twice as fast, and although for Type 3 the difference isn't quite so large, it is still significant.
+
+Another interesting fact is that the iterator versions consistently perform better than the raw versions. This is completely due to the better optimizer in the Photon compiler.
+
+The non-uniformity of the spikes is a bit confusing. After some discussions with local HP-UX experts it seems that the disappearance of the peaks could be attributed to the dynamic file system cache. Namely, HP-UX 9 has a cache that can use as much memory as is available, and it starts to shrink when processes need memory pages. However, this cache size reduction is not instantanious; the delay is seen as decreasing peaks in the benchmark times as the test program steals pages until it has reached it's working set size.
+
+**Note:** Objectivity does not officially support Photon directly, but they do support any compiler that is Cfront 3.0 compatible. Nicely enough Photon provides an option (-cfront_3.0) to switch into compatibility mode.
+
+\begin{tabular}{l l}
+**Compiler** & Photon C++ \\
+**Optimizations** & Full (+K3 +O4 --abstract_pointer \\  --inline_auto_space_time=1000) \\
+**Database files** & Local disk \\
+**Cache** & Large \\ \end{tabular}
+
+Type 2 scan: Raw vs. iterator vs. virtual
+
+Type 3 scan: Raw vs. iterator
+
+Type 3 mask: Raw vs. iterator
+
+#### 4.2.4 Case 3 results
+
+Because the performance results from the previous case were so encouraging I run the rest of the tests on Photon only. This has also the advantage that any net 
+
+[MISSING_PAGE_FAIL:17]
+
+The variance caused by the higher load is mostly visible in the Type 3 tests that run for longer time than Type 2. The latter tend to run too quickly to be influenced by other system activity.
+
+\begin{tabular}{l l}
+**Compiler** & Photon C++ \\
+**Optimizations** & Full (+K3 +04 --abstract_pointer --inline_auto_space_time=1000) \\
+**Database files** & NFS; the client was loaded \\
+**Cache** & Small \\ \end{tabular}
+
+Type 2 scan: Raw vs. iterator vs. virtual
+
+Type 3 scan: Raw vs. iterator
+
+Type 3 mask: Raw vs. iterator
+
+Type 3 mask: Raw vs. iterator
+
+## 5 Conclusions from the benchmarks
+
+The conclusions from these benchmark were more or less stated in the presentations:
+
+* Individual cells should not be made persistent. Per cell persistency is too expensive in both time (an order of magnitude) and space (four times larger database footprint). Thus, the Type 2 structuring of keeping the cells in a dynamic array seems to be the most attractive one for dense events.
+* The STL-like iterator interface is fast and nice to use. The virtual function access to iterators is slightly too slow to be used in operations that touch most of the cells, but they seem reasonable in other circumstances. However, the choice is also dependent on the complexity of the action performed on the cell, as the cost of the virtual function call can easily disappear in other activity. One should note also that C\(++\) compilers keep getting smarter; I would not be suprised to see a compiler that can inline some virtual functions when given profiler data.
+* The network latency quite much dwarfs other factors. Perhaps tests with the AMS server should be conducted, too.
+* Machine load has quite some significance too, and is probably the second largest factor after network load.
+* see for instance the Stepanov test+.
+
+Footnote †: [http://www.kai.com/benchmarks/stepanov/index.html](http://www.kai.com/benchmarks/stepanov/index.html)
+
+## References
+
+* [1] V. Innocente. 1996. Performance of Objectivity as Event Store. [http://npl3sn02.cern.ch/vinpage/persistency/op.html](http://npl3sn02.cern.ch/vinpage/persistency/op.html)

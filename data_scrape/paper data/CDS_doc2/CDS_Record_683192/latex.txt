@@ -1,0 +1,1198 @@
+**ATLAS Internal Note**
+
+SOFT-NO-015
+
+5 September 1994
+
+## Chapter 1 Introduction
+
+### 1.1 What is ATRECON
+
+ATRECON is the name given to the ATLAS reconstruction package. It currently includes: code simulating the trigger, an E.M. cluster analysis package, and a package for Inner tracking pattern recognition and track fitting.
+
+ATRECON runs under the SLUG[9] program and uses the GEANT[3] and DICE[10] packages.
+
+### 1.2 How to get this manual
+
+The latest copy of this manual is always as available via WWW in both printable (postscript) and browsable (latex and HTML) formats. It is also distributed as a software note to all ATLAS institutes.
+
+### 1.3 How to get more general information
+
+In addition to this manual the following manuals are available:
+
+* An ATLAS Software manual[8], containing general software information organisation.
+* The SLUG manual[9], containing Information on the interface to GEANT.
+* The DICE manual[10], containing Information on the ATLAS geometry description.
+
+There are also software notes - the following of which may be of particular interest.
+
+* The RECON note[12], An initial proposal for the structure of ATRECON.
+* The ATREBANK note[11], A bank access package in ATRECON.
+
+These manuals/notes are all available via WWW[2].
+
+## Chapter 2 Starting off
+
+#### How to get and install the code?
+
+Details of code management [7] and code distribution can be found in the ATLAS software manual.
+
+#### A sample job
+
+The code distribution includes the following example files (a commented copy of the these files is included in the appendix):
+
+* atrecon.job: A sample shell script (this contains a unix script which calls CMZ, compiles and links the FORTRAN and then runs ATRECON).
+* ATLAS.databack: A sample datacard file (this contains a set of FFREAD datacards which digitise hits and then control the ATRECON program).
+* *.kumac: _The ATLAS kumacs are currently being redesigned and thus are not yet included in this manual_
+
+#### Who to contact?
+
+For general problems a list of contact people can be found in the software manual. Routine specific questions should be addressed to the author of the routine with a copy of the mail sent to the CMZ responsable.
+
+## Chapter 3 Bank Access
+
+#### 3.0.4 General overview
+
+Due to the rapid evolution of the current ATLAS software it was proposed to use an easy to use dynamic bank access package. This section describes the resultant hirachical access package which has been placed on top of ZEBRA[5].
+
+**The resultant bank descriptions may be found in the seperate appendix "SECT" banks.**
+
+In **ATRECON** we place each entity in a separate bank (e.g. list of calorimeter clusters, a specific cluster cell matrix etc). All the information on a reconstructed event consists of a set of banks, organized in a tree structure reflecting their relations. Similar banks are stored in a linear ZEBRA chain (i.e. there are linear chains of EM cluster banks, tracks, etc). An example of such a structure is presented in fig. 3.1.
+
+The top level bank (RECB) is controlled by SLUG and is not of interest to the general user. Thus the bank access package described here starts one level down in the hirarchy where at present there is a linear chain of section banks (the "SECT" banks) which are organised to reflect the different reconstruction phases of the package (i.e. SECT number one should corresponds to reconstruction phase one). A possibility remains to add another chains of banks at this level for independant analysis chains (e.g. MC event reconstruction starting from GEANT KINE bank ).
+
+A section itself consists of module specific chains of banks (i.e. one or more chains corresponding to the Calorimeter clustering, one or more chains corresponding to Inner tracking phase 1..). Each bank in turn consist of different chains of banks (i.e. for different types of cluster) and in turn these banks may consist of other chains... The total length (depth) of the this tree structure for practical reasons is now limited to 10.
+
+Each bank in a linear chain of banks may be distinguished by its sequential number in the chain. The bank access system is dynamic allowing the user to easily attach user banks from any point in this hirachy.
+
+#### 3.0.5 Bank formats and basic access principles
+
+Most of banks use a fix length and same format words per entity. By calling a **RBDEF** routine, described later in this document, they may be associated with corresponding FORTRAN common blocks. This is done for most of the "official" banks. It allows bank information to be copied directly onto a ("window") common block with a minimal effort (a la ADAMO).
+
+For example each "CLUS" bank mention in fig. 3.1 consists ofclus_ID - cluster type. clus_ICX - Position of cluster in eta (measured in cell units). clus_ICY - Position of cluster in phi (measured in cell units). clus_ENE - Energy of the cluster. clus_ETE - Transverse energy of the cluster.
+
+By convention, all variables in such a common should be prefixed by the bank name. The name of these common blocks should also have a form /BANKwnd/. Thus, a window common block associated with this cluster bank is
+
+COMMON /CLUSwnd/ clus_ID,clus_ICX,clus_ICY,clus_ENE,clus_ETE
+
+All the user needs to do to get the information on a cluster is to call a utility routine **RBGET** (described below) giving the cluster number. This call fills the window common block with the data for the selected cluster. A similar routine **RBPUT** may be used to put a new cluster in ZEBRA bank.
+
+Another posibility is to copy the information into/from a ZEBRA bank from/in a user array is provided by **RBSTORE/RBCOPY** routines. The only difference to the earlier described routines is that the user array may be arbitrary selected and may contain for example more than one entity simultaniously.
+
+Figure 3.1: _Example of an event data structure_
+
+### Basic bank accessing tools
+
+This section describes
+
+* how a bank is selected;
+* how a bank is accessed.
+
+#### 3.1.1 Absolute Bank addressing
+
+The address of a bank in the event tree consists of a character string giving the path of the bank and an integer array which selects the desired banks in linear chains. E.g. the calorimeter cluster address is documented as:
+
+PATH /SECT/ECAL/CLUS* IDN 1 1 N where the PATH is the character string which should be used for accessing a cluster, and IDN is an integer array containing integer numbers (one per path element!), where N is the desired cluster number.
+
+The format of the PATH is modeled on the a unix directory structure such that access to banks is similar to using directories in UNIX:
+
+The general form of PATH is:
+
+'/Nam1/Nam2/..../Name*' Where Nam1 is the top level bank list (at the moment this is always 'SECT'), Nam2 is the next level bank list...., and Name is the name of the bank list you want to access.
+
+IDN is used to select the correct bank in each list. For instance first level electro-magnetic clustering is done in reconstruction phase one and thus one selects IDN(1)=1 and since there is only one electromagnetic cluster algorithm we also want IDN(2)=1. Then IDN(3)=1 is used to access the 1st cluster, IDN(3)=2 the second...
+
+#### 3.1.2 Bank access using window common
+
+All banks having a corresponding window common can be accessed by the following calls:
+
+**Npar=RBPUT (Path,IDN)**
+
+which adds an additional entity into the selected bank chain or rewrites an existing one. The data is automatically read from the corresponding window common. The function returns NPAR which is the number of words copied to the bank. 1
+
+Footnote 1: the last IND element may have a special meaning described in section 3.2.2.
+
+**Npar=RBGET (Path,IDN)**
+
+This routine does the reverse procedure. It copies the selected bank into the window common. The function returns NPAR which is again:
+
+* a) the number of words copied to the window, if the last IDN was positive;
+* b) the number of elements in the chain otherwise (no one is copied into the window).
+
+#### 3.1.3 Booking a window common
+
+To provide the program an information of the associated "window" common, the user has to call
+
+**RBDEF('Name',Start,End,ZFFormat,Author)**
+
+where : NAME - is the bank name;
+
+START and END - are the first and the last variables in a window common associated with the bank;
+
+ZFORMAT - is a bank variables description (floating, integer etc), as defined in the ZEBRA manual [5] (p.40).
+
+AUTHOR - is the author ID.
+
+Once the bank is known to the program, user can use short calls **RBGET/RBPUT**.
+
+#### 3.1.4 Bank access using user array
+
+Another access method - which works without using a window common - is provided by
+
+**RBSTORE (Path,IDN,ZFFormat,Npar,Array)**
+
+and
+
+**RBCOPY (Path,IDN, Ndim, Npar*,Array*)**
+
+where:
+
+ZFORMAT - is a bank variables description (floating, integer etc), as defined in the ZEBRA manual [5] (p.40).
+
+NPAR - is the actual number of the words transferred from or to the ARRAY;
+
+NDIM - is the Fortran dimension of the ARRAY.
+
+This access method is more general and may be used for all banks including those having a window common block.
+
+#### 3.1.5 Possible errors
+
+While storing the information the only error which can arise is insufficient ZEBRA memory.
+
+With **RBSTORE** the target bank is created with Npar words described by ZFORMAT, If any bank in the PATH does not exist it is created with the default characteristics (2 data words, all floating), unless it was defined before with a **RBDEF** call. while **RBPUT** use the information saved by **RBDEF**. If the target bank exists but is too small, it is extended.
+
+While copying the data bank back to a user array if the bank does not exist the returned NPAR value is negative. Otherwise the number of words copied is a minimum of the existing bank length and of the array dimension.
+
+### More on the bank access
+
+#### 3.2.1 Relative addressing
+
+In an analogous way to the unix "cd" command any bank in a PATH may be declared to be a default directory by a call to
+
+**RBCDIR (Path,IDN)**After such a call a short form for PATH can be used - if PATH does not start with a "/" then the PATH is assumed to be relative to the current directory. Thus this form can only be used to refer only directory's descendant banks. e.g. if IDN(1) = 1 and IDN(2)=1 a call to:
+
+**RCBDIR('/SECT/ECAL',IDN)**
+
+ allows the user to access the cluster bank N using an abrieviated command of the form:
+
+IDN(1)=N
+
+**Npar=RBGET ('CLUS',IDN)**
+
+ If you are looping over several daughter banks this technique also brings a performance boost as it gives faster ZEBRA access to the current directory.
+
+#### 3.2.2 Special IDN valus
+
+The last IDN may be set to zero, which means "the last element in the chain". This is especially useful if one wants to count the number of elements in an existing chain or to write a new bank at the end of the existing chain. The last IDN element may be defined as 0, which means again "the last bank in the linear chain".
+
+In this case **RBSTORE** (like **RBPUT**) adds a new bank at the end of the chain. and **RBCOPY** (like **RBGET**) do not fill anything apart from communicating the actual number of alterns in the linear chain.
+
+This result is returned as as the function value by **RBGET/RBPUT** instead of a bank length.
+
+Both routines **RBCOPY/RBSTORE** overwrite this zero value by the actual number of banks in the chain.
+
+#### 3.2.3 Direct access to ZEBRA memory
+
+The mechanism described above involves some CPU overhead and thus an alternative BUT less recommended mechanism is provided, allowing the user to request a ZEBRA pointer (LINK) to the bank.
+
+The actual bank address in a ZEBRA memory (LINK) can be obtained by a call to
+
+**REBANK (Path, IDN, Npar, Link*)**
+
+ where each bank been a member of a linear structure is selected using its number in the corresponding element of the IDN list.
+
+NPAR\(>\)0 defines a write access, when a target bank may be created or extended. This call is always successful unless a fatal ZEBRA error arises. If NPAR\(<\)0 the call is a read access in which case the bank should already exist. A successful call returns a positive value of LINK, a failing call returns LINK=0.
+
+#### 3.2.4 Subentites
+
+A bank can be divided into a number of equal size divisions. Each subentity (division) can be addressed using **Name.Extension** form with a ROW number in the element of the IDN array, corresponding to the extension name. For example the sum af all three longitudinal compartment of the em calorimeter as well as all three compartments themself (each consisting of 14 words) are writen in the same bank CTYP.
+
+Let us suppose that we have selected '/SECT/ECAL*', IDN=(1,1) as default directory. The corresponding window common is defined as having 14 words. Now if a NUM array containsNUM(1)=IC and NUM(2)=1, one gets in the window common the first ROW (sum of all compartments) when calling
+
+\[\textbf{RBGET('CTYP*,IC)}\]
+
+or when calling
+
+\[\textbf{RBGET('CTYP.COMP*',NUM)}\]
+
+If instead NUM(1)=IC and NUM(2)=2 then a call
+
+\[\textbf{RBGET('CTYP.COMP*',NUM)}\]
+
+selects the first compartment (second ROW) etc.
+
+And finally with a call
+
+\[\textbf{RBCOPY('CTYP*',56,Npar,Array)}\]
+
+one gets all the information on the sum and all three compartments simultaniously in the users ARRAY.
+
+#### 3.2.5 Booking a window common
+
+So far the mechanism for defining a window common has not been addressed. As well as defining the common block the user has to inform the program of the bank structure by calling
+
+\[\textbf{RBDEF ('Name',Start,End,ZFormat,Comment)}\]
+
+where:
+
+NAME - is the bank name;
+
+START and END are the first and the last variables in a window common associated with the bank;
+
+ZFORMAT - is the same as described above;
+
+COMMENT - any useful user comment.
+
+For example the window common /CLUSwnd/ used in section 3.0.5 is defind in the program by the following call
+
+\[\textbf{RBDEF ('CLUS',clus_ID,clus_ETE,'3I 2F','pln ')}\]
+
+## Chapter 4 Program organization
+
+The following two sections describe the desired program structure and flow. Unfortunately the current code does not "always" follow this structure!
+
+### 4.1 Top Level Program flow.
+
+The reconstruction program is organized as follows:
+
+1. Preprocessing (for the calorimeters this includes the addition of noise to the digitisations)
+2. Trigger reconstruction/simulation 1. Trigger Level 2
+3. Reconstruction * Calorimeters (electromagnetic, hadronic), * Preshower, * Muon system, * Inner detector. 1. Reconstruction Phase 1: Reconstruction per subdetector * Calorimeters (electromagnetic, em and hadronic combined), * preshower (maybe combined with previous step), * Muon system, * Inner detector. 2. Reconstruction Phase 2: Reconstruction combining the subsystems * extrapolation of Muon tracks, * Definition of 'roads' and track finding within these roads. 3. Reconstruction Phase 3: Vertex reconstruction and Particle identification The steps of reconstruction phase 2 and 3 are only indicative and will be detailed later. The result of the reconstruction are the tracks fitted in the Inner detector, vertices, electromagnetic clusters, electron and muon candidates, gamma and \(\pi^{0}\) candidates, jets, and the relationships between these objects. Particles are identified with loose cuts. The interpretation of the event is left to the Analysis step, where the user may tighten the cuts for particle identification or repeat certain reconstruction steps with his choice of parameters.
+
+### 4.2 Desired modular organization
+
+Each task is performed by a group of subroutines, which should be called a 'Module'. These subroutines are called from a steering routine that we will shortly also call'module'.
+
+1. Modularity of the code. To ensure true'modularity', the code should be written according to the following rules: * Communication between Modules. Modules communicate only via the database, i.e. input/output occurs only via tables/banks.The only exception is the input argument of the steering routine, which takes the values 'INIT', 'DOIT' or 'SUM '. The input tables should not be modified by the routines of the module. * Module phases. The Module has 3 distinct phases: Initialization ('INIT'), processing of the event ('DOIT') and eventually a last phase to summarize the results obtained so far ('SUM '). Initialisation is written such that it can be repeated, eventually with new values for the Module specific parameters. * Calling tree. Modules may call other modules. It is good practice to construct only few levels of the calling tree.
+2. Data structure and modularity of the code. The necessary consequence of the above rules is that the program modularity is reflected in the structure of the data. Figs. 4.1 and 4.2 show an example.
+
+Program and data flow can be documented as depicted in Fig. 4.1 : Data banks are symbolized by a box of two horizontal bars, the module is shown as 'bubble' with its task enscribed.
+
+#### 4.2.1 Defining a Module
+
+to be completed...
+
+Figure 4.1: NOT YET AVAILABLE:Program and data flow for the muon track finding.
+
+Figure 4.2: NOT YET AVAILABLE:Example for the steering routine of a Module: MUTRAK Muon stand-alone track finding.
+
+## Chapter 5 DataCards
+
+Important parameters in ATRECON can be overriden using the FFREAD[4] package. The datacards are seperated (by a STOP card) into two sections. The first section is used to define the run parameters, the second section to redefine the geometry banks used by the analysis. This seperation of the datacards is necessary since otherwise if the user specified control parameters using the DETA bank and then read the geometry off tape his DETA banks would be overiden (for details see [13]).
+
+N.B. A sample datacard file is included in the APPENDIX - a commented version is included below.
+
+### 5.1 General datacards
+
+This section contains a brief resume of the GEANT, SLUG and DICE datacards needed to run ATRECON. These datacards should be situated in the upper section of the datacard file.
+
+### 5.2 An example datacard file
+
+The following shows an example set of datacards (copied from the file atlas.databack):
+
+* prints out datacards as they are read in.
+* TRIG 5: Sets number of events to five
+* sets time required for termination and the frequency that TIME should be checked.
+* DEBU 2 7 1: GEANT card sets: First event to debug, Last event to debug and debug frequency (1=every event).
+* read in generated event
+* SIMULATION 0: SLUG switch off simulation
+* DIGI 1: SLUG switch on DIGITISATION
+* RECONSTR 1: SLUG switch on RECONSTRUCTION
+* ANALYSIS 1: SLUG switch on ANALYSIS* **OUTPUT 0:** SLUG switch of OUTPUT
+* *BKIO 'P' 'GEOM': SLUG read geometry from the primary stream
+* *BKIO 'P' 'KINE': SLUG read event kinematics from the primary stream
+* *BKIO 'P' 'DIGI': SLUG digitisations hits from the primary stream
+* stop reading cards.
+* *MODE 'GAAS' 'PRIN' 1 'DEBU' 4 'DIGI' 1 'ANAL' 1: SLUG detector/module control card for detector 'GAAS' sets defaults print level 1, print level for events specified via 'DEBU' to 4, digitisation and analysis on.
+* *DETA 'ECAL' 2=2. 4=2.: SLUG/ATRECON input parameters (described below)
+* *DETA 'TRIG' 4=1. 17=9.5: SLUG/ATRECON input parameters (described below)
+* stop reading cards.
+
+### ATRECON datacards
+
+The DETA bank and its relevent datacards are used to control ATRECON (see the seperate appendix "DETM banks" for detailed bank descriptions). Since these datacards override the geometery banks on tape and they should come in the bf second section of the datacard file (after a STOP!)
+
+Each module/detector should have a corresponding set of DETA banks). The *DETA datacard can then be used to change bank parameters. For example
+
+*DETA 'ECAL' 2=2.1 4=2.1
+*DETA 'HCAL' 3=1.2 4=1.4
+
+would set parameter 2 and 4 in the ECAL DETA bank to 2.1 and parameters 3 and 4 in the HCAL bank to 1.2 and 1.4 respectively.
+
+## Chapter 6 Modules in trigger 1 phase
+
+### 6.1 1st level trigger
+
++DECK,doc,T=TEXT.
+*CMZU: 1.02/02 18/11/93 17.22.21 by Richard Hawkings
+*-- Author : Richard Hawkings 26/08/93 Patch TRECON: Trigger code for ATRECON
+
+This patch implements the first level calorimeter trigger, including the single and two EM cluster trigger, di-jet trigger and missing Et trigger. The muon trigger is not yet included. A simple 'fake trigger' is also included (T1CA ANAL mode 3) which sets the T1ER table according to the particles (including muons) in the KINE bank.
+
+Code structure =================
+
+ATRIGG master steering routine
+
+TRIGPRE preparation routine (empty)
+
+TRIGL1 steering routine for level 1
+
+TRIGL2 steering routine for level 2
+
+The TRIGL1 and TRIGL2 routines are always called, they use RBDEF to setup the datastructures for each module and then call the modules if their
+
+ANAL flag is set. This means that the datastructures are setup even when
+
+the modules have not been called, which can be useful when reading partly
+
+processed data from the tapes.
+
+List of trigger modules =================
+
+T1CA T1 calorimeter trigger
+
+T1GL T1 global trigger
+
+T2SU T2 trigger supervisor/interface
+
+Each is controlled by its own *MODE and *DETA parameters in the usual way
+
+and is only called if the corresponding ANAL flag is setT1CA: T1 Calorimeter trigger module
+
+================================================
+
+Flags: ANAL=1 run the T1 code, producing output tables
+
+ANAL=2 as 1, but also set SLUG REJEFL flag if event fails
+
+ANAL=3 run the T1FAKE code, only producing table T1ER
+
+PRIN=0 produce no printout
+
+PRIN=1 produce normal summary printout
+
+PRIN>1 produce extra debugging printout
+
+The code now gets the calorimeter hit data from the matrices ENE, DICEH
+
+and EPS (EM calo, hadronic calo and preshower). These matrices have first
+
+stage calibration applied by default, (just a number per section of the
+
+calorimeter). If this calibration is changed, the trigger thermsholds may
+
+come out wrong.
+
+Note that calorimeter electronic noise is now already applied in the
+
+calorimeter matrices (although it is switched off in the default setup!).
+
+Additional noise due to the trigger ADCs is applied in the trigger code
+
+(T1CINPU).
+
+DETA parameters
+
+# Default Description
+
+Control parameters
+
+2 0.05 fractional gain variation in trigger ADCs
+
+3 0.2 pedestal width of trigger ADCs
+
+4 1.0 energy unit for digitising in GeV (not tested yet!)
+
+5 0.0 ECAL coherent noise term
+
+6 0.0 HCAL coherent noise term
+
+7 8.0 Number of bits in trigger ADCs (ADC values above 2**n-1 are
+
+trunctaed to 2**n-1)
+
+9 0.0 Preshower flag (1=use preshower energy, 0=don't)
+
+90 1.0 Preshower trigger calibration adjust factor
+
+91 1.20 ECAL trigger calibration adjust factor
+
+92 1.00 HCAL trigger calibration adjust factor
+
+EM cluster trigger (input to TEWindP table)
+
+10 0.1 eta size of trigger cell in radians
+
+11 0.1 phi size of trigger cell in radians
+
+(these are rounded to produce an exact integer number of calo cells per
+
+trigger cell, so the phi granularity is 0.098 in the standard ATLAS setup)
+
+12 3.0 max value of eta for trigger
+
+13 1.0 threshold for trigger cell
+
+14 1.0 threshold of cells used in isolation calculation
+
+15 4.0 number of thresholds being used (max 8)
+
+16 100. Et threshold 1 |> single electron trigger
+
+17 35. Et threshold 2 |
+
+18 15. Et threshold 3 |> di electron trigger
+
+19 7. Et threshold 4 |> RoI flagging threshold 24-31 EM Isolation requirements for threshold sets: all 5 32-39 Hadronic Isolation requirements for threshold sets: all 5 40-47 EM+Had Isolation requirements for threshold sets: all 5 ( all three requirements are tested, so you can have a pure EM threshold by setting the Had and EM+Had isolation requirements to eg 9999 GeV)
+
+ Jet trigger (input to TJWindP table)
+
+ 50 0.3 eta size of jet trigger cell in radians  51 0.3 phi size of jet trigger cell in radians  52 3.0 max value of eta for trigger  53 1.0 threshold for trigger cell  54 1 number of Et thresholds being used  55-62 Et thresholds: 1=200. all others 0
+
+ Missing Et trigger (input to TStMiSp)
+
+ 70 0.8 eta size of missing Et cell in radians  71 0.8 phi size of missing Et cell in radians  72 3.2 maximum value of eta for trigger  73 1.0 threshold per trigger cell  74 1.0 Number of Et thresholds used  75-82 Et thresholds: 1=150. all others 0
+
+ Details of DECKS:
+
+ $T1CMAP  CDE definitions: contains the parameters, constants etc  T1CAINI  Initialise the trigger: Load input tables from DETA bank,  setup derived constants
+
+ T1GLOB  Global level 1 trigger, call calc and missing Et calculations  and decide on trigger yes/no  T1CAL0  Steering routine for calorimeter trigger  T1CINPU  Fill the EM, hadronic, jet and Etmiss matrices from the calorimeter  matrices created in APEPR.  Input matrices from T1CAPRE are used, and the trigger ADC effects  of pedestal noise, gain fluctuation etc are added.  T1CCHIP  Simulate the trigger ASICs. Go from input matrices to hit maps,  applying clustering algorithms on EM and jet data  T1CBROI  Build RoI tables from hitmaps.  T1EMIS  Calculate the Etmiss vector from the Etmiss cell matrix. Doesm't  yet include muon info  TRI1HIS  Produce T1tuples and histograms.  TR1FAKE  Produce a fake T1ER table according to the KINE bank and the  thresholds specified in TEWindP.
+
+ T1GL: T1 Global trigger module  =================================== Flags ANAL=1  run the module using T1CA output  HIST=1  produce sometuples on the calorimeter trigger performance This module collates the data from the T1CA module and makes the global decision. It also contains some histogramming routines for the calo trigger results. No great functionality as yet.
+
+Deck: T1GLOB
+
+Output banks for Level 1 Trigger
+
+===================
+
+The Level 1 Trigger system creates banks as follows:
+
+Bank WindCom Number Module Purpose
+
+T1ER T1ER n T1CA list of EM cluster RoIs
+
+T1EC T1EC T1C T1CA count of clusters passing each threshold
+
+T1JR T1JR n T1CA list of jet cluster RoIs
+
+T1JC T1JC 1 T1CA count of clusters passing each threshold
+
+T1EM T1EM 1 T1CA calorimeter ET miss vector
+
+T1GL T1GL 1 T1GL global trigger decision
+
+(following infomation duplicates DDL!)
+
+Bank T1ER:
+
+REAL Eta Eta of centre of trigger reference cell
+
+REAL Phi Phi of center of trigger reference cell
+
+INTE EtaCell Calorimeter trigger cell number in eta
+
+INTE PhiCell Calorimeter trigger cell number in phi
+
+INTE Threshold Bit pattern of EM thresholds passed
+
+Bank T1EC:
+
+INTE Count(8) Number of RoIs of each threshold
+
+Banks T1JR and T1JC are the same as T1ER and T1EC but for the jet trigger
+
+Bank T1EM
+
+INTE Threshold Bit pattern of Etmiss thresholds passed
+
+INTE Et Calorimeter missing Et (crude measure from trigger ADCs)
+
+INTE Ex Calorimeter missing Ex
+
+INTE Ey Calorimeter missing Ey
+
+Bank T1GL
+
+INTE YesNo T1 decision: O=trigger no, 1=trigger yes
+
+INTE ECount(8) Copy of T1EC
+
+INTE JCount(8) Copy of T1JC
+
+INTE EtmisThr Bit pattern of EtMis thresholds passed
+
+### 2nd level trigger
+
+This is not yet designed... any ideas?
+
+## Chapter 7 Modules in OFFLINE phase 1
+
+### 7.1 Preshower reconstruction
+
+*DECK,PSDOC,T=TEXT.
+*CMZU: 1.02/02 10/11/93 13.48.48 by M. Nessi CERN
+*-- Author : M. Nessi CERN 28/10/93
+
+PATCH PRECON: PS preshower reconstruction
+
+This patch implements a simple prshower analysis code.
+
+For each booked EM cluster the preshower activity in front is calculated
+
+and booked. Furthermore a calibrated and an uncalibrated preshower
+
+matrix with EM granularity is calculated at the preparation phase.
+
+Code structure:
+
+===================
+
+preparation phase : PSINIT : initialization module, fills commons:
+
+ initialize PSCOM from DETG and DETA
+
+ banks.
+
+PREUNPK : unpacking steering routine called
+
+ in the preparation phase.
+
+ PREUNPK calls PSUNPS for each preshower
+
+ detector.
+
+PSUNPK : unpacking routine; noise, calibration and
+
+ thereshold is applied (for the moment
+
+ just for active cells).
+
+ The calibrated matrix ENPS and the
+
+ uncalibrated one ENPSUN are filled.
+
+phase 1 reconstr. : PSRECON : main steering routine. Here all
+
+ PS banks are booked.
+
+ HARECON calls PSGETC and loops overall booked EM clusters
+
+PSGETC : calculates preshower activity in front of an EM cluster. The information is stored in PRESvnd for each cluster. PSGETC calls PSCONE.
+
+PSCONE : organize and calculates preshower activity in a cone of given radius. that belong to a jet candidate. The active cells (for the 7x7) cluster are store in PMATwnd. All cells are calibrated and the noise and the cell thereshold is applied (for the moment the noise is uncorrelated from the one calculated in PSUNPK.
+
+phase 2 reconstr. : not yet implemented, refine cluster parameters starting from pmat bank
+
+DETA steering parameters: ========================
+
+PS reconstruction is on if : *MODE 'COPS' 'ANAL' 1 (this is the default)
+
+PS reconstruction parameters: they can be redefined by the user via the datacard: *DETA 'COPS' 1=.. 2=......
+
+parameters default
+
+par 1 = dummy 0.  par 2 = EM barrel cell thereshold 0. GeV  par 3 = End cap cell thereshold 0. GeV  par 4 = calibration mode 1. (<=0 no calib)  par 5 = EM barrel cell nois 0. GeV  par 6 = End cap cell nois 0. GeV
+
+BANK booked : ========================
+
+window common PSWIND(DECK $PSWIND): ========================- Preshower activity summary
+
+PATH: /SECT/COPS
+
+IDN: 1 1
+
+COMMON /COPSvnd/ cops_CMOD, cops_CELTRb,cops_CELTRe, > cops_NOISEb,cops_NOISEe, > cops_TENb1,cops_TETb1, cops_TENb2,cops_TETb2, > cops_TENe1,cops_TETE1, cops_TENe2,cops_TETE2, > cops_end
+
+cops_CMOD : calibration mod for the preshower (0=no calib.)
+
+cops_CELTRb,e : cell thereshold for the barrel and the endcap
+
+cops_NOISEb,e : cell noise for the barrel and the endcap
+
+cops_TENb1,TET : total energy,ET in PS layer 1 barrel
+
+cops_TENb2,TET : total energy,ET in PS layer 2 barrel
+
+cops_TENe1,TET : total energy,ET in PS layer 1 end cap
+
+cops_TENe2,TET : total energy,ET in PS layer 2 end cap
+
+- Cluster associated preshower energy:
+
+PATH: /SECT/ECAL/CLUS/CTYP/PRES*
+
+num: 1 1 i k 1
+
+COMMON /PRESvnd/ pres_entry,pres_emID,pres_nccells
+
+> pres_emETA, pres_emPHI, pres_emNE, pres_radius,
+
+> pres_ENEb1, pres_ETEb1, pres_ETAb1, pres_PHIb1,
+
+> pres_ENEb2, pres_ETEb2, pres_ETAb2, pres_PHIb2,
+
+> pres_ENEe1, pres_ETEe1, pres_ETAe1, pres_PHIe1,
+
+> pres_ENEe2, pres_ETEe2, pres_ETAe2, pres_PHIe2,
+
+> pres_ENE1, pres_ENE2, pres_ETA, pres_PHI,
+
+> pres_end
+
+pres_emID : EM clsuter associate ID
+
+pres_emtyp : EM cluster type associated
+
+pres_ncells : number of cells stored in pmat
+
+pres_emETA : EM ETA reconstructed (BOX CENTER)
+
+pres_emPHI : EM PHI reconstructed (BOX CENTER)
+
+pres_emENE : EM ENE reconstructed (BOX CENTER)
+
+pres_radius : cluster radius used for PS analysis
+
+pres_ENEb1,ETE,ETA,PHI : barrel ps layer 1 energy,eta,phi rec.
+
+pres_ENEb2,ETE,ETA,PHI : barrel ps layer 2 energy,eta,phi rec.
+
+pres_ENEe1,ETE,ETA,PHI : endcap ps layer 1 energy,eta,phi rec.
+
+pres_ENEe2,ETE,ETA,PHI : endcap ps layer 2 energy,eta,phi rec.
+
+pres_ENE1,pres_ENE2 : preshower energy layer 1 and 2pres_ETA,pres_PHI : reconstructed ETA and PHI (best)
+
+- Cluster associated preshower type 3=7x7 cell matrix
+
+PATH: /SECT/ECAL/CLUS/PMAT*
+
+num: 1 1 i 1
+
+COMMON /PMATvmd/ pmat_WW(7,pmat_dim)
+
+pmat_WW(1,I) : cell energy (calibrated)
+
+pmat_WW(2,I) : cell eta
+
+pmat_WW(3,I) : cell phi
+
+pmat_WW(4,I) : cell delta eta
+
+pmat_WW(5,I) : cell delta phi
+
+pmat_WW(6,I) : cell long sampling # 1 or 2
+
+pmat_WW(7,I) : cell detector 1=barrel 2=end cap
+
+WORKING COMMONS:
+
+===================
+
+ deck: $PSCOM
+
+===================
+
+PSCOM working array for preshowerr
+
+COMMON ENPS(NPSX,NPSY,NPSZ),ENPSUN(NPSX,NPSY,NPSZ)
+
+ENPS : preshower energy matrix, contains all preshower energy
+
+in a matrix wih EM granularity. This is used in JET finding
+
+Calibration is applied
+
+ENPSUN : same as ENPS but without calibration
+
+UTILITIES:
+
+===================
+
+routine PSCombA : /ARUTIL/PSCombA
+
+this routine fills all variables in common
+
+COPSwnd
+
+routine CECombA : /ARUTIL/CECombAThis routine fills all variables in the window common.
+
+PSWIND for a given EM cluster
+
+INPUT arguments : 1 = cluster ID
+
+2 = cluster type (1,2,3).
+
+3 = requested sampling long.
+
+(0=sum of all comp.)
+
+### EM Calorimeter reconstruction
+
++DECK,CEDOC,T=TEXT.
+
+*CMZU: 1.02/02 06/11/93 20.46.32 by M. Nessi CERN
+*-- Author : M. Nessi CERN 28/10/93
+
+PATCH CRECON: EM calorimeter reconstruction
+
+This patch implements a first level calorimeter reconstruction code for the EM calorimeter. An algorithm using a shifting square window is used. The algorithm moves a shifting 7x7 square window until the energy it contains is greater that a given ET thereshold. The window is then centred around the highest energy cell in the cluster. A 11x11 matrix around the cluster centroid is saved for a further 2 phase analysis. EM and Hadronic isolation energies are also calculated and stored.
+
+Code structure:
+
+===================
+
+preparation phase : CEMINIT : initialization module, fill commons:
+
+CEMPAR and initialize CEMCOM from
+
+DETG and DETA banks.
+
+CEMUNPK : unpaking routine from the DIGI bank
+
+to the CEMCOM working space.
+
+Cell noise and cell thereshold are
+
+applied here.
+
+EM calibration is also applied
+
+according to the routines ECALCAL and
+
+ENDECAL.
+
+EM calorimeter energyis stored in the
+
+arrays ENE and INE in CEMCOM.
+
+phase 1 reconstr. : CERECON : main steering routine. Here all
+
+EM banks are booked.
+
+CERECON calls CEMCAND,CECLUST,CEMISOE
+
+CERECON loops over all cluster types:(1=3x3, 2=5x5, 3=7x7)
+
+CEMCAND : search for cluster candidates, the cluster Et thereshold is applied. A cmat_EE 11x11 matrix with cells energy around the cluster seed is filled and can be used for phase 2 reconstruction.
+
+CECLUST : calculates from the cmat_EE matrix all cluster variables (first 3 momenta of energy distribution). The common CTYP_wnd is filled here.
+
+CEMISOE : calculates energy and Et in a cone of given radius and fill common CISO_wnd.
+
+phase 2 reconstr. : not yet implemented, refine cluster parameters starting from cmat bank
+
+DETA steering parameters: ================================================
+
+EM reconstruction is on if : *MODE 'ECAL' 'ANAL' 1 (this is the default)
+
+EM reconstruction parameters: they can be redefined by the user viathe datacard: *DETA 'ECAL' 1=.. 2=.......
+
+parameters default
+
+par 1 = dummy 0. par 2 = cluster thereshold Et 10. GeV  par 3 = cell thereshold E 0. GeV  par 4 = first pass thereshold Et 0. (0=.7*par2)  par 5 = calibration mode (<=0 no cal.) 1. cal. typ=1 on  par 6 = EM barrel cell nois 0. GeV  par 7 = End cap cell nois 0. GeV  par 8 = baseline box type (1,2,3) 2. 5x5  par 9 = # of isolation cones to be proc. 4.  par 10 = isol. radius # 1 of number par9.15  par 11 = isol. radius # 2 of number par9.20  par 12 = isol. radius # 3 of number par9.30  par 13 = isol. radius # 4 of number par9.40BANK booked :
+
+==================================
+
+ window common CEWIND(DECK $CEWIND): -------------------------------------------------------
+
+- Calorimeter haeder
+
+PATH: /SECT/ECAL  IDN: 1 1
+
+ COMMON /ECALwnd/ecal_NCLUS,ecal_ETOT,ecal_ETTOT,ecal_ENEB(3),  > ecal_ENEE(3),ecal_ETTB(3),ecal_ETTE(3),ecal_end
+
+ecal_NCLUS : # of EM reconstructed clusters stored in bank  ecal_ETOT : total energy in the calorimeter EM  ecal_ETTOT : total transverse energy in EM  ecal_ENEB : energy pro sampling in the barrel EM  ecal_ENEE : energy pro sampling in the endcap EM  ecal_ETTB : ET pro sampling in the barrel EM  ecal_ETTE : ET pro sampling in the endcap EM
+
+- Cluster header  PATH: /SECT/ECAL/CLUS  IDN: 1 1 n
+
+ COMMON /CLUSmd/ clus_ID, clus_ICX,clus_ICY, >  clus_ENE,clus_ETE
+
+clus_ID '- Matrix type used for the preclustering  ( 1 - 3x3, 2 - 5x5, 3 - 7x7 )  clus_ICX - it's position in rapidity (cell units)  clus_ICY - it's position in azimuth (cell units)  clus_ENE - total energy in the matrix  clus_ETE - total transverse energy in the matrix
+
+- Specific cluster type
+
+ PATH: /SECT/ECAL/CLUS/CTYP-sum of all compartments  IDN: 1 1 n 1-3
+
+ PATH: /SECT/ECAL/CLUS/CTYP.COMP-a k-th compartment  IDN: 1 1 n 1-3 k+1
+
+ COMMON /CTYPvnd/ ctyp_ID,  ctyp_IXM,  ctyp_IYM,  >  ctyp_ENE,  ctyp_ETE,> ctyp_ETA, ctyp_PHI, ctyp_HHO, > ctyp_DETA, ctyp_DPHI, ctyp_DRHO, > ctyp_SETA, ctyp_SPHI, ctyp_SRHO
+
+ctyp_ID - cluster type i.e. 70701 - 7x7 cells,1st compartment 50500 - 5x5 cells,sum of all com.
+
+ctyp_IXM - cell number in rapidity with maximum energy
+
+ctyp_IYM - cell number in azimuth with maximum energy
+
+ctyp_ENE - energy sum in this matrix in this compartment
+
+ctyp_ETE - transverse energy -"-
+
+ctyp_ETA - cluster rapidity average -"-
+
+ctyp_PHI - cluster azimuth average -"-
+
+ctyp_RH0 - cluster average depth (for compartment sum) -"-
+
+ctyp_DETA, ctyp_DPHI, ctyp_DRHO - width (second momentum)in rapidity
+
+azimuth and depth
+
+ctyp_SETA, ctyp_SPHI, ctyp_SRHO - Asymmetry (Skewness) in rapidity,
+
+azimuth and depth
+
+- E.M. isolation
+
+PATH: /SECT/ECAL/CLUS/CISO.TISO
+
+IDN: 1 1 n 1 1-4
+
+COMMON /CISOwnd/ ciso_RAD,ciso_ENE,ciso_ETE,
+
+> ciso_ENZ(3),ciso_ETZ(3)
+
+ciso_RAD - Cone radius (dEta**2+dPhi**2)
+
+ciso_ENE - E.M. energy in the cone - sum of all compartments
+
+ciso_ETE - transverse E.M. energy in the cone -"-
+
+ciso_ENZ - E.M. energy in the cone for each compartment separately
+
+ciso_ETZ - transverse energy in the cone for each compartment. seprately
+
+- Full cluster 1ix11 matrix-sum of all compartments (without a window)
+
+PATH: /SECT/ECAL/CLUS/CHAT
+
+IDN: 1 1 i 1
+
+COMMON /CMATwnd/ cmat_EE(-cmat_KK:cmat_KK,-cmat_KK:cmat_KK, >
+
+cmat_EE - matrix of cell energies for all compartments
+
+around cell cluster seed
+
+WORKING COMMONS:
+
+===================================deck: $CEMCOM
+
+matrix&cluster size  PARAMETER (NX=240, NY=256, NZ=3, NM=1024)
+
+energy+sharing matrix
+
+ COMMON /CEMCOM/ SHT(NX), ENE(NX,NY),INE(NX,NY)
+
+ ENE : EM matrix with EM tower energy (calibration+noise+cell thr)  this matrix is filled in CEMUNPK in the preparation phase  INE : EM tower sharing energy  SHT : sinth variable for all calorimeter cell
+
+ deck $CEMPAR: -----------------------------------------------------
+
+ COMMON /CEMPAR/ MXCETA,MXCPHI,NSAM,ETAMAX,ETAMAXB,DETA,DPHI,  >  SCAL,THRET,THREE,THRO,ESCAL,MTYP,  >  NRAD,RADII(5),NOISEB,NOISE,NZO
+
+ MXCETA - maximal # of cells in eta  MXCPHI - maximal # of cells in phi  NSAM - maximal # of long. samplings /cell  ETAMAX - maximal eta of combined calorimeter  ETAMAXB - maximal eta of barrel calorimeter  DETA - delta ETA of a cell (assumes all the same)  DPHI - delta PHI of a cell (assumes all the same)  SCAL - digitization scale(=1E7)  THRET - cluster Et thereshold (GeV)  THRCE - cell E thereshold (barrel=endcap)  THRO - intermediate Et thereshold  ESCAL - calibration mode (-1=no calib)  NOISEB - cell noise (sigma) for the barrel  NOISEE - cell noise (sigma) for the end cap  MTYP - default working cluster type  NRAD - # of isolation radii to be calculated  RADII(5) - isolation radii (EM)  NZO - number of compartments in CMAT to be written
+
+ UTILITIES:  ================================: .
+
+ routine CECOMBA : /ARUTIL/CECOMBA
+
+ this routine fills all variables in the  window common CEWIND for a given cluster INPUT arguments : 1 = cluster ID
+
+ 2 = cluster type (1,2,3)
+
+ 3 = requested sampling long.
+
+ (O=sum of all comp.)
+
+routine EHComBA : /ARUTIL/EMCOMBA
+
+ this routine fills all variables in common
+
+ ECALwnd
+
+### Hardon Calorimeter reconstruction
+
+*DESK,HADOC,T=TEXT.
+*CMZU: 1.02/02 10/11/93 22.55.41 by M. Nessi CERN
+*-- Author : M. Nessi CERN 28/10/93
+
+PATCH HRECON: HAD calorimeter reconstruction
+
+ This patch implements a first level calorimeter reconstruction code
+
+ for the HAD calorimeter.
+
+ For the moment type=1 jet finder is implemented. this algorithm looks
+
+ for a tower with maximal energy, calculates a cone of given radius
+
+ around that cell (eta-phi), calculates the first 3 momenta of the
+
+ energy distribution and substracts all jet candidate-cells from the
+
+ stack and so on.
+
+ For each jet candidate the full cell matrix in the cone is stored
+
+ for further calculations or calibration (this is independed of the
+
+ choosen algorithm type)
+
+ Code structure:
+
+ ===================================
+
+ preparation phase : HADINIT : initialization module, fills commons:
+
+ HADPAR and initialize HADCOM from
+
+ DETG and DETA banks.
+
+ HADUNPK : unpaking routine from the DIGI bank
+
+ to the HADCOM working space.
+
+ Cell noise and cell thereshold are
+
+ applied here.
+
+ HAD calibration is also applied
+
+ according to 1 constant per calorimeter
+
+ type in the minimal skeeme.
+
+ The cell information is available in
+
+ the array DICEHHADCOMB : this module prepares a matrix  with EM granularity, which  combines PS,EM and HAD energies.  This matrix is used for a first search  of jets seeds (Matrix ENC in common  HADCOM).
+
+phase 1 reconstr. : HARECON : main steering routine. Here all  HAD banks are booked.  HARECON calls HADCOND and applies  an Et thereshold to each candidate.  The cone radius for this first  search is steerable via datacards.
+
+HADCOND : search for jets candidates(HADCOND  calls HFILLMA and HCALCU) with the  square window algorithm.  Each cell which belong to the jet  is flagt and will not be reused.  This algorithm is turned on with  DETA 'HCAL' 1=1. (type=1)
+
+HFILLMA : fills HNATvnd with all calorimeter  and preshower cells (DIGI cells)  that belong to a jet candidate.  HFILLMA used just cell flaged by  HADCAMD.
+
+HCALCU : calculates the first 3 momenta of the  energy distribution for all cells in the  stack HNATvnd. Et weighting is applied.
+
+phase 2 reconstr. : not yet implemented, refine cluster parameters  starting from hmat bank
+
+DETA steering parameters: ================================
+
+HAD reconstruction is on if :  *MODE 'HCAL' 'ANAL' 1 (this is the default)
+
+HAD reconstruction parameters: they can be redefined by the user viathe  datacard: *DETA 'HCAL' 1=.. 2=.......
+
+parameters default
+
+par 1 = type of jet finder algorithm 1.
+
+par 2 = jet Et thereshold 10. GeV  par 3 = cell thereshold E barrel (tile) 0. GeV  par 4 = cell thereshold E end plug (Lar) 0. GeV  par 5 = calibration mode (<=0 no cal.) 0. cal. typ=1 on  par 6 = cell noise barrel (tile) 0. GeV  par 7 = cell noise end plug (lar) 0. GeV  par 8 = maximal jet radius.6  par 9 = EM, HAD relative granu. in ENC 1.  par 10 = minimal energy of the jet cell ini. 1.  GeV  par 11 = 1 const calibration (tile barrel) 45.5 (if 5=0)  par 12 = 1 const calibration (tile ext. ba) 45.5 (if 5=0)  par 13 = 1 const calibration (Lar barrel) 42.5 (if 5=0)  par 14 = 1 const calibration (Lar end plug) 42.5 (if 5=0)
+
+BANK booked :  ================================
+
+ window common HAWIND(DECK $HAWIND):  ================================
+
+ - HADRONIC calorimeter summary
+
+ PATH: /SECT/HCAL  IDN: 1 1
+
+ COMMON /HCALwnd/ hcal_Njets,hcal_HAD(NHCALS), hcal_HLA(NHCALS,10),  >  hcal_Tra(NHCALS), hcal_TLA(NHCALS,10),hcal_END
+
+ hcal_Njets : number of reconstructed jets  hcal_HAD(4) : energy deposit in each calorimeter type  hcal_HLA(4,10) : " " in each long sampli and calo type  hcal_TRA(4) : Trans. EN dep. in each calorimeter type  hcal_TLA(4,10) : " " in each long sampli and calo type
+
+ - JET haeder
+
+ PATH: /SECT/HCAL/HJET  IDN: 1 1 n
+
+ COMMON /HJETwnd/ hjet_ICK, hjet_ICY, hjet_Ncells,  > hjet_ncPS, hjet_ncEM, hjet_ncHA,  > hjet_algo, hjet_RAD,  > hjet_ENE, hjet_ETE, hjet_eta, hjet_phi,} } } hjet_data, hjet_dphi, > } hjet_ENE_ps, hjet_ETE_ps, hjet_eta_ps, hjet_phi_ps, > } hjet_delta_ps, hjet_dphi_ps, > } hjet_ENE_em, hjet_ETE_em, hjet_eta_em, hjet_phi_em, > } hjet_delta_em, hjet_dphi_em, > } hjet_ENE_ha, hjet_ETE_ha, hjet_eta_ha, hjet_phi_ha, > } hjet_delta_ha, hjet_dphi_ha
+
+hjet_algo : type of algorithm used for reconstruction
+
+hjet_RAD : Radius used for jet preclustering
+
+hjet_ICX : position in rapidity (cell units of combined calo)
+
+hjet_ICY : position in azimuth (cell units of combined calo)
+
+hjet_Ncells : number of cells in jet matrix
+
+hjet_ncPS : number of PS cells in jet matrix
+
+hjet_ncEM : number of EM cells in jet matrix
+
+hjet_ncHA : number of HA cells in jet matrix
+
+hjet_ENE : total energy in the matrix
+
+hjet_ETE : total transverse energy in the matrix
+
+hjet_ETA : jet eta in the matrix
+
+hjet_PHI : jet phi in the matrix
+
+hjet_DETA : jet data in the matrix
+
+hjet_DPHI : jet dphi in the matrix
+
+hjet_ENE_ps : total energy in the matrix (preshower)
+
+hjet_ETE_ps : total transverse energy in the matrix (preshower)
+
+hjet_ETA_ps : jet eta in the matrix (preshower)
+
+hjet_PHI_ps : jet phi in the matrix (preshower)
+
+hjet_DETA_ps : jet data in the matrix (preshower)
+
+hjet_DPHI_ps : jet dphi in the matrix (preshower)
+
+hjet_ENE_em : total energy in the matrix (em)
+
+hjet_ETE_em : total transverse energy in the matrix (em)
+
+hjet_ETA_em : jet eta in the matrix (em)
+
+hjet_PHI_em : jet phi in the matrix (em)
+
+hjet_DELTA_em : jet data in the matrix (em)
+
+hjet_DPHI_em : jet dphi in the matrix (em)
+
+hjet_ENE_ha : total energy in the matrix (ha)
+
+hjet_ETE_ha : total transverse energy in the matrix (ha)
+
+hjet_ETA_ha : jet eta in the matrix (ha)
+
+hjet_PHI_ha : jet phi in the matrix (ha)
+
+hjet_DETA_ha : jet data in the matrix (ha)
+
+hjet_DPHI_ha : jet dphi in the matrix (ha)
+
+- Full jet matrix of all compartments (max radius)
+
+PATH: /SECT/HCAL/HJET/HMAT.
+
+IDN: 1 1 i 1
+
+COMMON /HMATvnd/ hmat_WW(hmat_I1,hmat_N)hmat_WW(1,I) : cell energy  hmat_WW(2,I) : cell eta  hmat_WW(3,I) : cell phi  hmat_WW(4,I) : cell data  hmat_WW(5,I) : cell dphi  hmat_WW(6,I) : cell R  hmat_WW(7,I) : cell dR  hmat_WW(8,I) : cell type (1=ps,2=em,3=ha tile,4=ha LAr)
+
+WORKING COMMONS: ==================================
+
+ deck: $HADWWW --------
+
+ HADWWW working array for jet finder
+
+ COMMON /HADWWW/IFLC(NXW,NYW),IFLH(LIFLH),  > ICELLE(NUCEMA),NJET,NCEL
+
+ IFLC : array flag for used cells(integer*2)  IFLH : array flag for used hadronic cells(integer*2)  ICELLE : list END cells for that jet in ENC  NJET : number of reconstructed jets  NCEL : number of ENC cells to be considered for the jet
+
+ deck: $HADCOM -----------
+
+ Hadronic cell storage area and combined towers definition
+ COMMON/HADCOM/ ALGO_TYP,DICEH(NDICEH),ENC(NXK,NYK),SHC(NYK)
+
+ ALGO_TYP : jet finder algorithm type (integer)  DICEH : workin matrix which contains all cells of the Hadronic  ENC : kombined matrix EM+PS+HAD with EM granularity  SHC : sintheta for each ENC cell
+
+ deck: $HADPAR -----------
+
+ Hadronic calorimeter layout (from geometry banks)  for each calorimeter type COMMON >/HADPAR/ NETAH(NHCAL),NPHIH(NHCAL),NSAMH(NHCAL),NCCELLH(NHCAL), > DETAH(NHCAL),DPHIH(NHCAL),ETAMAK(NHCAL),IOFFSET(NHCAL), > THRETH,THRCETTI,THRCEHLA,HCALMOD,NOISETI,NOISELA,RADIIH, > ESCALH(NHCAL),SCH,CUTCELLH,KCOMB, > NRADH,MXHETA,MXHPHI
+
+ NETAH : number of eta cells NPHIH : number of phi cells NSAMH : number of long samplings NCELLH : total number of cells DETAH : data of each cell DPHIH : dphi of each cell ETAMAXH : eta max IOFFSET : offset in DICEH
+
+ hadronic reconstruction parameters from HCAL DETA datacard
+
+ THRETH : jet minimal thereshold THRCEHTI : cell thereshold tile cal THRCEHLA : cell thereshold Lar cal HCALMOD : calibration mode NOISETI : cell noise TILE cal NOISELA : cell noise lar cal RADIIH : jets radius to be considered in phase 1 ESCALH : calibration constant for each calc type CUTCELLH : minimal energy of the jet cell initial.
+
+ UTILITIES: ===========
+
+ routine HACMBA : /ARUTIL/HACMBA
+
+ this routine fills all variables in common HCALvnd
+
+ routine JECMBA : /ARUTIL/JECMBA
+
+ This routine fills all variables in the window common HAWIND for a given jet INPUT arguments : 1=jet ID
+
+## Chapter 8 Modules in OFFLINE phase 2
+
+### 8.1 Combined inner tracking
+
+******** To be completed**********
+
+#### 8.1.1 Resume of the algorithm
+
+## Appendix A Example files
+
+### Detailed Example of bank booking/access
+
+An example of the created data structure as well as an example of a code using these data are shown in below.
+
+ SUBROUTINE EX A M P L E  IMPLICIT NONE
+
+ C+CDE,CEWIND. - window commons for Em cluster finding and trigger:  INTEGER clus_ID, clus_ICX, clus_ICY,  > ctyp_ID, ctyp_IXM, ctyp_TYM  REAL clus_ENE, clus_ETE,  > ctyp_ENE, ctyp_ETE,  > ctyp_ETA, ctyp_PHI, ctyp_RH0,  > ctyp_DETA,ctyp_DPHI,ctyp_DRHO,  > ctyp_SETA,ctyp_SPHI,ctyp_SRHO, C C - Cluster header:  C  PATH: /SECT/ECAL/CLUS  C  IDN: 1 1 n  C  COMMON /CLUSwnd/  > clus_ID,! Matrix type used for the preclustering ( 1-3x3, 2-5x5 etc)  > clus_ICX,! it's position in rapidity (cell units)  > clus_ICY,! it's position in azimuth (cell units)  > clus_ENE,! total energy in the matrix  > clus_ETE! total transverse energy in the matrix C C - Specific cluster type:  C  PATH: /SECT/ECAL/CLUS/CTYP-sum of all compartments C  IDN: 1 1 n 1-3  C  C  PATH: /SECT/ECAL/CLUS/CTYP.COMP-a k-th compartment  C  IDN: 1 1 n 1-3 k+1  C
+
+ COMMON /CTYPwnd/> ctyp_ID,! cluster type i.e. 70701 - 7x7 cells,lst compartment  > ctyp_IXM,! cell number in rapidity with maximum energy  > ctyp_ITM,! cell number in azimuth with maximum energy  > ctyp_EHE,! energy sum in this matrix in this compartment  > ctyp_ETE,! transverse energy  -"-  > ctyp_ETA,! cluster rapidity average  -"-  > ctyp_PHI,! cluster azimuth average  -"-  > ctyp_RHO,! cluster average depth (for compartment sum) -"-  > ctyp_DETA,! - width (second momentum) in rapidity  > ctyp_DPHI,! in azimuth  > ctyp_DRHO! in depth  > ctyp_SETA,! - Asymmetry (Skewness) in rapidity  > ctyp_SPHI,! in azimuth  > ctyp_SRHO! in depth
+
+ C--------------------------------------------------------------------------------------------------------------------------------  *  INTEGER NPAR,NUM(4),RBGET,IC,NumCluster  C NUM(1) = 1 NUM(2) = 1  CALL RBCDIR('/SECT/ECAL*',NUM)  Print *,' directory set - /SECT/ECAL'  C C - count cluster number  NumCluster = RBGET ('CLUS*',0)  Print *,' Number of cluster found ',NumCluster  If (NumCluster.LE.0) RETURN  C C - get all 7 x 7 cluster parameters  DC IC=1,NumCluster  C select next cluster as default directory  CALL RBCDIR ('CLUS*',IC)  C get the cluster header  Npar = RBGET ('CLUS*',IC)  Print *,IC,' - cluster header : ',  > clus_ID, clus_ICX, clus_ICY, clus_ENE, clus_ETE  C get the average over all compartments  Npar = RBGET ('CTYP*',3)  Print *,' 7x7 cluster parameters (E,Et,Eta,Phi,Rho)=',  > ctyp_ENE, ctyp_ETE, ctyp_ETA, ctyp_PHI, ctyp_RHO  C this is the first compartment only  NUM(1)=3  NUM(2)=2  Npar = RBGET ('CTYP.COMP*',NUM)  Print *,' cluster 1st compartment(E,Et,Eta,Phi,Rho)=',  > ctyp_ENE, ctyp_ETE, ctyp_ETA, ctyp_PHI, ctyp_RHOEND DO  END END
+
+### An example shell script
+
+# Print out a banner page banner ATRECON
+# set directory to the working directory cd $WORKDIR
+
+initialize and copy the exec to workdir set -x cp /u/zp/pubzp/lhc/new/mgr/atrecon dice.ex ln -s /cern/new/lib/eurodec.dat eurodec.dat ln -s /cern/new/lib/bertaf.dat bertaf.dat
+# Input : atlas_03.out ln -s /u/zp/pubzp/lhc/new/mgr/test/atlas_03.out ZEBRA.P
+
+# run ATRECON : needs datback.//dice.exe </u/zp/pubzp/lhc/new/mgr/test/atlas.datback
+# ls -al # exit
+
+### An example datacard file
+
+The following shows an example set of datacards (copied from the file atlas.databack):
+
+C------------------------- C  CATLAS DATACARDS CERN 93-08-04 C C - to read back ZEBRA data C C - to call Atlas Reconstruction C C - Et threshold is defined here C C------------------------- CLIST C GEANT: # of events to process & TIME TRIG 5 TIME 2=5. 3=1 C ------------------------- C digitization and simulation and analysis status SIMULATION 0 DIGI 1 RECONSTR 1 ANALYSIS 1 OUTP 0 *BKI0 'P' 'GEOM'- SLUG/GEANT debugging parametrs/modes -----
+- DEBU 0 0 0  C read events from ZEBRA file.  KINE -1  C STOP here
+- and read in the GEOM bank  STOP  LIST  C-----
+- C  C REDEFINE parameters in the DETA BANK  C  C Other options  C
+- Define analysis Et threshold for calorimeter em cluster finder  C C-----
+- C  C threshold (Et) for ARECON  *DETA 'ECAL' 2=10.  C  STOP
+
+## Appendix B Banks
+
+### input banks
+
+At the moment the DETM bank description is only available seperately
+
+### output banks
+
+At the moment the Sect. bank description is only available seperately
+
+**Appendix C**
+
+**Program flow**
+
+A flow chart through ATRECON
+
+## Appendix D Extracted header files
+
+Extracted routine headers.
+
+## Bibliography
+
+* [1] CSF Users Guide CN/CO/153
+* for full details telnet info.cern.ch
+* [3] GEANT CERN Program Library
+* [4] FFREAD CERN Program Library
+* [5] ZEBRA CERN Program Library Long Writeup Q100
+* [6] ADAMO ADAMO user guide, CERN PTG.
+* [7] CMZ User's Guide & Reference Manual, available from the CERN Program Library office, CN division.
+* ATLAS software group
+* ATLAS software group
+* ATLAS software group
+* [11] ATLAS software note "Event reconstruction and memory management"
+* [12] ATLAS software note "Proposal for the organization of the top level of the ATLAS off-line software"
+* [13] ATLAS software note "GEOMETRY SAVING AND USER INPUT IN SLUG"

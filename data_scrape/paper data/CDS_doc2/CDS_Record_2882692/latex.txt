@@ -1,0 +1,141 @@
+Analytic model for the Event Filter top-of-rack switch buffer occupancy in the HL-LHC ATLAS Data Acquisition system
+
+The ATLAS Collaboration
+
+###### Abstract
+
+In this document we derive the analytic formula that estimates the maximum buffer occupancy in the Event Filter top-of-rack switch when performing full Event Building in the ATLAS Data Acquisition system. This work has been developed in the context of the ATLAS DAQ Network upgrade project for the High-Luminosity LHC, with the aim of assisting the network design and provide a qualitative model of the buffer of the top-of-rack switches to be deployed in the Event Filter farm.
+
+The modeling of the network traffic and switch buffering profiles has been highly simplified. The assumptions and simplifications taken, as well as the validity of the results are duly justified. Despite the naive approach to the problem under study, the results obtained with the formula have been confronted against the measurements taken in a test-bench, proving that the formula predicts correctly the shape of the laws governing the buffer occupancy.
+
+## 1 Introduction
+
+The new ATLAS DAQ system will operate under the HL-LHC conditions performing full Event Building at 1 MHz Level 0 trigger rate (L0 rate). With an event size of 4.6 MB (CBE), plus the network and protocol overheads, we are working under the assumption that the DAQ network will need to sustain an approximate throughput of 5 TB/s (i.e. 40 Tbps).
+
+The data fragments corresponding to a given physics event will be scattered over 600 data sources (known as Data Handlers), from where the Event Filter nodes will request the events at the L0 rate. More than 3000 Even Filter servers are needed in the _Software-only scenario_ of the Event Filter [1], in order to carry out the Online analysis of the events. All these servers will be hosted in 83 racks (CBE), each of which will be equipped with a high-throughput network switch.
+
+Each switch will need to absorb the corresponding fraction of the L0 rate (i.e. 12 kHz in case of 83 racks) and sustain a throughput of almost 500 Gbps. While it is possible to find devices compatible with that throughput at a very attractive prices even today, we don't know the required buffer capacity to operate under such conditions. Given that modern devices (e.g. based on Broadcom Trident and Broadcom Tomahawk chips) tend to use shared buffer pools (in constrast to dedicated buffer pools of older generations switches), and given the highly synchronized nature of the DAQ traffic, situations of instantaneous buffer over-subscriptions (also known as _TCP incast_ in literature) are expected to occur, degrading fatally the network efficiency.
+
+In chapter 2 we will develop a mathematical formula that aims to provide a qualitative estimate of the maximum shared buffer occupancy under traffic conditions similar to the future ATLAS DAQ system for HL-LHC. But first we explain the simplified network model that we have created.
+
+### 1 Simplified network model
+
+To build our simplified model, we assume that **the Event Filter nodes make the event fragments requests to the Data Handlers concurrently**, that these **reply simultaneously** and that the **network delay is the same** for all the data paths. This results in micro-bursts that fill the buffers of the EF top-of-rack switches at a constant pace at the speed of the switch uplink. This extreme simplification of the system is realistic as long as the time skews of the different processes involved are below the time it takes to load the event fragments in the buffer. In addition, the upstream network between the Data Handlers and the EF top-of-rack switch is assumed to have **infinite buffering capacities** so as not to drop any packet under any circumstance.
+
+Under the described traffic patterns there is **no need to model the TCP flow control mechanism**, given that each data source (the Data Handler) replies with a modest amount of data that always fits in the available TCP window. This is the reason for which the TCP is helpless avoiding the _Incast_.
+
+Given the above, we have modeled the occupancy and lifetime of each event in the shared buffer as a triangular function (see figure 2.1). The event rate determines the arrival time of these functions, and we just need to sum all of them to obtain the value of the maximum buffer occupancy.
+
+## 2 Maximum shared buffer occupancy on the Event Filter top-of-rack switch
+
+### System parameters
+
+The following 4 parameters model our system:
+
+* \(S\) \(\equiv\) Event size
+* \(f\) \(\equiv\) Event frequency
+* \(O\) \(\equiv\) Output bandwidth
+* \(I\) \(\equiv\) Input bandwidth
+
+The **event size** includes everything that is stored in the buffers such as network headers and protocol overheads.
+
+The **event frequency** is per top-of-rack switch. The Dataflow system event assignment policy is assumed to be smart enough to assign events evenly to all racks so that each rack gets events assigned at a regular pace. Doing otherwise would severely affect the performance of the system.
+
+The **output bandwidth** is the speed at which a given event is flushed from the buffer, in other words the link speed of the server directly connected to a switch to which the buffered event is addressed.
+
+The **input bandwidth** is the speed at which a given event arrives to the buffer. It is assumed to be much higher than the output bandwidth (else there is no need for buffering and no problem to model).
+
+### Time variable definitions
+
+The following time variables need to be defined:
+
+* Let \(\Delta=\frac{1}{f}\) be the time interval at which events arrive to the buffer.
+* Let \(T_{n}\) be the time at which event \(n\) is loaded into the switch buffer. For example, for the first event \(T_{1}=\frac{S}{I}\)
+* Let \(T^{\prime}_{n}\) be the time at which event \(n\) is flushed from the switch buffer. For example, for the first event \(T^{\prime}_{1}=\frac{S}{O}\) (see section).
+
+### Analytic model as a sum of triangular functions
+
+Let \(b_{1}\) be the buffer occupancy profile for the first event arriving in \(t=0\):
+
+\[b_{1}(t) =\left\{\begin{array}{ll}(I-O)\times t&with\quad t\in[0,T_{1}) \quad\mid T_{1}=\frac{S}{T}\\ (I-O)\times T_{1}-O\times(t-T_{1})&with\quad t\in[T_{1},T_{1}^{\prime})\quad \mid T_{1}^{\prime}=T_{1}+\frac{(I-O)}{O}\times T_{1}\\ \end{array}\right.\] \[b_{1}(t) =\left\{\begin{array}{ll}(I-O)\times t&with\quad t\in[0,T_{1}) \quad\mid T_{1}=\frac{S}{T}\\ -O\times t+I\times T_{1}&with\quad t\in[T_{1},T_{1}^{\prime})\quad\mid T_{1}^{ \prime}=\frac{I}{O}\times T_{1}\\ \end{array}\right.\] \[b_{1}(t) =\left\{\begin{array}{ll}(I-O)\times t&with\quad t\in[0,T_{1}) \quad\mid T_{1}=\frac{S}{T}\\ -O\times t+S&with\quad t\in[T_{1},T_{1}^{\prime})\quad\mid T_{1}^{\prime}= \frac{S}{O}\\ \end{array}\right.\]
+
+The buffer occupancy for the \(n\)-th event:
+
+\[b_{n}(t)=b_{1}(t-(n-1)\Delta)\quad\text{with}\quad n\in[1,N] \tag{2.1}\]
+
+The number of \(N-1\) events arriving to the buffer in the \(T_{1}^{\prime}\) interval can be calculated as:
+
+\[N-1=\left\lfloor\frac{T_{1}^{\prime}}{\Delta}\right\rfloor=\left\lfloor\frac{ S}{O\times\Delta}\right\rfloor \tag{2.2}\]
+
+The **total** occupancy of the shared buffer for the first \(N\) events at any given moment is given by:
+
+\[B_{N}(t)=\sum_{n=1}^{N}b_{n}(t) \tag{2.3}\]
+
+Some conditions must be set:
+
+* The buffer must not to grow indefinitely: \(lim_{t\rightarrow\infty}B_{N}(t)\neq\infty\Leftrightarrow\Delta>T_{1}\)
+* The system must be sufficiently loaded: \(B_{N}(t)>0\quad\forall t\Leftrightarrow T_{1}^{\prime}>T_{2}=\Delta+T_{1}\)
+* New events must not queue behind previous events in the same output buffer queue: \(N<\) number of EF nodes (typically 32 or 40).
+
+Figure 2.1: Shared buffer data input/output profile
+
+### Buffer occupancy formula
+
+#### 2.4.1 Formula for the system loaded with \(N=1\), \(N=2\) and \(N=3\) events
+
+Now let's see the shape of \(B_{N}\):
+
+* For \(N=1\): \[B_{1}(t)=b_{1}(T)\]
+* For \(N=2\): \[B_{2}(t)=b_{1}(t)+b_{2}(t)\] \[B_{2}(t)=\left\{\begin{array}{ll}(I-O)\times t&with&t\in[0,T_{1})\\ -O\times t+S&with&t\in[T_{1},\Delta)\\ -O\times t+S+(I-O)\times(t-\Delta)&with&t\in[\Delta,\Delta+T_{1})\\ -O\times t+S-O\times(t-\Delta)+S&with&t\in[\Delta+T_{1},T_{1}^{\prime})\\ -O\times(t-\Delta)+S&with&t\in[T_{1}^{\prime},\Delta+T_{1}^{\prime})\\ \end{array}\right.\] \[B_{2}(t)=\left\{\begin{array}{ll}(I-O)\times t&with&t\in[0,T_{1}) \\ -O\times t+S&with&t\in[T_{1},\Delta)\\ (I-2O)\times t-(I-O)\times\Delta+S&with&t\in[\Delta,\Delta+T_{1})\\ -2O\times t+O\times\Delta+2S&with&t\in[\Delta+T_{1},T_{1}^{\prime})\\ -O\times t+O\times\Delta+S&with&t\in[T_{1}^{\prime},\Delta+T_{1}^{\prime}) \end{array}\right.\]
+
+[MISSING_PAGE_EMPTY:7]
+
+Therefore the first condition (A) is met with higher probability if \(I>>O\) and we consider only this case hereafter:
+
+When the 3rd event arrives, there is a competing effect between the buffer being filled (at \(I\) speed) and the buffer being emptied (at \(2O\) speed). If \(I>2O\) the maximum is achieved at the edge of the interval:
+
+\[B_{3}(t)\mid_{max} =B_{3}(2\Delta+T_{1})\Leftrightarrow I>2O\] \[B_{3}(t)\mid_{max} =-O\times(2\Delta+T_{1})+S-O\times(2\Delta+T_{1}-\Delta)+S+(I-O) \times(2\Delta+T_{1}-2\Delta)\] \[=(I-3O)\times T_{1}-3O\times\Delta+2S\]
+
+Substituting \(T_{1}=\frac{S}{I}\):
+
+\[B_{3}(t)\mid_{max}=3\left(\frac{(I-O)}{I}\times S-O\times\Delta\right)\]
+
+It is easy to see that \(B_{3}(t)\mid_{max}(OptionA)>B_{3}(t)\mid_{max}(OptionB)\).
+
+#### 2.4.2 General formula for \(N\) events
+
+For a generic \(N\) we can follow the same logic: the maximum of \(B_{N}\) is achieved when the \(N\)-th even has been fully loaded to the buffer and the \(N-1\) previous events are still being flushed:
+
+\[B_{N}(t)\mid_{max}=B_{N}((N-1)\Delta+T_{1})\Leftrightarrow I>(N-1)O \tag{2.4}\]
+
+which is the condition to find the maximum at the edge of the interval.
+
+\[B_{N}(t)\mid_{max} =\sum_{n=1}^{N-1}\left[-O\times(t-(n-1)\Delta)+S\right]+(I-O) \times(t-(N-1)\Delta)\mid_{t=(N-1)\Delta+T_{1}}\] \[=-O\times\sum_{n=1}^{N-1}\left[(N-n)\Delta+T_{1}\right]+(N-1)S+(I -0)\times T_{1}\]
+
+Using the formula of the arithmetic sum: \(\sum_{n=1}^{N-1}N-n=(N-1)\frac{N}{2}\)
+
+\[B_{N}(t)\mid_{max} =-(N-1)\frac{N}{2}O\times\Delta-(N-1)O\times T_{1}+(N-1)S+(I-0) \times T_{1}\] \[=N\left[\frac{1}{2}O\times\Delta-O\times T_{1}+S+-\frac{N}{2}O \times\Delta\right]+O\times T_{1}-S+(I-O)\times T_{1}\]
+
+Substituting \(T_{1}=\frac{S}{I}\):
+
+\[B_{N}(t)\mid_{max}=N\left[\frac{(I-O)}{I}S-\frac{N-1}{2}O\times\Delta\right]\]and \(\Delta=\frac{1}{f}\):
+
+\[B_{N}(t)\mid_{max}=N\left[\frac{(I-O)}{I}S-\frac{N-1}{2}\times\frac{O}{f}\right] \quad\text{with}\quad N=\left\lfloor\frac{S\times f}{O}\right\rfloor+1\]
+
+Which is valid in general for: \(T_{1}^{\prime}>(N-1)\Delta+T_{1}\). Developing as before:
+
+\[\frac{S\%_{\text{c}}(O\times\Delta)}{O\times\Delta}<(N-1)\frac{O}{ I-O}\] \[\text{The term on the left }\in[0,1)\text{ still.}\] \[\text{The term on the right }\to 0\text{ only if }I>>(N-1)O\]
+
+This is not necessarily true for \(N\uparrow\uparrow\). **The calculated \(B_{N}(t)\mid_{max}\) is, however, the worst-case in any scenario.**
+
+## 3 Summary
+
+Given the system parameters defined in 2.1, and working under the conditions defined at the end of 2.3, the **maximum** shared buffer occupancy of the Event Filter top-of-rack network switch is given by:
+
+\[B_{N}(t)\mid_{max}=N\left[\frac{(I-O)}{I}S-\frac{N-1}{2}\times\frac{O}{f} \right]\quad\text{with}\quad N=\left\lfloor\frac{S\times f}{O}\right\rfloor+1\]
+
+and this is valid in general if \(I>(N-1)O\).
+
+## Bibliography
+
+* [1] N. Calace, M. Danninger, M. Elsing, I. Ene, I. Gavrilenko, S.George, H. Gray, T. Hitchings, J. Masik, A. Roepe, A. Salzburger, T. Strebler, J. Stupak, W. Vandelli, F. Winklmeier, _Study of a SW-only Implementation_, tech. rep. AT2-D-RG-0006 v.1, ATLAS, 2021, url: [https://edms.cern.ch/ui/file/2591108/1/](https://edms.cern.ch/ui/file/2591108/1/) (cit. on p. 2).

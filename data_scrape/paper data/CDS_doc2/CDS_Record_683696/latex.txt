@@ -1,0 +1,410 @@
+Trigger Menus for the
+
+ATLAS Second Level Trigger:
+
+Design of the Steering System
+
+**Authors**: **P. Clarke and S. Tapprogge**
+
+Keywords: : trigger, LVL-2, menu, steering, feature extraction, decision
+
+_Abstract_
+
+_This note presents a scheme for the implementation of trigger menus, to be used in the LVL-2 pilot project. The scheme is based on the event characterization through physics signatures formed by a combination of trigger elements. Most of the trigger elements will be based on the results of feature extraction algorithms using the full granularity data from different sub-detectors, where RoI information from LVL-1 is used in most cases to 'guide' the LVL-2 system to detector regions with 'activity'. The scheme foresees one trigger menu to be visible for the user, where sequential selection of events can be achieved by a set of algorithm tables defining the operations to be executed in order to build the trigger elements at each processing step._
+
+Version: 1.1
+
+Date: 6 August 1998
+
+## 1 Introduction
+
+The ATLAS trigger system consists of several levels of increasing complexity to reduce the bunch crossing frequency of 40 MHz to a rate of events of about 100 Hz going to mass storage. At the first level, a hardware implementation is chosen, where the trigger algorithms to detect muons in the muon system and clusters or jets in the calorimeters (plus missing transverse energy) are realised in ASICs (and FPGAs) with tunable parameters and work on a coarser granularity then the detector data. The higher level triggers are foreseen to be fully programmable and to have access to the full granularity of all sub-detectors. In order to reduce the amount of data transfer needed, the second level trigger uses information provided by LVL-1 (RoI ='regions of interest'1) to only request data from limited regions in the detector where LVL-1 has detected 'activity'. These data are available in full granularity from all sub-detectors. Depending on the algorithms, the LVL-2 system requests the data in a window (of variable size) around the direction of the RoI from all relevant sub-detectors. These data will be transformed in the LVL-2 system into 'features' (per sub-detector), which contain the results of the algorithm run (e.g. transverse energy, shower shape parameters for calorimetry). The features are then combined to form a trigger element. Combinations of these trigger elements are used to classify the event in terms of physics signatures and thus to decide according to the trigger menu whether to keep the event. In addition it is foreseen to derive new trigger elements from a set of existing ones, e.g. to form invariant masses or topological correlations between jets.
+
+Footnote 1: Two types of LVL-1 RoIs can be distinguished: those which may have contributed to an accept of an event at LVL-1 (these are called trigger RoIs - or primary RoI) and those who did not contribute to the LVL-1 accept (non-trigger RoIs - or secondary RoI). The latter happens e.g. if a LVL-1 trigger is being pre-scaled or when low thresholds are used which should help LVL-2 in getting additional signatures.
+
+This note proposes a trigger menu based scheme for the LVL2 system (within the framework of the LVL-2 pilot project reference software) implementing a sequential selection strategy.2 This scheme has been based on input from the LVL-2 URD [1], existing proposals for physics trigger menus and discussions and technical notes within the reference software group. The main idea for a sequential selection is to be able to reject events as early as possible in the decision process, using fast algorithms in the first steps and thus only executing more refined algorithms (longer execution time and/or larger amount of data to be transferred) for a restricted of events. The proposed scheme has evolved during the first half of 1998 within the Reference Software part of the LVL2 Pilot Project. The evolution can be traced using [2], [3], [4] and [5].
+
+Footnote 2: A non-sequential selection is in the proposed scheme a simplification: there will be only one algorithm table defining all the operations necessary to build the trigger elements.
+
+We foresee to have a single trigger menu containing the complete classification of physics signatures which should lead to an accept of an event at LVL2. One physics signature forms a trigger menu item and is composed of trigger elements. There will be different type of trigger elements: particle-like ones (e.g. electron, gamma, muon, tau, etc.), jet elements, invariant mass elements and elements characterizing event properties (like missing transverse energy and summed transverse energy). A second part of the LVL2 configuration is a set of (possibly several) algorithm tables. One algorithm table defines a type of trigger element by specifying a set of feature extraction algorithm to be executed and one hypothesis algorithm, which combines the features obtained. The latter decides whether a trigger element should be created.
+
+The note is organised as follows: section 2 introduces a glossary of terms relevant to this area, where the emphasis is put on deviations and additions to the URD. The next section discusses requirements and constraints on the trigger menu scheme, being followed by the description of the working model, which will be the users view of the system. Next the underlying processing model is explained, which is an extension of the working model, and the relation between the two models is discussed. The following two sections contain a description of consistency checks to be done during the initialisation of the system and a list of open questions.
+
+## 2 Glossary
+
+In this section a list of terms relevant to the trigger menu scheme is given together with their definition. Some terms have been given different names (with respect to the URD) in order to avoid clashes (e.g. the notion of a trigger object has been replaced by trigger element - since we will implement the scheme in an object-oriented approach, thus the word object has already a defined meaning). These names, together with additions, are meant to be a proposal for discussion and should -- given agreement - be used to update the URD accordingly.
+
+#### Algorithm table
+
+_Note: items 2.0.1 and 2.0.2 will probably not be clear until described fully later in the document._
+
+A table defining the relation between candidate trigger element and trigger elements in terms of the feature extraction algorithms to be executed and the hypothesis algorithm for the decision whether to build a trigger element (based on the features obtained). The trigger elements defined in an algorithm table are used in the present processing step and in all further steps, unless they are redefined by entries in the algorithm table of the next steps.
+
+#### Candidate trigger element
+
+Entity to be considered against the criteria for trigger elements. A candidate trigger element can either be a trigger element from a previous processing step or it can be a primary or secondary RoI, as obtained from LVL-1. An exception has to be foreseen in the case of B-physics, where a full TRT scan can lead to additional candidate non-trigger elements, which have to be confirmed as tracks to become non-trigger elements.
+
+#### Decision
+
+Final step in the LVL-2 processing to decide whether an event can be accepted or will be rejected. The decision is based on the set of trigger masks obtained for all processing steps of trigger menus, together with the corresponding set of pre-scale factors.
+
+#### Feature
+
+Property obtained from the feature extraction algorithm, based on the information from a single sub-detector. Examples for features are physics parameters for clusters (e.g. energy, eta and phi position etc.) or tracks (transverse momentum, sing of charge etc.), and quality numbers like chi-square or hit counts.
+
+Feature extraction Process to obtain for a RoI from a single detector system the feature(s), based on the raw data (inside a limited region) with full granularity for the sub-detector (possibly after pre-processing). This calculation constitutes one of the basic units in the LVL-2 processing.
+
+Hypothesis algorithm Algorithm which combines the features obtained from different sub-detectors to form a hypothesis for a trigger element and defines (and calculates) the properties associated with the trigger element (e.g. \(\mathrm{E_{T}}\), isolation). The hypothesis algorithm can decide not to create a trigger element, e.g. if a cluster and a corresponding track to not match.
+
+Hierarchy To achieve the necessary suppression of background at LVL-2, a sequential selection strategy is used, where each step in the sequential selection is called a processing step. The scheme used to implement this is a hierarchy of trigger menus (and associated algorithm tables). The menus are arranged in a hierarchy of increasing complexity of feature extraction calculations and thus increasing processing time.
+
+Invariant Mass element A element to be built using trigger elements for a given processing step by forming invariant masses from the four vector information of the elements. According the hypothesis, cuts on the value of the invariant mass(es) can be performed to define (or not) the element. These elements at present are mainly foreseen in the case of B-physics to enhance exclusive decays of B-mesons, and could also be used to provide inclusive triggers on J/Psi or other quarkonium resonances at LVL-2.
+
+Processing step A combination of a trigger menu and a corresponding algorithm table, defining one part in the hierarchy of trigger menus of increasing complexity (i.e. one step in the sequential selection process at LVL-2). After each processing step, a decision has to be taken whether to continue further processing steps (when more menus / algorithm tables are available in the hierarchy and the event cannot be rejected yet) or to stop the processing (when no more menus are available or no menu item in the present processing step is fulfilled).
+
+Non-Trigger element See 'Trigger element' below. Non-Trigger elements are those which are derived from secondary level-1 RoIs which have not contributed to the trigger decision or e.g. those created by a TRT full-scan.
+
+2.0.11 Non-trigger Region of Interest (formerly secondary RoI)
+
+A region of interest which probably did not contribute to the LVL1 accept decision (e.g. too low an energy for the accepted trigger elements)
+
+2.0.12 Pre-Processing
+
+Preparatory data transformations necessary to convert raw data in the read-out buffers to a format and content better suited for processing in level-2 algorithms.
+
+2.0.13 Trigger Region of Interest (formerly primary RoI)
+
+A region of interest identified as a probable contributor to the LVL1 trigger acceptance decision. This evaluation has to take into account the actual LVL-1 decision, esp. in terms of pre-scaling.
+
+2.0.14 Region of Interest (RoI)
+
+A region limited in eta and phi, indicated by the level-1 trigger to contain candidates for trigger elements requiring further computation. In the case of B-physics triggers at low luminosity, RoIs may also be defined internally within the level-2 trigger system.
+
+(MAYBE this is better called a DOI: direction of interest, since the window size of the data used may depend on the feature extraction algorithm).
+
+2.0.15 Requested trigger element
+
+In order to restrict the feature extraction for trigger elements to a minimum, for each step a list of requested trigger elements is determined, using the trigger mask of the previous processing step and the trigger menu of the step under consideration. The trigger mask determines, which items (lines) in the menu are still active in the present step and all the trigger elements requested in these lines form the list of requested elements. In this case, no distinction between trigger and non-trigger elements is made.
+
+2.0.16 RoI Builder
+
+A unit inside level-2 which uses level-1 information to classify regions of interest and formats the information for level-2.
+
+2.0.17 Sequential Selection
+
+Strategy for the processing and decision taking process at LVL-2, which incorporates a hierarchy of trigger menus (and associated algorithm tables). The idea is to achieve possibly a fast rejection by running simple algorithms first and only to execute more complex algorithms for a fraction of the events accepted by LVL-1.
+
+2.0.18 Steering (formerly know as global processing)
+
+The steering is the main part of the LVL-2 in the context of performing the steps to arrive at a decision whether to reject or accept an event. Based on the hierarchy of menus (and algorithm tables) it incorporates the evaluation sequence for the menu in each processing step. To do so, it needs to initiate the building (creation) of trigger elements for each processing step, based on the available candidate trigger elements from the previous processing step and the algorithm table. The latter defines the set of feature extraction algorithms to be executed and the hypothesis algorithm to decide whether actually to build the trigger element. The results of the steering consists of a trigger mask and a list of trigger elements created to arrive at this mask for each processing step.
+
+2.0.19 Supervisor
+
+The unit which controls the overall data flow and the allocation and status of processors.
+
+2.0.20 Trigger Mask
+
+The result of the evaluation of all LVL-2 trigger menu items, being a combination of yes/no decisions.
+
+2.0.21 Trigger Menu
+
+The list of all the Level 2 trigger menu items thus defining the event selection criteria.
+
+2.0.22 Trigger menu item
+
+An entry in the trigger menu defining one set of trigger conditions (a physics signature) and being based on the requirement of one or more trigger elements together with an arbitrary number of non-trigger elements. Further conditions attached to a trigger menu item are a requirement on the LVL1 decision and a pre-scaling factor.
+
+2.0.23 Trigger element
+
+Entity corresponding to muon, electron, gamma, single hadron, tau, jet, b-jet or missing E\({}_{\rm T}\). The LVL-2 decision is based on combinations of these trigger elements. One combination of trigger elements forms a classification of an event in terms of a physics signature.
+
+Each trigger element has a type (e.g. muon, electron) and exactly one associated candidate trigger element of the same type. (e.g. muon goes to muon, electron goes to electron and so on.)1 Thus it is always possible to get back to the first candidate trigger element in the chain of processing steps (to check for overlaps of LVL-1 RoIs of different type, e.g. a jet RoI and an e.m. RoI may actually point to the same direction). An exception has to be foreseen to allow for invariant mass calculations to form a trigger element. In this case, the invariant mass element is based on other trigger elements from the same processing step and cannot be used as a candidate trigger element in a next processing step. In the case of tracks from a TRT full-scan, these will become elements of type track, with an attribute indicating whether or not the track is an electron candidate.
+
+_Note: in this note, mostly the notion of a trigger element will be used. It will not be differentiated explicitly between a trigger element (trigger RoI based) and a non-trigger element (non-trigger RoI based), except where it is appropriate._
+
+## 3 Requirements and Constraints
+
+### Requirements
+
+The URD [1] for the LVL-2 system contains several requirements which are essential for the definition of a trigger menu scheme. Some of these are repeated below where some additional interpretation of their meaning and importance in the present process has been added. The requirements mostly relevant to this note are the following ones:
+
+* UR-MENU-1, UR-MENU-3, UR-MENU-5, UR-MENU-6, UR-MENU-7
+* UR-GLOB-1, UR-GLOB-2, UR-GLOB-3, UR-GLOB-4, UR-GLOB-5
+* UR-CTRL-5, UR-CTRL-7, UR-CTRL-8, UR-CTRL-9
+
+Some more details and interpretations of these items can be found in [3]
+
+### Constraint on parameters for the elements
+
+For the working model (user view) we assume that thresholds (p\({}_{\rm T}\)) are always meant to refer to the true value (at particle level) and that the feature extraction and/or the hypothesis algorithm takes care of the requested efficiency for LVL-2 and the resolution for the measured value(s). This allows to have a single trigger menu for LVL2, where the thresholds given apply to all possible processing steps (which are defined independently by the set of algorithm tables).
+
+### Constraints on trigger menus
+
+The trigger menu(s) should be exhaustive, i.e. a LVL2 menu has to contain all physics signatures which should lead to an accept of an event. This point is most relevant for a multi-menu approach (see section 5 on the processing model for more details) and can be expressed as follows: each menu in the hierarchy has to have the same number of menu lines as the last menu in the hierarchy and there has to be a one-to-one correspondence between different lines in different menus. If one wants to follow the evolution of a menu line through the processing steps of processing, one can then always just look at menu line number n for each processing step. This one-to-one correspondence can only hold within the LVL-2 system (although it might be extended to the first steps in the event filter, see below).
+
+In each processing step only those menu items shall be considered which already were fulfilled at the previous processing step. For the first step this has to include the check on the actual LVL1 decision. The latter point is not shown in the examples of menus given in this note.
+
+It should be possible to enable and disable single menu lines for testing purposes and each line of a menu has an associated pre-scale factor (this is actually not shown in the following)
+
+An advantage of including a requirement on the LVL1 decision in the trigger menu is to reduce the cases where a (non-trigger) LVL1 RoI is wrongly flagged as being a trigger RoI and could lead to an accept at LVL2 which should not have happened.
+
+### Constraints on Pre-scaling
+
+As mentioned in the previous paragraph, each menu item has an associated pre-scale factor. Once the LVL-2 steering has done the evaluation of the trigger menu, there will be for each menu item a yes/no decision whether this item is fulfilled. For each item then the (optional) pre-scale factor has to be taken into account (e.g. in 9 out of 10 cases a yes decision on a menu item is reset). After the pre-scaling has been done, the final LVL-2 decision is simply the logical OR of all menu item results. This implies (as in the case of LVL-1) that besides the trigger masks (obtained for each step) already existing one additional trigger mask (after pre-scaling) will be created.
+
+## 4 Working Model (User View)
+
+For the LVL-2 system we propose to use a single trigger menu [4] which contains all the characterisations of physics processes to be accepted by the trigger. The sequential selection process is described by a set of tables defining possible trigger elements for each processing step. These tables define a trigger element in terms of a candidate trigger element(e.g. a trigger element from a previous processing step or a LVL-1 RoI), a set of feature extraction algorithms to be executed and a hypothesis algorithm deciding whether to create the element for a given step and providing its properties (e.g. transverse momentum).
+
+### Scheme for Processing of an Event
+
+The sequence for the processing of an event is defined by the set of algorithm tables, which contain the feature extraction algorithms to be executed for a trigger element. This allows to execute feature extraction algorithms in a hierarchy of increasing complexity and thus execution time. Given a set of algorithm tables and a single trigger menu, the following items have to be executed only once during the initialisation (configuration) of the system:
+
+1. For each processing step a list is created which contains all of the trigger elements which could possibly be created up to that point in the sequential processing. For example if no TRT full-scan has yet been done then TRT track trigger elements cannot possibly be created and so do not appear on the list. This list includes all trigger elements defined in all previous processing steps.
+
+2. Next for each step a menu is derived from the single LVL2 trigger menu by reducing the menu. This means that any trigger elements which do not appear in the relevant list created in point 1 above are removed from the menu of the present step.
+
+For each event during the LVL2 processing then the following list of actions has to be considered:
+
+1. For the given event find those menu items which have a valid LVL1 condition. All other items are marked as inactive. (This point will not appear in the following diagrams and examples, but is straightforward to implement)
+2. For each of the menu items that are still active derive a list of requested trigger elements, i.e. those which appear in each menu item and are needed to fulfil the item. This only refers to the types of trigger elements (e.g. electron, jet, muon etc.) and not to their requested properties (like energy, isolation etc.).
+3. Try to upgrade all trigger elements (called now candidates) from the previous step to the present step by building them. The building process is only initiated if the corresponding type of the (candidate) trigger element appears on the list of requested elements. It will invoke (according to the definitions in the algorithm table) a set of FEX algorithms and then the hypothesis algorithm. The latter will decide whether or not to create the trigger element.
+4. Evaluate the reduced menu of the present step (as obtained in point 2 of the initialisation). This means using all of the trigger elements created in point 3 to find out if any menu line is satisfied.
+5. All menu items which are not fulfilled in the present processing step are marked as inactive and thus will not be considered further.
+6. If there are more algorithm tables existing (i.e. the present processing step is not the final one), repeat the above steps, if there is at least one menu item fulfilled in the present processing step (i.e. the trigger mask obtained is not identical to zero). Otherwise the processing of the event is terminated.
+
+Figure 1 shows the relation between different processing steps in terms of dynamically (i.e.per event) changing data. The first processing step has as input the list of LVL-1 trigger and non-trigger RoIs (the candidate trigger elements) and leads to a list of trigger elements together with a trigger mask containing the evaluation of the trigger menu items. The list of trigger elements, together with not yet used non-trigger RoIs (from LVL-1 and possibly from a TRT full-scan) serve as input to the next processing step.
+
+### Example for a Trigger Menu
+
+The following tables contain an example for a trigger menu and a set of seven algorithm tables, derived mainly from _[6]_. This menu contains examples for menu items combining different types of trigger elements to demonstrate the feasibility of the approach used, i.e. the possibility to use quite detailed menu and also being able to implement simple menus like in _[7]_. The thresholds shown are mainly examples and the actual values will depend on the luminosity phase. The menu shown is thus not meant to contain a representative set of physics channels!!
+
+Figure 1: Scheme for the sequential selection showing the input data and the output data for each processing step. The dashed lines indicate that these items might be used at a given processing step, but do not need to be used.
+
+The trigger menu shown in table 1 is composed of trigger menu items, each represented by a line in the menu. Each item has a name (characterising the physics signature in an easily readable manner) and a list of trigger elements. Not shown is the pre-scale factor for each item, which might incorporate a switch to quickly enable/disable single menu items - e.g. by putting the pre-scale factor to a negative value). Also suppressed is the LVL1 condition attached to each menu item. The list of elements is made up of names (e.g. mu, em, e, g,...) together with attributes for these elements. The first attribute always distinguished between trigger ('p') and non-trigger ('s') elements, further attributes are defined in the algorithm table (e.g. transverse energy, isolation) by the hypothesis algorithm.
+
+### Examples for Algorithm Tables
+
+The next seven tables contain the definitions of the trigger elements, corresponding roughly to the six steps in the sequential selection process1 as described in _[6]_. In this example of a sequential selection, firstly the primary RoIs are converted into trigger elements, using only the information from the calorimeter (for non-muon RoIs) or the muon system (for muon RoIs). In the next step the information of other sub-detectors is used to define more precisely
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline
+**Item Name** & **element List** \\ \hline mu40 & mu(p,40) \\ \hline mu6+em20I & mu(p,6) em(p,20,I) \\ \hline mu6+b15+b15 & mu(p,6,I) b(s,15) b(s,15) \\ \hline e80 & e(p,80) \\ \hline g40I & g(p,40,I) \\ \hline em15I+em15I & em(p,15,I) em(p,15,I) \\ \hline tau150 & tau(p,150) \\ \hline j200 & j(p,200) \\ \hline j100+j15+j15 & j(p,100) j(s,15) j(s,15) \\ \hline j100+j100+me100 & j(p,100) j(s,100) me(s,100) \\ \hline b50+b50+b50 & b(p,50) b(p,50) b(p,50) b(s,50) \\ \hline me150 & me(p,150) \\ \hline mu6+e0.5+e0.5+mee\textgreater{}2 & mu(p,6) mee(t(s,0.5,i5E1),t(s,0.5,i5L),2,inf) \\ \hline mu6+t5+t1.5+mBd & mu(p,6) mBd(t(s,5),t(s,5)) \\ \hline mu6+t1.5+t1.5+t1.5+mphi+mDs & mu(p,6) mDs(t(s,1.5),t(s,1.5),t(s,1.5)) \\ \hline \end{tabular}
+\end{table}
+Table 1: Example for a trigger menu the trigger elements (e.g. by the use of the tracking detectors: TRT and SCT). The third step includes secondary RoIs, restricting the feature extraction to the calorimeter and the muon system (similar to the first step for primary RoIs). The fourth step finally contains the precise calculation of the non-trigger elements, using e.g. information from the TRT and SCT. In the next step, a TRT full-scan is performed. The sixth step adds SCT and calorimeter information to the tracks found by the full-scan. In both these steps, invariant mass cuts are introduced for B-physics. The seventh step adds the complete recalculation of the missing energy and an entry for b-jet tagging.
+
+Table 2 contains the definition of the trigger elements for the first processing step. Each line in the table defines one element (in this example only trigger elements 'p'). The first entry in each line is the name of the element (with 'p' or's' for trigger or non-trigger). The next entry contains the candidate trigger element which has to exist for this element to be considered building. In the example, all candidate trigger elements are trigger RoIs from LVL-1. The third column contains the list of FEX algorithms to be executed for the given trigger element. The last entry is the hypothesis algorithm which actually decides whether to build the trigger element and in addition does provide the values of the parameters (e.g. ET) which become the properties of the trigger element. This tables shows that there might be trigger elements with different names (e.g. j and b) which are based on the same candidate element (in this case a trigger RoI) and use the same feature extraction algorithm (and probably even, although not shown, the same hypothesis). Only at a later stage they will become being based on different FEX algorithms.
+
+For the case of the missing transverse energy element me(p) no FEX algorithm is executed, the element just keeps the missing E\({}_{\mathrm{T}}\) value that LVL-1 found. For all other elements, the hypothesis algorithm has a parameter describing the required isolation (0 = no isolation, other values to be defined).
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline
+**element name** & **candidate element** & **FEX algorithm(s)** & **hypothesis algorithm** \\ \hline \hline mu(p) & LVL1.pROI.mu & muon.mu & hypo.muon.1(ET,isol) \\ \hline e(p) & LVL1.pROI.em & calo.e & hypo.e.1(ET,isol) \\ \hline g(p) & LVL1.pROI.em & calo.g & hypo.g.1(ET,isol) \\ \hline em(p) & LVL1.pROI.em & calo.em & hypo.em.1(ET,isol) \\ \hline tau(p) & LVL1.pROI.tau & calo.tau & hypo.tau.1(ET,isol) \\ \hline j(p) & LVL1.pROI,j & calo.j & hypo.j.1(ET) \\ \hline b(p) & LVL1.pROI.j & calo.j & hypo.b.1(ET) \\ \hline me(p) & LVL1.pROI.me & & hypo.me.1(ET) \\ \hline \end{tabular}
+\end{table}
+Table 2: **Example for an algorithm table (first processing step). This step contains the RoI confirmation using the same type of sub-detector data (calorimetry / muon system) as used in LVL-1 to produce the RoIs.**Table 3 contains the definition of the trigger elements (no non-trigger elements yet) for the second processing step. In this case, tracking information is to be added to achieve the best possible measurement of trigger element properties at LVL-2. An underlying assumption is that once features (e.g. in this case from the calorimetry or the muon system) have been calculated in a previous processing step and are not recalculated, then the ones from the previous processing step will be reused for the hypothesis algorithm, e.g. to perform a matching between the calorimeter and tracking information. To allow for consistency checks, there might be the need for an additional table defining the type of sub-detector feature the hypothesis algorithm at the present processing step needs, in order the check whether FEX algorithms for these types are requested at the given (or a previous) processing step.
+
+If a trigger element has been defined at a previous processing step and it is not listed in the algorithm table then the element is just 'copied' with all its properties from the previous to the present level. This rule simplifies the appearance of the algorithm tables. In the example shown this applies to the 'em', 'j' and 'b' trigger elements.
+
+In the case of the missing transverse energy element, in this table a hypothesis algorithm is present. This hypothesis algorithm has to take into account all available muon trigger elements in order to correct the missing transverse energy value.
+
+Table 4 now defines non-trigger elements, built from non-trigger RoIs. For the trigger elements, no further operations are foreseen, so they are (implicitly) 'copied' with their properties from the previous processing step. The definition of the non-trigger elements follows the same conventions as the ones for trigger elements in table1, also here only features from the calorimetry and the muon system are requested.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline
+**element name** & **candidate element** & **FEX algorithm(s)** & **hypothesis algorithm** \\ \hline e(s) & LVL1.sROI.em & calo.e & hypo.e.3(ET,isol) \\ \hline b(s) & LVL1.sROI.j & calo.j & hypo.b.3(ET) \\ \hline me(s) & LVL1.sROI.me & & hypo.me.3(ET) \\ \hline \end{tabular}
+\end{table}
+Table 4: Example for an algorithm table (third processing step). The third step contains the ‘confirmation’ of non-trigger RoIs, using only the information from the calorimeters.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline
+**element name** & **candidate element** & **FEX algorithm(s)** & **hypothesis algorithm** \\ \hline mu(p) & mu(p) & calo.mu trt.mu sct.mu & hypo.muon.2(ET,isol) \\ \hline e(p) & e(p) & trt.e sct.e & hypo.e.2(ET,isol) \\ \hline g(p) & g(p) & trt.g sct.g & hypo.g.2(ET,isol) \\ \hline tau(p) & tau(p) & trt.tau sct.tau & hypo.tau.2(ET,isol) \\ \hline me(p) & me(p) & & hypo.me.2(ET) \\ \hline \end{tabular}
+\end{table}
+Table 3: Example for an algorithm table (second processing step). In this step the trigger elements based on confirmed trigger RoIs are supplemented with tracking information (TRT and SCT) to provide the best possible measurement.
+
+The next table (table 5) for the example shown contains the new definition for the non-trigger element e(s), where tracking information is added.
+
+In the next step track non-trigger elements are introduced (table 6). They are derived from track candidates found in a full scan of the TRT. The last lines in the algorithm table contain elements for an invariant mass calculations, e.g. using two electrons. In this case no candidate elements are given since the electron non-trigger element to be used to calculate the invariant mass have to be taken from the list of non-trigger elements of type electron belonging to the present processing step.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline
+**element name** & **candidate element** & **FEX algorithm(s)** & **hypothesis algorithm** \\ \hline t(s,isEL) & & trt.fullscan.t & hypo.t.5(ET,isEL) \\ \hline meet(t(s,isEL1), & & & hypo.mee.6(mmin, \\ t(s,isEL2), & & & mmax) \\ mmin,mmax) & & & \\ \hline mBd(t(s), & & & hypo.mBd.5 \\ t(s)) & & & hypo.mBd.5 \\ \hline mDs(t,s), & & hypo.mphi.mDs.5 \\ t(s)) & & & hypo.mphi.mDs.5 \\ \hline \end{tabular}
+\end{table}
+Table 6: Example for an algorithm table (fifth processing step). In this step, a full scan is performed for TRT, leading to new non-trigger elements and invariant mass calculations are performed.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline
+**element name** & **candidate element** & **FEX algorithm(s)** & **hypothesis algorithm** \\ \hline e(s) & e(s) & trt.e sct.e & hypo.e.4(ET,isol) \\ \hline \end{tabular}
+\end{table}
+Table 5: Example for an algorithm table (fourth processing step). In this step, tracking information is added to the non-trigger elements.
+
+In table 7, the track non-trigger elements found in the TRT full scan are refined, using the SCT and calorimeter feature extraction algorithms. In both case, the track elements have a flag, indicating whether they are compatible with an electron signature. In this case, they can be used in different invariant mass calculations.
+
+The final algorithm table contains the definitions for the recalculation of the missing energy elements and the b-jet tagging.
+
+## 5 Processing Model (System View)
+
+The processing model is based on a hierarchy of menus and associated algorithm tables, where each processing step in the hierarchy has an identical number of menu lines (i.e. at each step the trigger menu is exhaustive). For each processing step there is exactly one trigger menu with an associated algorithm table. The algorithm table defines all the trigger elements used in the menu of the present processing step. This has not necessarily to happen inside the LVL2 system, but could be done e.g. by using a shell script.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline
+**element name** & **candidate element** & **FEX algorithm(s)** & **hypothesis algorithm** \\ \hline \hline t(s,isEL) & t(s) & calo.t sct.t & hypo.t.6(ET,isEL) \\ \hline meet(t(s,isEL1), t(s,isEL2), mmin,mmax) & & & hypo.mee.6(mmin, mmax) \\ \hline mBd(t(s), t(s)) & & & hypo.mBd.6 \\ \hline mDs(t,s), t(s) & & hypo.mphi.mDs.6 \\ \hline t(s)) & & & hypo.mphi.mDs.6 \\ \hline \end{tabular}
+\end{table}
+Table 7: Example for an algorithm table (sixth processing step). In this step, tracking information from the SCT is added for the non-trigger elements.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline
+**element name** & **candidate element** & **FEX algorithm(s)** & **hypothesis algorithm** \\ \hline \hline me(p) & me(p) & calo.mefull & hypo.me.7(ET) \\ \hline me(s) & me(s) & calo.mefull & hypo.me.7(ET) \\ \hline b(s) & b(s) & sct.b & hypo.bjet.7 \\ \hline \end{tabular}
+\end{table}
+Table 8: Example for an algorithm table (seventh processing step). In this step, b-jet tagging is introduced as well as the recalculation of missing \(\mathbf{E_{T}}\) using the full calorimeter information.
+
+### Relation between Working and Processing Model
+
+In order to preserve full flexibility, we propose to keep the multi-step menu approach as the basis for designing the system, while keeping the single (visible) menu for the user. Given a simple set of rules, this set of menus can easily and unambiguously be derived from the single menu and the set of algorithm tables.
+
+The rules to derive the set of trigger menus from the single trigger menu and the set of algorithm tables are as follows:
+
+1. from the algorithm table of the present processing step (and the algorithm tables of the previous steps) get the list of trigger elements which are defined, i.e. which appear in the table(s) and can then be created during the LVL2 processing.
+2. remove from the single menu all trigger elements which do not appear in the list obtained in point 1.
+3. the resulting (reduced) menu is the menu to be used for the given step
+4. repeat the steps listed above for all available processing step (i.e. algorithm tables)
+
+These steps have to executed only once during initialisation of the system.
+
+### Description of the Processing in one Step
+
+Figure 2 shows the process of building (at a given processing step) the trigger elements to be used for the evaluation of the trigger menu. Rectangles with normal text denote data which enters the given processing step and which vary from event to event, oval boxes denote actions to be executed and rectangles with underlined text denote data created during the processing. Rectangle with a thick border and italic text are static data created once upon initialisation and the rectangles with text in italic the data to be stored at the end of a processing step (and maybe used as input to a next step).
+
+One processing step can be divided into three main parts: the first part consists of creating the list of requested trigger elements. To do this, only the trigger menu is needed. All those items, which are not marked as inactive, are searched for elements appearing and a list of these elements is extracted, keeping only the type of the requested element (and not its properties like energy). For each element, one additional information is determined: its cardinality. Simple elements (based e.g. on a LVL1 RoI) are given cardinality 1. Elements which correlate simple elements (e.g. invariant mass elements) are given cardinality 2 (i.e. an increase of one w.r.t. to the cardinality of the elements which they refer to).
+
+Figure 2: Scheme for the building of trigger elements and menu evaluation at a given processing step
+
+The next part contains the actual building of the trigger elements. To do so, the list of requested elements is used, together with the algorithm table providing the definition of how to build the element (i.e. the candidate element, if requested, the FEX algorithms to be executed and the hypothesis algorithm to be run). All trigger elements from the previous step will be considered, they become the candidate elements of the present step. For each of these candidates it is checked whether its type is requested and only then the FEX algorithms are executed. Based on their results, the hypothesis algorithm then provided the final decision, whether to build (create) the trigger element. These items are done for each cardinality separately, starting with the simple elements. Once these (of cardinality 1) are built, elements of cardinality 2 can be attempted to be created.
+
+The last part is the evaluation of the trigger menu, based on the list of trigger elements created in the previous part. The result is the trigger mask for the present processing step, here also only those menu items will be considered, which are not yet marked as inactive.
+
+### Examples for Menus per Processing Step
+
+Using the rules as described above and taking as an example the trigger menu as shown in Table 1 on page 11 the following seven trigger menus are derived. In these, several lines are obviously redundant (and might be stored in a more space efficient way using linked lists). The present scheme of storing the menus in fixed number of lines matches the requirement of a constant length of the trigger mask for each processing step, to allow for an easy check of the evolution of a single menu item along the processing steps and reflects the requirement of exhaustiveness.
+
+\begin{tabular}{|c|c|} \hline
+**Item Name** & **element List** \\ \hline mu40 & mu(p,40) \\ \hline mu6+em20I & mu(p,6) em(p,20,I) \\ \hline mu6i+b15+b15 & mu(p,6) \\ \hline e80 & e(p,80) \\ \hline g40I & g(p,40,I) \\ \hline em151+em15I & em(p,15,I) em(p,15,I) \\ \hline tau150 & tau(p,150) \\ \hline j200 & j(p,200) \\ \hline j100+j15+j15 & j(p,100) \\ \hline j100+j100+me100 & j(p,100) \\ \hline b50+b50+b50+b50 & b(p,50) b(p,50) b(p,50) \\ \hline me150 & me(p,150) \\ \hline mu6+e0.5+e0.5+mee>2 & mu(p,6) \\ \hline mu6+t5+t5+mBd & mu(p,6) \\ \hline \end{tabular}
+
+Table 9 on page 19 contains the results of this reduction for the first processing step. In the algorithm table for the first processing step (Table 2 on page 12) only trigger elements have been defined, so in this case simply all non-trigger elements are removed form the single menu to arrive at the menu for the first processing step.
+
+In Table 10 on page 19 the corresponding trigger menu for processing step 2 is shown, which in this case looks identical to the one of the previous processing step (Table 9 on page 19), since in the algorithm table no new trigger elements are defined, the existing one may partially be refined using different FEX and hypothesis algorithms.
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline
+**Item Name** & **element List** \\ \hline mu40 & mu(p,40) \\ \hline mu6+em20I & mu(p,6) em(p,20,I) \\ \hline mu6+b15+b15 & mu(p,6) \\ \hline e80 & e(p,80) \\ \hline g40I & g(p,40,I) \\ \hline em15I+em15I & em(p,15,I) em(p,15,I) \\ \hline tau150 & tau(p,150) \\ \hline j200 & j(p,200) \\ \hline j100+j15+j15 & j(p,100) \\ \hline j100+j100+me100 & j(p,100) \\ \hline b50+b50+b50+b50 & b(p,50) b(p,50) b(p,50) \\ \hline me150 & me(p,150) \\ \hline mu6+e0.5+e0.5+mee>2 & mu(p,6) \\ \hline mu6+t5+t5+mBd & mu(p,6) \\ \hline mu6+t1.5+t1.5+t1.5+mphi+mDs & mu(p,6) \\ \hline \end{tabular}
+\end{table}
+Table 9: Example for a trigger menu (first processing step, derived from Table 2 on page 12). In this menu only trigger elements appear according to the prescription in the first algorithm table
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline
+**Item Name** & **element List** \\ \hline mu6+t1.5+t1.5+t1.5+mphi+mDs & mu(p,6) \\ \hline \end{tabular}
+\end{table}
+Table 9: Example for a trigger menu (first processing step, derived from Table 2 on page 12). In this menu only trigger elements appear according to the prescription in the first algorithm table In Table 11 on page 20, the trigger menu for the third processing step has been defined. In the third processing step, non-trigger elements are defined in the algorithm table, using however only information from the muon system and the calorimeter. Thus almost all non-trigger elements from the single menu appear now, the exceptions are only those elements which have to be build from the full-scan of the TRT (track elements) and the invariant mass elements which are derived from track elements.
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline
+**Item Name** & **element List** \\ \hline mu40 & mu(p,40) \\ \hline mu6+em20I & mu(p,6) em(p,20,I) \\ \hline mu6+b15+b15 & mu(p,6) b(s,15) b(s,15) \\ \hline e80 & e(p,80) \\ \hline g40I & g(p,40,I) \\ \hline em15I+em15I & em(p,15,I) em(p,15,I) \\ \hline tan150 & tau(p,150) \\ \hline j200 & j(p,200) \\ \hline j100+j15+j15 & j(p,100) j(s,15) j(s,15) \\ \hline j100+j100+me100 & j(p,100) j(s,100) me(s,100) \\ \hline j50+j50+j50+j50 & j(p,50) j(p,50) j(p,50) j(s,50) \\ \hline me150 & me(p,150) \\ \hline mu6+e0.5+e0.5+mee:2 & mu(p,6) \\ \hline mu6+e5+t5+mBd & mu(p,6) \\ \hline mu6+t1.5+t1.5+t1.5+mphi+mDs & mu(p,6) \\ \hline \end{tabular}
+\end{table}
+Table 11: Example for a trigger menu (third processing step, derived from Table 4 on page 13). In the menu for the third processing step non-trigger elements appear, according to their definition in the corresponding algorithm table.
+
+Table 12 on page 21 contains the resulting menu for the fourth processing step, which looks identical the previous one (Table 11 on page 20), except for refinements in the non-trigger element definition, which are not visible in the menu.
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline
+**Item Name** & **element List** \\ \hline mu40 & mu(p,40) \\ \hline mu6+em20I & mu(p,6) em(p,20,I) \\ \hline mu6+b15+b15 & mu(p,6) b(s,15) b(s,15) \\ \hline e80 & e(p,80) \\ \hline g40I & g(p,40,I) \\ \hline em15I+em15I & em(p,15,I) em(p,15,I) \\ \hline tau150 & tau(p,150) \\ \hline j200 & j(p,200) \\ \hline j100+j15+j15 & j(p,100) j(s,15) j(s,15) \\ \hline j100+j100+me100 & j(p,100) j(s,100) me(s,100) \\ \hline b50+b50+b50+b50 & b(p,50) b(p,50) b(s,50) \\ \hline me150 & me(p,150) \\ \hline mu6+e0.5+e0.5+mee>2 & mu(p,6) mee(t(s,0.5,isE,L),(s,0.5,isEL),2,inf) \\ \hline mu6+t5+t5+mBd & mu(p,6) MBd(t(s,5),t(s,5)) \\ \hline mu6+t1.5+t1.5+t1.5+mphi+mDs & mu(p,6) mDs(t(s,1.5),t(s,1.5),t(s,1.5)) \\ \hline \end{tabular}
+\end{table}
+Table 13: Example for a trigger menu (fifth processing step, derived from Table 6 on page 14). The fifth
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline
+**Item Name** & **element List** \\ \hline j200 & j(p,200) \\ \hline j100+j15+j15 & j(p,100) j(s,15) j(s,15) \\ \hline j100+j100+me100 & j(p,100) j(s,100) me(s,100) \\ \hline b50+b50+b50 & b(p,50) b(p,50) b(p,50) b(s,50) \\ \hline me150 & me(p,150) \\ \hline mu6+e0.5+e0.5+mee>2 & mu(p,6) \\ \hline mu6+e15+t5+mBd & mu(p,6) \\ \hline mu6+t1.5+t1.5+t1.5+mphi+mDs & mu(p,6) \\ \hline \end{tabular}
+\end{table}
+Table 12: Example for a trigger menu (fourth processing step, derived from Table 5 on page 14). The fourth menu contains the same non-trigger elements as the previous one, here however tracking information is included in the building of the elements.
+
+menu contains the same non-trigger elements as the previous one, here however track elements from a TRT full scan are included.**
+
+This table (Table 13 on page 21) is now identical to the single menu, since all trigger elements as well as all invariant mass elements are defined when the fifth processing step is reached.
+
+Table 14 on page 22 looks identical to the previous menu, only the track elements from the TRT full scan have been refined using information from the SCT and the calorimeters.
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline
+**Item Name** & **element List** \\ \hline mu40 & mu(p,40) \\ \hline mu6+em20I & mu(p,6) em(p,20,I) \\ \hline mu6i+b15+b15 & mu(p,6) b(s,15) b(s,15) \\ \hline e80 & e(p,80) \\ \hline g40I & g(p,40,I) \\ \hline em15I+em15I & em(p,15,I) em(p,15,I) \\ \hline tau150 & tau(p,150) \\ \hline j200 & j(p,200) \\ \hline j100+j15+j15 & j(p,100) j(s,15) j(s,15) \\ \hline j100+j100+me100 & j(p,100) j(s,100) me(s,100) \\ \hline b50+b50+b50 & b(p,50) b(p,50) b(p,50) b(s,50) \\ \hline me150 & me(p,150) \\ \hline mu6+e0.5+e0.5+mee>2 & mu(p,6) mee(t(s,0.5,isE1),t(s,0.5,isE1),2,inf) \\ \hline mu6+t5+t5+mBd & mu(p,6) MBd(t(s,5),t(s,5)) \\ \hline mu6+t1.5+t1.5+t1.5+mphi+mDs & mu(p,6) mDs(t(s,1.5),t(s,1.5),t(s,1.5)) \\ \hline \end{tabular}
+\end{table}
+Table 14: Example for a trigger menu (sixth processing step, derived from Table 7 on page 15). The sixth menu contains the same track elements as the previous one, here with refined information obtained from the SCT and the calorimeter The last table (Table 15 on page 23) holds the refined quantities for missing energy and b-jet tagging, but looks identical to the previous one.
+
+## 6 Consistency Checks
+
+### Consistency checks on the menu
+
+* The (single) menu is only allowed to make use of trigger elements that are defined in at least one of the algorithm tables.
+* The algorithm table contains the definition of parameters for the trigger elements, which can be used in the trigger menus (e.g. transverse energy or amount of isolation). During initialisation phase, the consistency between the expected set of parameters and the actual used ones in the menu has to be ensured.
+
+### Consistency checks on algorithm tables
+
+- but for a given type of non-trigger RoI this can only happen once. A further exception is the case of a TRT full-scan. In this case track candidates are generated which can lead to trigger elements as well.
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline
+**Item Name** & **element List** \\ \hline g40I & g(p,40,I) \\ \hline em15I+em15I & em(p,15,I) em(p,15,I) \\ \hline tau150 & tau(p,150) \\ \hline j200 & j(p,200) \\ \hline j100+j15+j15 & j(p,100) j(s,15) j(s,15) \\ \hline j100+j100+me100 & j(p,100) j(s,100) me(s,100) \\ \hline b50+b50+b50+b50 & b(p,50) b(p,50) b(p,50) b(s,50) \\ \hline me150 & me(p,150) \\ \hline mu6+e0.5+e0.5+mee>2 & mu(p,6) mee(t(s,0.5,isEL),t(s,0.5,isEL),2,inf) \\ \hline mu6+t5+t5+mBd & mu(p,6) Mbd(t(s,5),t(s,5)) \\ \hline mu6+t1.5+t1.5+t1.5+mphi+mDs & mu(p,6) mDs(t(s,1.5),t(s,1.5),t(s,1.5)) \\ \hline \end{tabular}
+\end{table}
+Table 15: Example for a trigger menu (sixth processing step, derived from Table 8 on page 15). The seventh menu contains the same non-trigger elements as the previous one, here however b-jet tagging is done as well as the recalculation of the missing energy using the full calorimeter information * Each type of non-trigger RoI can only be used at one processing step to initiate a non-trigger element.
+* Each trigger element defined in one algorithm table has to appear in the single menu at least once.
+
+## 7 Open Questions
+
+### Avoiding double counting
+
+It has to be ensured that in a menu item containing several trigger elements of the same kind (e.g. three jets) or trigger elements derived from the same type of RoI (e.g electron and photon) or trigger elements from different types of RoIs which might be due to the same signature (e.g. a photon and a jet) do not fulfil a trigger menu line if they might be due to the same incident particle (set of particles).
+
+One possibility is to do a matching of trigger elements in terms of their distance in eta/phi space and do not allow them to be too close. This question has to be studied in more detail.
+
+### Meaning of trigger / non-trigger elements
+
+The meaning of a trigger element has to be clarified. A trigger element can only be derived from a primary RoI and it has to be ensured (by verifying the actual LVL-1 trigger result) that this RoI has lead to at least one active item in the LVL-1 trigger mask (after pre-scaling!). This means that a primary RoI whose associated LVL-1 menu item was not used to accept the event -- e.g. by pre-scaling -- this primary RoI should not be considered as an initiator for a trigger element. Further possible wrong classifications (by deducing the trigger / non-trigger status from the energy threshold of the RoI) should be reduced by the requirement on the LVL1 decision attached to each menu line.
+
+An important question is whether we do need the concept of a third type of attribute (besides 'trigger' and 'non-trigger'). An example happens in the case of the'mu6 b15 b15' menu item. What we want is a trigger muon mu(p,6) and any combination of two b jets (i.e. b(p,15) b(p,15) and b(p,15) b(s,15) and b(s,15) b(s,15)). To not to have always take care about the possible combination, one could introduce an additional qualifier (e.g. 'u' for 'unknown' or 'do not care') which signals the steering that either a 'trigger' or a 'non-trigger' element can be used.
+
+### Hypothesis Algorithm
+
+The present scheme foresees for each type of element (e.g. electron) one hypothesis algorithm per processing step. Could this be simplified to have only one hypothesis algorithm per element type, which then has to take care of the changing list of features available at each processing step (e.g. at the first step there will be only calorimeter features for an electron, at the second step TRT and SCT features will be available in addition).
+
+Given the LVL2 URD requirement that the system should be flexible enough to take missing detectors components (i.e. no features might be available) into account, the approach of a gen eral hypothesis algorithm might help. The important question is however whether this implies a severe constraint on the flexibility of the system in being able to define elements differently at different processing steps. A general hypothesis algorithm would have a set of rules how to derive from features a decision whether to build an element or not. If some features are not available (because the FEX algorithm for the component are not to be executed at the processing step given or because the detector component is not available), the corresponding selection criteria are ignored and the decision is derived only from the available features.
+
+### Format of the extracted sub-detector features to be used in the hypothesis algorithm
+
+An important question (simplifying or complicating the design of the steering system) is the question about the format of the features obtained for each sub-detector, as they are to be used in the hypothesis algorithm to build a element. Can one assume that for a given set of algorithms (FEX + hypothesis) a common format of these feature can be defined for each sub-detector and thus to be identical for all processing steps? If this were the case, the structure of the hypothesis algorithm could be simplified, since at least the structure of the features were identical for each sub-detector (this certainly does not exclude changes to this structure, but this would imply a re-compilation of the source code). If the requirement were however to allow for any possible structure of features at any processing step, more detailed checking of the relation between FEX algorithms and the hypothesis algorithm would have to be done.
+
+A related, although simpler item concerns the types of data (e.g. calo, TRT,...) needed for a given hypothesis algorithm, which will certainly change from processing step to processing step. It could be helpful for the consistency checks to have a list of the types needed to be supplied (in the algorithm table or elsewhere), in order to check whether for the given processing step and element, all necessary type of FEX algorithms have been requested in this processing step or in an earlier one.
+
+The following working proposal should be discussed and tried in the pilot project to get a feeling of how much restriction this implies:
+
+* for each sub-detector (calo, TRT, SCT, muon) and each trigger element type (e.m., e, g, tau, jet, t, h, mu, me) there will be (for a given release of the LVL-2 algorithm / steering package) exactly one format for the associated features
+* this format can be changed only by producing a new release of the package, thus ensuring that before the release the consistency of the feature format, the FEX algorithms and the hypothesis algorithm can be tested
+* this has the obvious advantage that we keep the flexibility to easily reconfigure the system online, i.e. changing not only parameters but also algorithms (those available have to conform the defined format)
+* especially we do not have to impose strong checking whether an FEX algorithm matches the chosen hypothesis algorithm or not
+* is there a loss of flexibility in this scheme?
+
+## 8 Summary
+
+In this note a detailed scheme for the implementation of a trigger menu together with a set of algorithm tables to allow for sequential selection for the ATLAS LVL-2 trigger system has been proposed. The scheme allows for a flexible reconfiguration of the system without code changes in order to adapt to changing running conditions and thus to fulfil the requirements of the LVL-2 system for the steering of the algorithm execution. This scheme will be implemented in the reference software for the pilot project and this will allow to test the feasibility and flexibility of this approach.
+
+The boundary of the scheme to the LVL-1 system has been discussed and certainly needs further clarification. Given the ideas of performing as first steps at the event filter a confirmation of the LVL-2 (and thus LVL-1) decision, the proposed scheme might be used also in the event filter, thus having a unique higher level trigger menu for ATLAS, before the event classification in data streams takes place at the event filter.
+
+## Acknowledgements
+
+This note is the result of many discussions within the Reference Software group of the LVL-2 pilot project. Detailed discussions and comments by A. dos Anjos, R.K. Bock, A. Bogaerts and J. R. Hubbard are appreciated.
+
+## References
+
+* [1]ATLAS internal note DAQ-NO-079: _LVL-2 URD_
+* from menus and algorithms to decisions_, R.K. Bock, D. Hubbard, S. Tapprogge
+* [3]ATLAS LVL-2 Reference Software Note 008: _Requirements, Constraints and Use Cases and an Object-Oriented Analysis of the Steering System for LVL-2_, A.d. Anjos, M.Sessler, S.Tapprogge
+* [4]ATLAS LVL-2 Reference Software Note 012: _Strawmen Trigger_, P.Clarke
+* [5]ATLAS LVL-2 Reference Software Note 015: _Implementation of Trigger Menus for the ATLAS Second Level Trigger_, S. Tapprogge
+* [6]ATLAS internal note DAQ-NO-54: _Trigger Menus at low Luminosity_, J. Bystriki et al. and ATLAS internal note DAQ-NO-110: _Trigger Menus at Luminosity 10\({}^{\circ}\)33 cm\({}^{\circ}\)-2 s\({}^{\circ}\)-1_, A. Amadon et al.
+* [7]ATLAS internal note DAQ-NO-121: _ATLAS Trigger Menus_, J. Baines et al.

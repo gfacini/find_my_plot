@@ -1,0 +1,162 @@
+## Primary Vertex identification using deep learning in ATLAS
+
+The ATLAS Collaboration
+
+The increase in the number of inelastic proton-proton collisions per bunch-crossing in the current and upcoming runs at the Large Hadron Collider (LHC) presents an unprecedented performance challenge for primary vertex reconstruction. New solutions leveraging developments in machine learning can provide accurate, efficient and parallelizable primary vertex reconstruction. This note presents the performance of a deep learning algorithm for primary vertex (PV) identification, PV-Finder, on simulated data from the ATLAS experiment. The PV-Finder algorithm uses a custom kernel to transform tracks into dense, one-dimensional features, and convolutional neural networks are used to find PV locations. This note includes the algorithmic implementation along with a study of its performance, compared to the default ATLAS vertex reconstruction algorithm.
+
+## 1 Introduction
+
+Reconstructing the locations of proton-proton collisions, known as primary vertices (PVs), is crucial to physics analyses at the LHC. Accurate identification of the location and number of proton-proton interactions as well as their properties allows for the full reconstruction of the particles of interest. It additionally provides precise knowledge of the collision environment which is critical for accurate measurements. PV reconstruction is a challenging task due to the number and density of simultaneous interactions, referred to as pile-up \(\mu\). The ATLAS experiment saw an average pile-up, <\(\mu\)> of 33 in Run 2 with a peak between 50 and 60 for data-taking in 2018 [1; 2]. LHC Run 3, begun in 2022, has seen an average <\(\mu\)> of 42.5 for stable beams in 2022 [3]. In the high-luminosity phase of the LHC, whose operations are expected to begin in 2029, ATLAS is planning for 140-200 simultaneous interactions. Fast, efficient, and accurate methods for finding primary vertices are necessary. Currently, ATLAS uses the Adaptive Multi-Vertex Finder (AMVF) [4] algorithm for primary vertex reconstruction. This is a global approach to simultaneous vertex finding and fitting that weights tracks according to their compatibility with different vertices.
+
+This note presents an implementation of the PV-Finder[5] algorithm, a hybrid deep learning (DL)-based primary vertex identification algorithm which uses features calculated from reconstructed particle tracks as inputs into a neural network and outputs predictions for PV locations. Exploring DL solutions for PV identification is of particular interest because they leverage industrial tools, potentially allowing for improved performance over conventional methods. PV-Finder was initially developed for the LHCb experiment, motivated by the increase of expected visible primary vertices per event from 1.1 to 5.6 during Run 3 of the LHC, which is well beyond the experiment's design specification. This work aims to explore the performance of the PV-Finder algorithm in the higher density ATLAS conditions.
+
+This note describes the ATLAS detector in Section 2. The datasets used are specified in Section 3. The implementation of the PV-Finder algorithm is presented in Section 4. The performance of the algorithm compared to the and along with the performance metrics used for comparison, are presented in Section 5. The note ends with conclusions in Section 6.
+
+## 2 ATLAS detector
+
+The ATLAS experiment [6] at the LHC is a multipurpose particle detector with a forward-backward symmetric cylindrical geometry and a near \(4\pi\) coverage in solid angle.1 It consists of an inner tracking detector surrounded by a thin superconducting solenoid, electromagnetic and hadron calorimeters, and a muon spectrometer.
+
+Footnote 1: ATLAS uses a right-handed coordinate system with its origin at the nominal interaction point (IP) in the centre of the detector and the \(z\)-axis along the beam pipe. The \(x\)-axis points from the IP to the centre of the LHC ring, and the \(y\)-axis points upwards. Cylindrical coordinates \((r,\phi)\) are used in the transverse plane, \(\phi\) being the azimuthal angle around the \(z\)-axis. The pseudorapidity is defined in terms of the polar angle \(\theta\) as \(\eta=-\ln\tan(\theta/2)\). Angular distance is measured in units of \(\Delta R\equiv\sqrt{(\Delta\eta)^{2}+(\Delta\phi)^{2}}\).
+
+The inner-detector system (ID) is immersed in a 2 T axial magnetic field and provides charged-particle tracking in the range \(|\eta|<2.5\). The high-granularity silicon pixel detector covers the vertex region and typically provides four measurements per track, the first hit normally being in the insertable B-layer (IBL), at 3.3 cm from the beam line [7; 8]. It is followed by the silicon microstrip tracker (SCT), which provides eight measurements per track on average. These silicon detectors are complemented by the transitionradiation tracker (TRT), which enables radially extended track reconstruction up to \(|\eta|=2.0\). The TRT also provides electron identification information based on the fraction of hits (typically 30 in total) above a higher energy-deposit threshold corresponding to transition radiation.
+
+An extensive software suite [9] is used in the reconstruction and analysis of real and simulated data, in detector operations, and in the trigger and data acquisition systems of the experiment.
+
+## 3 Datasets
+
+Simulated data generated with a center-of-mass energy of 13 TeV are used for both the training of the PV-Finder algorithm and evaluating the performance. Each simulated event contains a single \(pp\) scattering involving a large-momentum-transfer process referred to as the hard-scatter (HS) process which has been generated with top quark pairs (\(t\bar{t}\)) decaying semi-leptonically. The sample is overlaid with simulated minimum-bias events to model the effects of multiple interactions per bunch crossing with an average number of \(pp\) interactions equal to 60.
+
+The production of \(t\bar{t}\) events was modelled using the Powheg Box v2 [10; 11; 12; 13] generator at NLO with the NNPDF3.Onlo[14] PDF set and the \(h_{\mathrm{damp}}\) parameter2 set to \(1.5\,m_{\mathrm{top}}\)[15]. The events were interfaced to Pythia 8.230 [16] to model the parton shower, hadronisation, and underlying event, with parameters set according to the A14 tune [17] and using the NNPDF2.3lo set of PDFs [18]. The decays of bottom and charm hadrons were performed by EvtGen 1.6.0 [19]. All generated events are processed with the ATLAS detector simulation framework [9], using the GEANT4 toolkit [20].
+
+Footnote 2: The \(h_{\mathrm{damp}}\) parameter is a resummation damping factor and one of the parameters that controls the matching of Powheg matrix elements to the parton shower and thus effectively regulates the high-\(p_{\mathrm{T}}\) radiation against which the \(t\bar{t}\) system recoils.
+
+## 4 The PV-Finder Algorithm
+
+This vertex-finding algorithm starts with the construction of input features for the neural network using the reconstructed particle track parameters and their associated uncertainties. The reconstructed tracks passing the quality selection designed to remove poorly-measured and fake tracks are used. The poorly-measured tracks are removed by requiring that tracks pass tight quality cuts [21] and track \(\mathrm{p_{T}}>500\) MeV while the fake tracks are removed by requiring that the fraction of measurements used to create the track coming from a single truth particle is at least 0.5. Vertex-finding uses the signed radial and longitudinal impact parameters of reconstructed tracks, \(d_{0}\) and \(z_{0}\) respectively, measured from the center of the luminous region, and their uncertainties, \(\sigma(d_{0})\) and \(\sigma(z_{0})\).
+
+The input features are computed using a technique known as the Kernel Density Estimator (KDE), a one-dimensional probability distribution (also known as kernel densities) estimation technique that transforms the tracks and their measured resolutions into representations of the track density. These input features are used as inputs into a convolutional neural network (CNN) which uses a series of convolutional layers to output a distribution with approximately Gaussian peaks centered at the predicted locations of PVs. An algorithm then takes that predicted distribution and identifies the candidate PV locations on the \(z\)-axis. Truth information related to the primary vertices is used to train the model and subsequently evaluate its performance. Training and testing of the neural network have been accomplished using independent samples of ATLAS simulated data.
+
+The PV-Finder algorithm is thus comprised of three distinct steps: the input features construction, the target histogram generation and the neural network training that creates the predicted vertex distributions. Each of these steps are described in detail in the following.
+
+### Input Features Construction using KDE
+
+The input features for the CNN are all calculated using the reconstructed helical track parameters and associated uncertainties. Each input feature is a one-dimensional binned histogram with 12,000 bins in the range [-240 mm,240 mm] in \(z\) which corresponds to a bin-size of 40 \(\mu\)m, approximately equal to the vertex resolution at ATLAS.
+
+To construct these features, information about the reconstructed track's position at the beamline and uncertainty on that position is used to compute the kernel densities. Each track's position at the point of closest approach (POCA) to the beam line can be characterized by the track's impact parameters and a covariance matrix \(\Sigma\) of the uncertainties on these parameters:
+
+\[\Sigma=\left(\begin{array}{cc}\sigma^{2}(d_{0})&\sigma(d_{0},z_{0})\\ \sigma(d_{0},z_{0})&\sigma^{2}(z_{0})\end{array}\right) \tag{1}\]
+
+The parameters \(d_{0}\) and \(z_{0}\) being the signed radial and longitudinal impact parameters of reconstructed tracks at the POCA. A track's probability density for a given point \(r=(x,y,z)=(d,z)\) can be defined as
+
+\[\mathbb{P}(r)=\mathbb{P}(d,z)=\frac{1}{2\pi\sqrt{|\Sigma|}}\text{exp}\bigg{(}- \frac{1}{2}\Big{(}(d-d_{0}),(z-z_{0})\Big{)}^{T}\Sigma^{-1}\Big{(}(d-d_{0}),( z-z_{0})\Big{)}\bigg{)} \tag{2}\]
+
+In this equation, \(d\) and \(z\) refer to the points in radial and longitudinal directions, not necessarily at the POCA whereas \(|\Sigma|\) refer to the determinant of covariance matrix \(\Sigma\). Each track is modeled as a correlated radial and longitudinal Gaussian probability distribution \(\mathbb{P}(d,z)\) centred at \((d_{0},z_{0})\). A grid search in the transverse \(x\)-\(y\) plane using a grid size equal to (20 \(\mu\)m x 20 \(\mu\)m) is performed to locate the region with the highest probability density. For a given \(z\)-bin, probabilities from all the contributing tracks are summed. A track contributes to a given \(z\)-bin if this \(z\)-bin falls within track's \(z_{0}\pm 3\sigma(z_{0})\). The following four features are created from this process:
+
+1. KDE-A: Sum of track probability values
+2. KDE-B: Sum of the squares of track probability values
+3. XMax: Location of the maximum summed track probability in \(x\) (mm)
+4. YMax: Location of the maximum summed track probability in \(y\) (mm)
+
+The scales of KDE-A and KDE-B are arbitrary, as only their relative values matter. KDE-B is used to accentuate features in KDE-A, since it makes peaks appear more distinctly. XMax and YMax are used as additional features to be used alongside KDE-A and KDE-B. These features help in improving the performance of network by providing additional details. All these features have been measured w.r.t. the beam spot. An example of these four features can be seen in Figure 1.
+
+### Target from Truth Information
+
+Information from the truth vertices is used to define a target for the neural network. The truth vertices are required to have at least two charged particles to be considered for studies. To construct the target distribution, a one-dimensional histogram with the same binning as the input features has been considered and a Gaussian probability for each bin is computed based on its vicinity with a truth primary vertex. The \(z\)-position of the truth vertex is used as the center of the Gaussian distribution. The \(\sigma\) of the Gaussian is calculated using a parameterisation of the reconstructed vertex resolution as a function of the number of reconstructed tracks associated to a truth vertex. The resolution is taken from vertices reconstructed with the AMVF algorithm (as explained in Appendix B).
+
+Each Gaussian distribution is also scaled by a constant which increases the height as resolution improves. For a truth vertex with resolution \(r_{\text{res}}\) where \(r_{\text{res}}\) is in mm, the distribution is scaled by \(\max(\frac{0.15}{r_{\text{res}}},\,1)\). This scaling is performed to increase the penalty for missing higher resolution vertices when calculating the loss function during neural network training. For higher-resolution vertices, the corresponding widths of the distributions are very small. Figure 2 shows an example of target histogram overlaid with truth primary vertices.
+
+Figure 1: An example of the four feature sets used in the PV-Finder network. The top plots show the primary features, KDE-A (green) and KDE-B (purple). The bottom plots show the additional features, XMax (blue) and YMax (red). Black vertical lines on the top plot indicate the location of true primary vertices while grey horizontal line in the bottom plot refer to the position of the beam spot in the radial direction. A restricted range of the luminous region is shown so that details can be observed.
+
+### Neural Network Architecture
+
+The model architectures [22] used for the neural network are all modifications of the UNet architecture which was originally developed for the task of biomedical image segmentation [23]. It has been adapted to the PV-Finder problem by using the one-dimensional features (KDE-A, KDE-B, XMax, and YMax) instead of two-dimensional images. The architecture consists of a series of convolutions with symmetric down-sampling and up-sampling operations in a U shape. Parallel layers are connected by concatenation. These skip connections allow the network to retain fine detail from more complex layers. This simplifies the loss landscape, which means that gradient descent is more likely to find an appropriate minimum. As seen in Figure 3, convolutional layers are followed by batch normalization and then fed through the Rectified Linear Unit (ReLU) activation function. The first convolutional layer uses a kernel size of 25, the second uses a kernel size of 7, and the rest of the convolutional layers use a kernel size of 5. Down sampling is performed using the Max-Pool operation and up sampling is performed using up-convolutions. The final activation uses the softplus function, which is similar to ReLU except differentiable at zero. The UNet++ architecture, as shown in figure 4, is a variation of UNet with dense skip connections. In addition to parallel concatenation across layers, layers are up-sampled and convoluted so that they can be introduced to layers that have a different shape. UNet++ takes around a factor of 3 more time to train on the same hardware, as compared to UNet.
+
+Two architectures are considered for current studies: UNet and UNet++. Both architectures use KDE-A, KDE-B, XMax, and YMax as equal layers.
+
+The loss function used for PV-Finder is defined as
+
+loss \[=-\sum\limits_{i=1}^{12000}\ln z_{i}\] \[z_{i} =\frac{2r_{i}}{r_{i}+r_{i}^{-1}}\] \[r_{i} =\frac{t_{i}+\epsilon}{p_{i}+\epsilon}\]
+
+Figure 2: Target histogram (in red) constructed by considering Gaussian distributions around truth primary vertices (in green). A subset in \(z\) of the luminous regions is shown.
+
+Here, \(t_{i}\) is the value at bin \(i\) of the target histogram and \(p_{i}\) is the value at bin \(i\) of the predicted histogram. The parameter \(\epsilon\) is set to 1e-5 and is used to handle the case when \(p_{i}=0\). \(z_{i}\) is calculated for each bin,
+
+Figure 4: A schematic of UNet++ architecture used in the PV-Finder studies. Each layer is labeled X\({}^{\text{i}\text{j}}\) where the index i corresponds to the depth of the layer and the index j labels the layers from left to right.
+
+Figure 3: The adaptation of the UNet architecture for the ATLAS version of PV-Finder. Compared to LHCb version, the z range and bin width have been changed which also changes the dimension of input layer. The corresponding dimensions are indicated to the left and above each layer. The dimension 64 mentioned along each layer refers to the batch size. Layers are indicated by orange blocks. A softplus activation function is used to output the final predicted histogram.
+
+then the sum of \(\ln z_{i}\) over all 12,000 bins is equal to the loss. Save for the addition of \(\epsilon\), the function is designed to be symmetric with respect to overestimation and underestimation of the target values. As the difference between the predicted and the target histogram values grows larger, the loss becomes higher. Modifications that allowed for asymmetry were considered, but had little to no effect on PV-Finder's performance in ATLAS data. All hyperparameters for these models except \(z\) range and bin width were unchanged with respect to the LHCb parameters. An ATLAS-specific tuning of the hyperparameters is left to future work.
+
+## 5 Performance
+
+The performance of PV-Finder algorithm with UNet and UNet++ architectures are presented using an independent test sample of ATLAS simulated data. A comparison with AMVF algorithm is performed by using the AMVF vertices which have been determined using all reconstructed tracks without fake track removal. Figure 5 shows an example of two correctly-predicted nearby vertices by PV-Finder.
+
+For a quantitative assessment of the PV-Finder performance, vertex classification is performed, and efficiency and fake rates are calculated. In Section 5.1 the results are compared to AMVF.
+
+Figure 5: An example of PV-Finder output, which uses KDE-A (green) along with the three other input features to predict a distribution corresponding to a primary vertex (red). The predictions are compared against the target distribution (blue), which is calculated from truth information.
+
+### Comparison to AMVF
+
+Vertices are classified into the categories of clean, merged, split and fake based on the distance of the vertex center of a given predicted vertex to the \(z\)-location of truth vertices3. Truth vertices are required to have at least two charged particles unless otherwise specified. The average vertex-vertex resolution, \(\sigma_{\text{vtx-vtx}}\), is used to define a window in which to associate the true and reconstructed primary vertices. The classification scheme is performed as follows:
+
+Footnote 3: This definition differs from past studies [4] which use truth information from tracks associated to primary vertices. PV-Finder does not currently include reconstructed track to reconstructed vertex association, so these definitions could not be used.
+
+1. Sort all reconstructed and truth vertex positions in increasing order of \(z\)
+2. Iterate through reconstructed vertex positions 1. Find list of truth vertices with a \(z\)-position within \(\pm\sigma_{\text{vtx-vtx}}\) of the reconstructed vertex \(z\)-position 2. If this list is empty, the reconstructed vertex is classified as **fake** 3. If this list has one entry, the reconstructed vertex is classified as **clean**, and that truth vertex is assigned to the reconstructed vertex 4. If this list has more than one entry, the reconstructed vertex is classified as **merged** and the truth vertices are assigned to the reconstructed vertex
+3. Iterate through the truth vertex assignments 1. If a truth vertex has more than one assignment to a **clean** reconstructed vertex, then all but the closest reconstructed vertex are reclassified as **split**.
+
+We first calculated the vertex-vertex resolution, \(\sigma_{\text{vtx-vtx}}\), for both PV-Finder architectures and for AMVF by computing the difference in \(z\) between pairs of nearby reconstructed primary vertices, shown in Figure 6. All the three distributions are approximated using a fit function, defined as follows:
+
+\[y=\frac{a}{1+\exp\left(b\cdot(R_{cc}-|x|)\right)}+c \tag{3}\]
+
+where \(a,b,c\) are free fitting parameters, \(x\) is equivalent to \(\Delta z_{\text{vtx-vtx}}\) and \(R_{cc}\) is the cluster-cluster resolution, defined as the half-width at the half-depth of the dip. The vertex-vertex resolution, \(\sigma_{\text{vtx-vtx}}\), is equal to the \(R_{cc}\) parameter from the fit. (Table 1). PV-Finder achieves as resolution of \(0.23\pm 0.01\) mm while AMVF achieves a resolution of \(0.76\pm 0.02\) mm.
+
+To compare the number of reconstructed vertices produced by both methods, events with \(55\leq\mu\leq 65\) were considered. The results are shown in Figure 7. For this level of pileup, PV-Finder reconstructs more total, more clean and less merged vertices compared to AMVF with a slight increase in the number of fake vertices. The number of split vertices is similar in both methods and is low.
+
+\begin{table}
+\begin{tabular}{l l} \hline Method & \(\sigma_{\text{vtx-vtx}}\) (mm) \\ \hline PV-Finder UNet & \(0.23\pm 0.01\) \\ PV-Finder UNet++ & \(0.37\pm 0.01\) \\ AMVF & \(0.76\pm 0.02\) \\ \hline \end{tabular}
+\end{table}
+Table 1: Vertex-vertex resolution, \(\sigma_{\text{vtx-vtx}}\), for PV-Finder and AMVFFigure 6: Distribution of the longitudinal separation between pairs of all nearby reconstructed primary vertices and their fit in simulated events for PV-Finder UNet++ in blue, PV-Finder UNet in green and AMVF in red.
+
+Figure 7: Mean number of reconstructed vertices with each quality classification for PV-Finder UNet++ (blue), PV-Finder UNet (green) and AMVF (red) for a sample of events with \(55\leq\mu\leq 65\). The error-bars correspond to the range of reconstructed vertices for the given pile-up range.
+
+Figure 8: Average number of vertices reconstructed by PV–Finder UNet++ (top), PV–Finder UNet (middle) and AMVF (bottom) as a function of the number of \(pp\) interactions per bunch crossing (\(\mu\)), in simulated events. For reference, the straight line corresponds to 100% vertex reconstruction efficiency, the dashed line corresponds to the maximum detector acceptance. Error bars on the data points are statistical uncertainties. Filled squares show the classification vertices as total (black), clean (blue), merged (pink), split (green) and fake (red).
+
+Figure 9: A comparison of PV-Finder UNet++, PV-Finder UNet and AMVF algorithms for total and clean vertices as a function of pile-up. The black straight line corresponds to 100% vertex reconstruction efficiency while grey dashed line corresponds to the maximum detector acceptance. Error bars on the data points are statistical uncertainties.
+
+The same numbers (clean, merged, split, and fake) are shown across different values of pileup (\(\mu\)) in Figure 8 for PV-Finder and AMVF. A comparison of PV-Finder and AMVF approaches for total and clean vertices as a function of pile-up is provided in Figure 9. The majority of events used have a pileup between 20 and 60. The ratio of the number of reconstructed vertices in PV-Finder UNet and UNet++ to AMVF is shown in Figure 10. According to the classification scheme used in this study, PV-Finder reconstructs more total, more clean and less merged primary vertices for all values of \(\mu\). PV-Finder reconstructs more fake vertices compared to AMVF, especially for middle \(\mu\) range.
+
+We define the vertex finding efficiency as the number of truth vertices assigned to reconstructed vertices as "clean" and "merged" divided by the total number of reconstructable truth vertices and the false positive rate as the average number of predicted vertices not matched to any truth vertex. The vertex finding efficiency as a function of the number of reconstructed tracks associated to a truth vertex is shown in Figure 11, where it can be seen that PV-Finder UNet++ is able to achieve efficiency similar to AMVF. The UNet architecture achieves slightly worse results for low multiplicity vertices compared to UNet++ architecture. The average efficiency and false positive rate for the three methods are quoted in Table 2. In Figure 7 UNet achieves a higher number of total and clean reconstructed vertices compared to AMVF. The overall efficiency for UNet is lower than AMVF because in its calculation we consider number of truth vertices assigned to reconstructed vertices as "clean" or "merged" and there can be multiple truth vertices
+
+Figure 10: Ratio of the total (upper left), clean (upper right), merged (lower left) and fake (lower right) number of reconstructed vertices found with PV-Finder UNet++ and UNet architectures to the numbers of vertices in the same categories found by AMVF as a function of the number of \(pp\) interactions per bunch crossing (\(\mu\)) in simulated events. The error-bars correspond to the statistical errors.
+
+associated with a reconstructed merged vertex. This number is highly dependent on the \(\sigma_{\text{vtx-vtx}}\) window used for the classification. For AMVF, a higher number of merged reconstructed vertices and a larger \(\sigma_{\text{vtx-vtx}}\) window makes the efficiency high compared to UNet.
+
+## 6 Conclusion
+
+The PV-Finder algorithm as applied to the ATLAS simulated data demonstrates the power of deep learning methods for primary vertex identification. It achieves comparable performance in terms of vertex classification to the AMVF algorithm, and has obtained better efficiency and more than two times better
+
+\begin{table}
+\begin{tabular}{l c c} \hline Model & Efficiency & False Positive Rate (\# / event) \\ \hline PV-Finder UNet++ & 94.2\% & 1.5 \\ PV-Finder UNet & 88.7\% & 2.6 \\ AMVF & 93.9\% & 0.8 \\ \hline \end{tabular}
+\end{table}
+Table 2: Efficiency and false positive rate for all events with <\(\mu\)> = 60, corresponding to the three approaches. Here efficiency is defined as the number of truth vertices assigned to reconstructed vertices as “clean” or “merged” divided by the total number of reconstructable truth vertices and false positive rate is defined as the average number of predicted vertices not matched to any truth vertex.
+
+Figure 11: Vertex reconstruction efficiency (per vertex) for AMVF and PV-Finder UNet++ and UNet architectures as a function of the number of reconstructed tracks associated to truth vertex (\(N_{\text{Tracks/truth vertex}}\)). Here efficiency is defined as the number of truth vertices assigned to reconstructed vertices as “clean” or “merged” divided by the total number of reconstructable truth vertices. The distribution of \(N_{\text{Tracks/truth vertex}}\) is shown with arbitrary units.
+
+vertex-vertex resolution with a slight increase in fake rate compared to AMVF over all the pile-up range. The improved efficiency and resolution can be of crucial importance for the future High Luminosity LHC programme.
+
+These initial results are promising and prompt further development of the PV-Finder algorithm for ATLAS data. One crucial next step will be assigning reconstructed tracks to the primary vertices reconstructed by PV-Finder. This will allow a more direct comparison to current AMVF performance, since the AMVF performance metrics rely on this track association. Also presently, kernel density computation in PV-Finder takes significantly more time compared to AMVF which is a production-tuned algorithm. Therefore, additional future work will involve studying and improving the computational efficiency of the method by employing neural networks for kernel density computation.
+
+[MISSING_PAGE_FAIL:16]
+
+## References
+
+* [1] ATLAS Collaboration, _Luminosity determination in \(pp\) collisions at \(\sqrt{s}=13\) TeV using the ATLAS detector at the LHC_, 2022, arXiv: 2212.09379 [hep-ex] (cit. on p. 2).
+* [2] ATLAS Collaboration, _Run 2 Luminosity Public Results_, [https://twiki.cern.ch/twiki/bin/view/AtlasPublic/LuminosityPublicResultsRun2](https://twiki.cern.ch/twiki/bin/view/AtlasPublic/LuminosityPublicResultsRun2) (cit. on p. 2).
+* [3] ATLAS Collaboration, _Run 3 Luminosity Public Results_, [https://twiki.cern.ch/twiki/bin/view/AtlasPublic/LuminosityPublicResultsRun3](https://twiki.cern.ch/twiki/bin/view/AtlasPublic/LuminosityPublicResultsRun3) (cit. on p. 2).
+* [4] ATLAS Collaboration, _Development of ATLAS Primary Vertex Reconstruction for LHC Run 3_, ATL-PHYS-PUB-2019-015, 2019, url: [https://cds.cern.ch/record/2670380](https://cds.cern.ch/record/2670380) (cit. on pp. 2, 9).
+* [5] R. Fang, H. F. Schreiner, M. D. Sokoloff, C. Weisser, and M. Williams, _A hybrid deep learning approach to vertexing_, J. Phys. Conf. Ser. **1525** (2020) 012079, arXiv: 1906.08306 [physics.ins-det] (cit. on p. 2).
+* [6] ATLAS Collaboration, _The ATLAS Experiment at the CERN Large Hadron Collider_, JINST **3** (2008) S08003 (cit. on p. 2).
+* [7] ATLAS Collaboration, _ATLAS Insertable B-Layer: Technical Design Report_, ATLAS-TDR-19; CERN-LHCC-2010-013, 2010, url: [https://cds.cern.ch/record/1291633](https://cds.cern.ch/record/1291633) (cit. on p. 2), Addendum: ATLAS-TDR-19-ADD-1; CERN-LHCC-2012-009, 2012, url: [https://cds.cern.ch/record/1451888](https://cds.cern.ch/record/1451888).
+
+Figure 12: ATLAS vertex resolution data fitted to Equation 4.

@@ -1,0 +1,334 @@
+# Database for the TRT End-cap Wheel Test Station
+
+N. Klopov., S. Olechko, Yu. Ryabov, V. Schegelsky
+
+Petersburg Nuclear Physics Institute (PNPI), Gatchina, Russia
+
+###### Abstract
+
+_This document describes the software and data structures to store the results of ATLAS TRT end -cap wheels testing on the Wheel Test Station. According the test procedure each straw of the TRT end-cap wheels need to be tested and straws straightness should be measured. Test results should be accessible for on-line and off-line analysis._
+
+## 1 Introduction.
+
+Assembled TRT end-cap wheels should go through an inspection process at the assembly site and will be accepted if they successfully pass all the tests specified by Quality Assurance Program [1]. Wheel Test Station (WTS) has been designed to carry out the final test of the wheels at the assembly sites and at CERN. The main goal of WTS is to check performance of all channels under working conditions, in particularly to measure the straightness of the straws and position of the wires in the wheel. This document describe the algorithms and data structures those are used to store the WTS test results in order to use them for online and offline analysis.
+
+This work has been supported by INTAS project: INTAS Call 99 CERN-1079.
+
+## 2 Stored Data.
+
+Procedure of end-cap wheel testing consists of the following stages:
+
+- definition of hardware configuration;
+
+- calibration of electronic channels;
+
+- test measurement run;
+
+- express data analysis
+
+There are next stored data for WTS, depended on the destination of them:
+
+- work files with raw data and data in local Access database;
+
+- data in Oracle database;
+
+- file database
+
+In many cases these data contain similar information, but differ by their structure, accessibility and lifetime. Data, collected and calculated during data acquisition and data processing are stored as work files on the workstation, controlling the test run and partly in local MS Access database. These data are formatted and optimised for access from/to programs, written by BridgeVIEW software. They can have a high level of redundancy and are not intended for the long-term storage. These files are permanently modified by programs and can be modified during test run. When the run results will be saved into databases, work files can be deleted from the workstation.
+
+In order to guarantee the reliable data storage, data of measurements and calculated parameters are stored for the long-term use into Oracle database and, simultaneously, in the file database, created at the shared area of disk storage that is accessible from user workstations through LAN (Local Area Network). Oracle database will be used mostly for the Internet access and LAN users will use the file database.
+
+Figure 1: General WTS database scheme
+
+## 3 Definition of Hardware Configuration.
+
+### Readout Configuration
+
+Figure.2 presents the readout configuration of the wheel test station. The special electronic boards (EB) are used as front-end electronics, each of them contains two GASSPLEX chips.
+
+Front-end Electronics (EB) are inserted into the sockets located on the wheel module. The wheel is divided into six sectors. Each sector contains 16 EB. Electronic boards of each sector are connected by the flexible flat cables and form a branch. Each branch is connected to the cross-module. The function of the cross-module - switching of front-end electronics channels, formation gates and sending signal from front-end electronics to ADCs and test pulses from generator to front-end electronics. The cross-modules and ADCs are made in CAMAC standard. More detail description of read-out electronic can be found in [2]
+
+### Tables Structure.
+
+Each hardware element should have the ID (barcode) assigned before this element will be used for test. Besides identification each hardware element has a position number that defines the placement of this element into hardware configuration. For example there are two ADC modules, first of them has position number 1, second - position number 2. Database table, containing information about
+
+Figure 2: **Readout configuration**assignment to definite electronic module the definite position number and the number of CAMAC station in the crate is presented on Figure.3.
+
+Each branch should be connected to one from the six possible inputs of both cross modules. Figure 4. shows the table for the description of this connections.
+
+So, the full current hardware configuration can be described by the following table (see Figure 5. as an example) that can be received from the previous tables by SQL request:
+
+**SELECT t1.Branch, t1.Cross, t1.CrossInput, t2.CrossOutput, t2.ADC, t2.ADCInput FROM tblWTSBranchConnection t1,tblWTSCrossADCConnection t2 WHERE t1.Cross=t2.Cross AND t1.CrossInput=t2.CrossInput**
+
+There is an additional part of the hardware configuration that is not connected with the hardware elements relationships itself, but should be defined before the measurement run. This is the offset of the reference straw from the measured straw. This value defines the position of the reference straw as an offset (as number of boards) from the measuring board and number of channel into selected board (from 1 to 32).
+
+Figure 4: **Branch/Cross connection (DB table - tblWTSBranchConnection).**
+
+Figure 5: **Cross/ADC connection (DB table - tblWTSCrossADCConnection).**
+
+Figure 3: **Hardware assignment (DB table - tblWTSItemsAssignment).**
+
+Tables mentioned above describe the current or the last hardware configuration. In order to receive the configuration that was used during previous measurement, all changes are logging into special log table. Structure of this table is defined with the high level of redundancy in order to keep information about all configuration changes in one table. Its structure is shown in Figure 7. Each record of this table contains the description of the old and new states of the appropriate hardware element or their connection.
+
+Tables mentioned above describe the current or the last hardware configuration. In order to receive the configuration that was used during previous measurement, all changes are logging into special log table. Structure of this table is defined with the high level of redundancy in order to keep information about all configuration changes in one table. Its structure is shown in Figure 7. Each record of this table contains the description of the old and new states of the appropriate hardware element or their connection.
+
+Figure 6: An example of hardware configuration description.
+
+Figure 7: Log table structure.
+
+The set of pairs of values (DataInputDate_from, DataInputDate_to) for each type of the hardware (element or connection) defines the set of time intervals those are not crossed each other. In order to receive the state of any hardware element or their relationship (connection) for definite timestamp (T\({}_{\text{hw}}\)) the next simple SQL request can be used:
+
+**SELECT * FROM tblWTSHardwareLog WHERE T\({}_{\text{hw}}\) BETWEEN DataInputDate_from AND DataInputDate_to**
+
+### Software
+
+MS Access97 was chosen as a program interface to support the procedure of hardware configuration description. The main program form has four tabbed pages, each for the definite type of hardware configuration. They are shown at the Figure 8. Initially all data are stored into local Access database and then they are replicated to Oracle database.
+
+Each hardware change is accompanied by the timestamp of action. This timestamp is set by default as the current time, but it can be changed by user. Only users who are authorised to set/change the hardware state are able to change the hardware description.
+
+Figure 8: Examples of different types of the forms for hardware configuration description.
+
+Figure 9: Configuration tables relationship.
+
+Calibration Procedure.
+
+### Calibration Data
+
+Calibration procedure is needed to define the accuracy of all electronic parts and to calculate parameters for each electronic channel. Calibration data do not depend on the wheel end test run, but only from the time of calibration and test hardware configuration. This data forms the dedicated database and should be maintained independently.
+
+Calibration program is written in BridgeVIEW and it creates the set of BridgeVIEW binary work files with calibration data. This program is used not only for calibration, but for wheel testing too, so the set of work files and their structure are very similar with the main test data. Each datafile has the same predefined filename, but differ by file type:
+
+* timestamps file (*.scd). It consists of the timestamps of each measurement (start time and finish time), written as 32-bit unsigned integers One pair of timestamps corresponds to one measurement shift.
+* amplitude for the current calibration measurement.
+* calibration run index file (*.rid). This file define the common value for all spectra, collected during one calibration shift. It allows to combine all spectra, collected for the same channel with the different amplitudes into one set of spectra. Each spectrum for the definite amplitude is a separate item, but only the set of spectra, measured during the one calibration run for the one channel can be used for calculation of calibration parameters for this channel. Practically, one virtual "long" spectrum combines the several real "short" spectra.
+* raw spectra file (*.spc). It consists of the measured spectra, written as a one-dimensional array of 16-bit unsigned integer. One spectrum contains 1024 channels. During measurement the spectra are appended to the end of the file in the same order as records in the *.ind file, so each spectrum in the spectra file corresponds unambiguously to the definite electronic channel (straw) and calibration amplitude.
+* calibration parameters file (*.spe). It consists of the parameters those will be used by Express Data Analysis(EDA) program and can be used to check the validity of their calculation for offline analysis. They are written as 16-bits signed integer. The real values of parameters are the float point values. In order to avoid the problems with float points arithmetic all values are normalised to integer and common devider for each parameter is written in the first file record.
+
+All calibration data are added to existed files continuously after their creation up to the moment of the loading calibration data into Oracle and File databases. When the data are successfully stored into both databases, the existed work files are archived and the next calibration run will create the complete set of work files anew. The path to work files and generic filenames for them are stored into database and can be retrieved by request.
+
+### Calibration Databases Structure
+
+Two tables have been created into Oracle database to store the calibration data. One table is used to store raw spectra and second keeps others parameters. Figure 10. presents structure and relationship between these tables.
+
+- incremental index of the measurement that is assigned during record inserting. This is the link to the appropriate set of raw spectra for this calibration run with a different amplitudes. It should be mentioned that this field is ordered in a chronological order, i.e. the later by date measuring will have the large index. Thus it will be very easy to receive the history of definite channel calibration.
+* incremental index of the "short" spectrum in the spectra table.
+* incremental index for the calibration run. It is hide from the user.
+* pair of values those define the 'address' of the channel. Layer can vary from 1 to 4, and Channel can vary from 1 to 768. These are not a limitation, but possible values for these fields only.
+* calculated parameters those are used for estimation of calibration quality and for EDA program.
+* timestamp of the beginning of calibration (the timestamp for the earliest "short" spectrum for definite channel in the index table or the timestamp for the "short" spectrum itself in spectra table).
+* timestamp of the completeness of calibration (the timestamp for the latest "short" spectrum for definite channel in the index table or the timestamp for the "short" spectrum itself in spectra table).
+* timestamp when the new calibration has been made for current channel or 01/01/3000 if these values still the last.
+* binary array (long raw) with the spectra. To reduce the database storage, all spectra are compressed, the sequences of the same values are replaced into shorter ones.
+
+Figure 10: **Calibration tables relationship.**
+
+The set of files with calibration data in File DB consists of four files:
+
+* map file (*.map). This file has the fixed length and consists of the indexes those point to records in *.ind file. Each record corresponds to one channel (straw) and straw position is defined by record number inside the map file. If the number of layer is N\({}_{\text{L}}\) and number of straws in a layer is N\({}_{\text{S}}\), than the file has N\({}_{\text{L}}\)
+* N\({}_{\text{S}}\) records and record number N\({}_{\text{REC}}\) corresponds to straw in Layer = ((N\({}_{\text{REC}}\) -1) N\({}_{\text{S}}\)) +1 Channel = ((N\({}_{\text{REC}}\) - 1) mod N\({}_{\text{S}}\)) + 1 Map file contains the references to the last calibration from the list of calibration units for appropriate channel (or -1 if no any calibration unit for the channel)
+* index file (*.ind). It contains information about one "long" spectrum and includes the calculated parameters for it and pointer to the list of the "short" spectra:
+* spectra index file (*.spi). Each record of this file contains the data about one "short" spectrum and reference to the raw spectrum itself. All records are linked into the lists, corresponded to record from spectra index file.
+* spectra file (*.spc). This file includes the raw spectra as a binary data and new records are appended to file continuously. Two values from spectra index file define the raw spectrum: offset from the begin of the file and spectra length in bytes. Formats of calibration files in File DB are described in detail in Appendix 1.
+
+### Spectra Compression Algorithm
+
+It is used to reduce the disk memory for spectra storage. Usually each calibration spectrum has only 20-30 non-zero values from the 1024 channels, so spectra compression allows to reduce the memory \(\sim\) in 30 times. The main idea - to substitute the repeated sequences of the equal values by the count and value.
+
+Spectrum is processed from the first channel. If the next value differs from the previous or repated only twice, it is written to file without additional processing. If the number of the continuous equal values \(>\)2, then they are substituted by the next sequence: value, indication, count.
+
+As an indication sign - 65535(hexadecimal value - FFFFF) is used (each value is 16-bit unsigned integer).
+
+For example:
+
+Figure 11: **Calibration files data relationship.**
+
+2,3,4,5 will be 2,3,4,5 in output
+
+2,3,4,4 will be 2,3,4,4 in output
+
+2,3,4,4,4 will be 2,3,4, 65535,3 in output
+
+0,0,0,0,0,0,0,0,9,2 will be 0, 65535,8,9,2 in output
+
+### Software to Load Calibration Data to Databases
+
+The MS Access program was developed to load calibration data to Oracle and File databases. This database is the part of common MS Access database for database support of TRT End-cap Wheel production. The paths to directories, where both set of files: files with raw data and files of File DB are placed, are stored into local Access and remote Oracle databases. These parameters depend on the environment and setup for computer that is using to load data, so these paths can be changed through Local administrator program, as it was defined for all Local setup parameters. On the contrary, the naming convention for names of raw data files and files from File DB should not depend from the features of local computer and should be maintained centralised. It can be made with the help of Administrator utility and only privileged users are able to change their generic names.
+
+Practically, it will be reasonable in the future, that operator who will load measured calibration data to databases couldn't change the paths and file names and only check the presence of files with raw calibration data. Current version of the software gives the possibility to change paths during data loading.
+
+The MS Access database in the case of calibration plays the role of program interface, data are stored in Oracle and File DB only. There is the possibility to view the history of calculated parameters for calibration for each electronic channel through special program form.
+
+The MS Access form to load calibration data is shown on Figure 12.
+
+Only user who has the rights to perform this operation is able to load calibration data. His credentials will be checked before the loading. Another barrier to avoid faulty data loading is the necessity to presence all four files with raw data and their correspondence to files structure and correlation of their lengths. The button to run data loading became available only when all four file with the definite names are existed into selected directory and path to File DB is set.
+
+Process of data loading is indicated by progress bar in the left-lower corner of the program window. If calibration data are successfully added to Oracle and File DB, the files with raw calibration data are renamed and will keep as archive files.
+
+All calibration data are loaded into both databases: Oracle and FileDB simultaneously. No any possibility to keep data only in Oracle or in FileDB.
+
+Figure 12: Form to load calibration data to databases.
+
+Data Acquisition.
+
+### Data Acquisition Program and Work Files
+
+Data acquisition program (DAP) is written in BridgeVIEW. The main goal of DAP is to collect spectra and slow control data for future online and offline analysis. The data acquisition program performs the following actions:
+
+- collection of the spectra;
+
+- collection of the spectra from reference straws;
+
+- fetching of slow control data from remote computer using TCP connection;
+
+- positioning of the Fe\({}^{55}\) sources position;
+
+- saving of all relevant data in the work files.
+
+There are 4 types of work files created by the DAP:
+
+- main index file (*.ind). This file consists of the "addresses of the measurement points", which are written as 32-bit unsigned integer. The first record of the file contains the number of spectra (N) those are collected simultaneously for one Fe\({}^{55}\) sources position.
+
+Due to sequential structure of the file, the number of the record into file provides a unique key, which is used as a reference to the appropriate spectrum. In the case of the re-measuring of any radius of any straw, new data will be added to the end of the file.
+
+- raw spectra file (*.spc). It consists of the measured spectra, written as a one-dimensional array of 16-bit unsigned integer. One spectrum contains 1024 channels. During measurement the spectra are appended to the end of the file in the same order as records in the *.ind file, so each spectrum in the spectra file corresponds unambiguously to one source position of a given straw.
+
+- reference spectra file (*.ref). It has the same structure as a raw spectra file. Each record corresponds to all raw spectra, measured at the same time with the same value of radius, i.e. for the same Fe\({}^{55}\) source position. The number of simultaneously measured reference spectra depends from the electronic part of the wheel test tooling.
+
+- slow control data file (*.scd). It consists of the slow-control parameters (start time, finish time, high voltage, current, humidity, pressure and 8 temperatures), written as an one-dimensional array of 32-bit unsigned integer. Each record (array) consists of the 14 elements. One set of slow control data corresponds to one measurement shift.
+
+These work files are managed by DAP only. There are no any on-line analysis and database transactions during measurement shifts. Only when the measurement run will be completed, data created by DAP can be loaded to the central Oracle database and to the File database.
+
+### Databases Structure for DAP DATA
+
+It could be more then one set of measured data for each wheel during the WTS measurements. Each set of measured data can differ by conditions and parameters of the test run. In order to distinguish different versions of the measured data of the same wheel, the program uses as a key value for each database table not a wheel ID (barcode), but a run number. Structure of the tables is presented at Figure 13.
+
+Each run should have its description and separate table is created to keep all run descriptive parameters. Data are loaded to Oracle database from the work files, created by DAP, so the information about placement and file names are kept together with data. Tables structure corresponds to structures and relationships of DAP work data files. There are four main tables each of them corresponds to one from the files. To reduce the database storage, all spectra are compressed, the sequences of the same values are replaced into shorter ones. As a result the coefficient of compressing is near to 2.4.
+
+The time of the test run start and finish are calculated on the base of timestamps for each test measurement. These timestamps are added to the run description table. Additionally each measurement for definite point is accompanied by two timestamps: first timestamp - date and time of the start of measurement and the second - timestamp when the new measurement has been made for current channel and radius or 01/01/3000 if these values still the last. Despite of the presence of run number as a run identifier, all tables include Wheel ID field. It has been done to optimise the access and the search in the large Oracle tables. It will be used for partitioning of the tables and for the possibility to separate the common storage pool.
+
+Figure 13: DAP tables relationship.
+
+The set of files with DAP data in File DB consists of five:
+
+- N\({}_{\text{S}}\) records and record number N\({}_{\text{REC}}\) corresponds to straw in
+
+\[\text{Layer}=((\text{N}_{\text{REC}}\text{ -1})\backslash\text{N}_{\text{S}})+1\]
+
+\[\text{Channel}=((\text{N}_{\text{REC}}\text{ - 1})\text{ mod N}_{\text{S}})+1\]
+
+Index file contains the headers of the lists of records with pointers to measured data those are created in others DAP files, i.e. the index from any records of main index file points to the last measurement for the appropriate channel. It should be mentioned that main index file does not differ the measurements with different radii for the same layer and channel. All measurements for definite layer and channel will be organised into one list.
+
+- run index file (*.ind). This file is expanded as required and consists of the set of pointers those point to the records into others data files. In addition to pointers each index record is accompanied by timestamps that can be used for offline data processing.
+
+- raw spectra file (*.spc). It includes the measured spectra, written as a one-dimensional array of 16-bit unsigned integer. One spectrum contains 1024 channels. During measurement the spectra are appended to the end of the file in the same order as records in the *.ind file, so each spectrum in the spectra file corresponds unambiguously to one source position of a given straw. Timestamps and positioning parameters for measured spectra (layer, channel, radius) are added to each spectra
+
+- reference spectra file (*.ref). It has the same structure as a raw spectra file. Each record corresponds to all raw spectra, measured at the same time with the same value of radius, i.e. for the same Fe\({}^{\text{55}}\) source position.
+
+- slow control data file (*.scd). It consists of the slow-control parameters (start time, finish time, high voltage, current, humidity, pressure and 8 temperatures), written as an one
+
+Figure 14: **DAP files from File database.**
+
+dimensional array of 32-bit unsigned integer. Each record (array) consists of the 14 elements.
+
+Formats of files with DAP data and file-descriptor in File DB are described in detail in Appendix 2.
+
+### Software to Load Measurement Data to Databases
+
+The special program, developed under MS Access will be used to load measurement data to central Oracle database and File DB. There was decided from the discussion with all experts that spectra should be load into database for possible future analysis. Oracle database as a data store is more preferable than simple set of file due to possibility to receive data on the base of some request, taking into account the logical dependencies with the data, received from the previous production stages (wire tension measurement, HV tests, contact tests). It should be mentioned that MS Access in this case is used only as a tool for software development, no any data tables are created into Access database. File database can be used for offline analysis and its file will be accessible as data source for external program.
+
+The program should be used to add the data for new test run of measurement. At the stage of researches there is the possibility to replace existed version of the test run and what is more there is the possibility to load/replace the test run partially. All descriptions of existed test runs, i.e. Wheel ID (barcode) and run description should be accessible for the preview.
+
+There are two modes of data loading: the standard mode, when the data is loaded to Oracle and to File database simultaneously, and the private mode, when the data is loaded to set of private user files. Only authorised user is able to work in the first mode. His credentials will be requested before data loading. The second mode is intended for the research work and user is responsible for file saving. In this case data is not loaded into Oracle and description of the test run is not added to databases.
+
+## 6 Express Data Analysis
+
+### Express Data Analysis Program
+
+The initial analysis of measured data will be made with the help of program, which calculates the parameters of the straws (EDA program). Using this program the user can determine the invalid or empty spectra, that could be re-measured if this will be possible. The current version of the program uses the files, created by DAP, as a source of the data and keeps calculated parameters into other work files. After analysis and approval all parameters are loaded into local Access database and can be accessible for other programs, like Excel.
+
+The current version of EDA program deals with the next sets of calculated parameters:
+
+* mean (M), standard deviation (D), skewness (Sk), kurtosis (Ku), statistics (St) for each radius.
+* mean (M), standard deviations (D) statistics (St) for reference spectra corresponding to each radius.
+* eccentricity (El), fit quality(Fit) of amplitude interpolation. Each record includes the straw parameters, calculated on the base of parameters, calculated for each straw radius
+
+### Databases Structure for EDA Data
+
+Structure and relationships of the tables of calculated parameters are presented at Figure 15.
+
+The structure of the Oracle tables and their fields' description differ from the structure and fields of the MS Access tables. This approach gives the independence of the central database from the local database structure.
+
+State fields are used to define the status of each parameter, its presence or satisfying to QC requirements. This value is considered as bit mask, each bit corresponds to definite error or "Parameter is out of QC" event. So, the normal value of State for the set of parameters for spectra is 0.
+
+Structure of files with EDA data in File DB are described in detail in Appendix 3.
+
+Figure 15: **Tables structure for the calculated parameters.**
+
+### Software to Load Calculated Data to Databases
+
+In order to support access to calculated parameters from the central supported databases, data, stored into the local database, should be loaded into Oracle and File DB. User interface of the program, copied data into Oracle database is in Figure.16. This program runs under MS Access97 and uses the same table with the description of test runs, as a program to load DAP data.
+
+User should select the wheel ID and version of the DAP data (test run). After the selection of the version the current state of the data for selected test run is reflected in the **Local DB status**
+
+textboxes. If the appropriate table contains the data for this version, the Status is set to **Existed** or to **No data** in the opposite case.
+
+The current version of the program assumes the possibility to load each table separately. In order to select table for loading, one has to set the appropriate check-box **Select to load**. When all tables to be loaded will be selected, choose **Write to remote DB** button. Tables will be replicated into Oracle.
+
+Simultaneously with the loading data into Oracle files with calculated parameters are created into File database. These files are created at the same place and with the same file names as the files with measured parameters. They are differing by file type only.
+
+Figure 16: **Load calculated data to Oracle program GUI (prototype).**
+
+## 7 File Database Structure.
+
+The set of files and directories ("File database") is created at the shared area of disk storage that is accessible from user workstation through LAN. Structure of directories defines the path to the test results for the defined wheel and the test run (Figure.17). Each wheel directory contains the set of files for several test runs. Files that belong to one test run have identical file name and differ by the file type.
+
+Figure 17:File database structure.
+
+[MISSING_PAGE_EMPTY:18]
+
+2. Graphical and tabular representation of the parameters that correspond to history of straw production and wheel assembly (so named _context_): 1. results of wire tension test; 2. results of short straw straightness test; 3. materials and components those were used for straw production; There will be possible to develop more effective visual representation of data, merging the data from WTS and data, created in database during wheel assembly and straw production.
+3. Sending by request the ASCII (comma-delimited) file that contains the following: 1. calculated data for restricted number of selected straw; 2. context information for restricted number of selected straw; The external program, like Excel, can use these files for future analysis and data representation. A small ASCII file, that contains all WTS data (DAP data \(+\) calculated data) for restricted number of selected straw can be sent through HTTP browser, but a file with a data for the complete wheel should be transferred through local area network or FTP access to file database.
+
+## 9 Appendix 1. Formats of Calibration Data Files
+
+Map file (Calibration.map) for calibration data (32-bits unsigned integer). Totally 3072 values.
+
+\begin{tabular}{|l||l|} \hline
+0 & 31 \\ \hline Field description & Comments \\ \hline Index (record number in \\ Calibration.ind file) of the last \\ measurement & -1(0xFFFFFFFF) \\ \hline \end{tabular}
+
+Figure 19: Eccentricity circle and histogram representation.
+
+Figure 20: Total status for selected test run, distributed by layers.
+
+Index file (Calibration.spi) with information about "long" spectra (as 32-bits unsigned integer). Length of one file record (i.e. one set of parameters = 8 32-bits or 8*4 bytes = 32 bytes)
+
+\begin{tabular}{|l|l|l|} \(0\) & 31 & \\ \hline Field description & & Comments \\ \hline Run number & & is used to identify collection of "short" spectra as a one "long" spectrum \\ \hline Layer & Channel & Layer and channel numbers(layer - 1:4; channel - 1:768) \\ \hline Timestamp of the begin of the & & Timestamps are defined as number of seconds since \\ measurement for the "long" spectrum & & 1/01/1904 12:00:00 \\ \hline Timestamp of the end of the & & \\ measurement for the "long" spectrum & & \\ \hline Divider & Gain & All calculated parameters are normalized to integer. \\  & & The real value is a stored value, divided to **Divider**. \\ \hline Pedestal & Nonlinearity & If the appropriate value is absent due to any reason - \\  & & the value = -32768 (0x8000) \\ \hline Reference to the spectra index file & & Pointer (record number in Calibration.spi - from 1 to..) to the last measured "short" spectrum for this "long" spectrum \\ \hline Link to previous calibration unit for & & Record number in Calibration.ind file. For the first \\ this channel & & calibration unit = -1 \\ \hline \end{tabular} Spectra index file (Calibration.spi) with information about "short" spectra (as 32-bits unsigned integer). Length of one file record (i.e. one set of parameters = 7 32-bits or 7*4 bytes = 28 bytes)
+
+\begin{tabular}{|l|l|l|} \(0\) & 31 & \\ \hline Field description & & Comments \\ \hline Layer & Channel & Layer and channel numbers(layer – 1:4; channel – 1:768) \\ \hline Timestamp of the begin of the & & Timestamps are defined as number of seconds since \\ measurement for the "short" spectrum & & 1/01/1904 12:00:00 \\ \hline Timestamp of the end of the & & \\ measurement for the "short" spectrum & & \\ \hline Amplitude & & \\ \hline Link to previous "short" spectrum & & Record number in Calibration.spi file. For the first \\ from this collection & & “short” spectrum = -1 \\ \hline Offset of spectrum in spectra file (in bytes) & & These fields are pointed to the definite part of \\  & & Calibration.spc file \\ \hline Length of spectrum itself (in bytes) & & \\ \hline \end{tabular} Spectra file (Calibration.spc) - file of 16-bits unsigned integer. It presents the collection of all "short" spectra, compressed by algorithm, used for spectra storage in Oracle. So each spectrum has the variable length and could be extracted only using Calibration.spi record fields: Offset and Length.
+
+\(\begin{array}{c}\mbox{Offset}\\ \end{array}\)
+
+\(\begin{array}{c}\mbox{Length}\\ \end{array}\)
+
+## 10 APPENDIX 2. Formats of Files with Measurement Data
+
+Main index file (*.idx) for DAP data (32-bits unsigned integer). Totally 3072 values.
+
+\begin{tabular}{|l|l|} \hline
+0 & 31 \\ \hline Field description & Comments \\ \hline Index (record number of the last measurement) & One index value corresponds to one straw position. \\ \hline Channel (from 1 to 768) & Channel number \\ \hline Radius (from 1 to 6) & Radius number \\ \hline Pointer to previous record [0..15] bits & Record number in *.ind file. If it is the first \\ \hline Pointer to previous record [16..31] bits & record in the list, the value = -1 (0xFFFFFFFF) \\ \hline Pointer to spectra file [0..15] bits & Record number in *.spc file. This pointer \\ \hline Pointer to spectra file [16..31] bits & always should have non-empty value \\ \hline Pointer to calibration file for spectrum & Record number in Calibration.ind file. If there \\ [0..15] bits & is no calibration data associated with the \\ \hline Pointer to calibration file for spectrum & spectrum that the value = -1 \\ \hline Pointer to reference spectra file [0..15] bits & Record number in *.ref file. This pointer always \\ \hline Pointer to reference spectra file [16..31] & should have non-empty value \\ \hline Pointer to calibration file for reference spectrum [0..15].bits & Record number in Calibration.ind file. If there \\ \hline Pointer to calibration file for reference spectrum [16..31].bits & is no calibration data associated with reference \\ \hline Pointer to slow control file [0..15].bits & spectrum that the value = -1 \\ \hline Pointer to slow control file [0..15].bits & Record number in *.scd file. It is supposed that the first record in *.scd files is used as a header, so pointer should be incremented by 1 to \\ \hline Pointer to slow control file [16..31].bits & receive the real record number. If there is no \\ \hline Timestamp of the begin of the spectrum & timestamp is defined as a number of seconds \\ measurement [0..15 bits] & since 1/01/1904 12:00:00 \\ \hline Timestamp of the begin of the spectrum & \\ measurement [16..31] bits & \\ \hline \end{tabular}
+
+[MISSING_PAGE_EMPTY:23]
+
+[MISSING_PAGE_FAIL:24]
+
+[MISSING_PAGE_FAIL:25]
+
+[MISSING_PAGE_FAIL:26]
+
+File with parameters calculated for each straw (*.stp) by EDA program (as 16-bits words). Length of one file record = 7 16-bits words or 7*2 = 14 bytes). ). First record is used as a header with the values of divider for each calculated parameter. All records in *.stp files are ordered by layer, channel.
+
+\begin{tabular}{l l l}  & 0 & 15 \\ \cline{2-3}
+0 byte & Field description & Comments \\ \cline{2-3}  & Reserved & \\ \cline{2-3}  & Reserved & \\ \cline{2-3}  & Divider for E[0..15] & \\ \cline{2-3}  & Divider for E[16..31] & \\ \cline{2-3}  & Divider for Fit[0..15] & \\ \cline{2-3}  & Divider for Fit[16..31] & \\ \cline{2-3}
+14 byte & Reserved & \\ \cline{2-3}  & Layer & \\ \cline{2-3}  & Channel & \\ \cline{2-3}  & Eccentricity (E) [0..15] & \\ \cline{2-3}  & Eccentricity (E) [16..31] & All values of calculated parameters are \\ \cline{2-3}  & Fit quality (Fit) [0..15] & normalized to 32-bits signed integer. Dividers \\ \cline{2-3}  & Fit quality (Fit) [16..31] & for each parameter are written into file header. \\ \cline{2-3}  & Status (State) & \\ \end{tabular}
+
+[MISSING_PAGE_EMPTY:28]

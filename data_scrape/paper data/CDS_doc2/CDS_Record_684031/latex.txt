@@ -1,0 +1,203 @@
+###### Abstract
+
+This note describes the TRT part of the Level 2 tracker trigger algorithm implemented in the ATRIG trigger simulation package. The performance of the algorithm is demonstrated in terms of efficiency for single leptons, jet rejection, fake track rate and execution time. A detailed description is given of the optimisation of the algorithm and selection cuts in order to select the best candidates from multiple tracks. The effect of drift time measurements in TRT and possible developments of the algorithm are discussed.
+
+**ATL-COM-DAQ-2000-019**
+
+**High \(p_{T}\) Level 2 Trigger Algorithm for the TRT Detector in ATRIG**
+
+**Sergey Sivoklokov**
+
+Institute of Nuclear Physics, Lomonosov Moscow State University, Moscow, Russia. 1
+
+Footnote 1: Serguei.Sivoklokov@cern.ch
+
+Introduction
+
+The ATLAS trigger is planned to consist of three levels - Level-1, Level-2 and Event Filter. The Level-1 trigger makes use of information from the calorimeter and a muon system at a reduced granularity. The purpose of the Level-2 trigger is to utilise full granularity information from the all detectors and, in most cases, in limited regions identified by Level-1 (in Region of Interest or ROI). A search for tracks in the TRT and precision detectors can be used to complement the information from the calorimeter and muon systems.
+
+There are two categories of Level-2 strategies utilised within the Inner Detector:
+
+* a search for a track with \(p_{T}>\sim\) 5 GeV in a part of detector identified by the Level-1 system.
+* an un-guided search for track with \(p_{T}>\sim\)0.5 GeV in the TRT, extrapolated to the precision detectors. This trigger is designed for B-physics channels during the initial low luminosity running.
+
+Only the first item is considered in this note.
+
+For the high-\(p_{T}\) triggers, the principal requirements arise from the need to reduce the rate of Level-1 triggers by rejecting background from minimum bias and jet events. The efficiency for finding an isolated high-\(p_{T}\) electron track is required to be better than 90% (excluding the loss of tracks with hard Bremsstrahlung which would not be recovered off-line). The rejection of background events should result in a reduction of the Level-2 accept rate by a factor \(\sim\) 10 with respect to the rate of events passing the Level-2 calorimeter selection at the design luminosity of \(10^{34}cm^{-2}s^{-1}\).
+
+As the optimum sharing between Level-2 and Event Filter remains to be optimised, and due to the continuous progress in CPU speed, this work is focused on the physics performance of the algorithm rather than its full optimisation for execution speed.
+
+The presented algorithm is implemented in ATRIG - an ATLAS trigger simulation package. Results based on this algorithm have been presented in [1], [2] and [3]. A description of an alternative TRT Level-2 algorithm can be found in [4].
+
+## 2 TRT Detector
+
+The layout of the Inner Detector used for the generation of simulated data samples used in this study is shown in Fig. 1. It corresponds to the "TDR layout" described in [1].
+
+The TRT consists of a central barrel part and two end-cap sections, each consisting of 18 multi-plane wheels. The barrel TRT has a total of 73 layers of straws. Each straw is broken into two electrically isolated halves at z=0. Each half of the TRT barrel is 74 cm long. The barrel region extends from an inner radius of 56 cm to an outer radius of 107 cm. In the simulation the layers at radii of R\(<\)63 cm are only active in the region 40 cm \(<|z|<\) 74 cm. There are two types of wheels in the end-cap region: short ones with radially oriented straws with radii between 64 cm and 103 cm and long ones with an inner radius of 48 cm. The first 6 and the last 4 wheels have 16 layers of straws each and the rest of the wheels have 8 layers each. The straws in the barrel are separated by 6.8 mm in R as well as in R\(\phi\). Each short wheel layer in the end-caps contains 768 evenly separated straws. Owing to the smaller inner radius there are fewer straws in the long-wheels layers (576). Each straw tube is modelled individually as a GEANT tube with an internal diameter of 0.4 cm containing drift gas and a copper wire of 25 \(\mu\)m diameter. The space between straws are filled with the transition radiation material.
+
+A straw drift tube can measure the distance of a track from its central wire by measuring the time taken for the ionisation cluster to drift to the central wire. These measurements are referred as a **drift time hits**. The expected drift-time resolution is about 200\(\mu\)m at the LHC design luminosity. If the drift-time information is not available, a straw's spatial resolution reverts to its diameter/\(\sqrt{12}\) and the measurement is referred as a **straw hit**.
+
+The read-out electronics for each straw has two independent thresholds. The hits which pass the higher threshold are likely to be a transition-radiation hits and referred as a **TR hits**.
+
+Due to the complicated geometry there are different conditions for pattern recognition in the different parts of TRT. Figures 2 and 3 show the number of hits distribution as a function of pseudorapidity and the straw hit occupancy in the TRT as a function of layer number. As one can see complicated regions for the pattern recognition is a transition region between barrel and end-cap (\(\eta\sim 1\)) where the number of hits has a minimum and high-\(\eta\) region with high occupancy (due to the lower wheel radius).
+
+More details on the TRT layout and GEANT simulation can be found in [1], Vol. I and II.
+
+## 3 Feature Extraction Algorithm
+
+### Algorithm Description
+
+The implemented feature extraction (FEX) algorithm is based on the modified TBTREC package [5] with some features from the initial track search step of XKALMAN[6]. In this algorithm the method used to search for track candidates consists of an initial search using a histogramming method followed by a fit. The initial search looks for hits on a straight line in the appropriate projection. The trajectory of a charged particle is linear in the \(z-\phi\) plane and approximates to a straight line in the \(R-\phi\) plane for particles with high \(p_{T}\) produced close to the origin. The trajectory can thus be described as:
+
+\[\phi\approx\phi_{0}+C_{t}\cdot R(\mbox{Barrel})\]
+
+Figure 1: View of one quarter of the ATLAS Inner Detector in the \((R,z)\) plane.
+
+\[\phi=\phi^{\prime}_{0}+C_{z}\cdot R(\mbox{End-cap})\]
+
+where \(\phi^{\prime}_{0}=\phi_{0}-z_{0}\cdot C_{z}\), \(C_{t}\approx 0.003Bq/2p_{T}\), \(C_{z}=C_{t}\tan\theta\) and \(\theta\) is the polar angle of the track. Thus all points on a track lie on a line characterised by a slope C and intercept \(\phi_{0}\). This is the principle of the Hough transform by which each hit is transformed to a series of entries in a histogram constructed in \((\phi_{0},C)\) space. For each hit in a detector, within the RoI, the value of \(\phi_{0}\) is calculated for each value of slope between \(-C_{max}\) and \(+C_{max}\). The value of \(C_{max}\) is determined by the lowest \(p_{T}\) track that is to be sought. Each hit will populate many cells of the histogram, but for each track in the RoI there will be a bin where all hits on the track have an entry (provided an appropriate bin size has been chosen). Thus the track candidates can be identified from peaks in the histogram. If the number of entries is above some pre-defined threshold, the points contributing to the entries in this bin are considered as a potential track candidate and are passed on to the next stage. Since the procedure involves a loop over the hits in a RoI and, for each hit, a loop over the slopes between \(-C_{max}\) and \(+C_{max}\), the execution time scales linearly with the number of hits and number of slope bins.
+
+The FEX algorithm consists of four stages:
+
+* An initial track search using a histogramming method
+* Fine tuning
+* Track fitting
+* Track candidate selection.
+
+The initial track search is based on the histogramming method described above. If the RoI contains more than one part of the TRT (-z end-cap, -z barrel, +z barrel and +z end-cap), the initial search is performed independently in the two parts. The bin size in \(\phi_{0}\) is not fixed but is determined dynamically for each RoI by the straws with hits. The low-\(\phi\) and high-\(\phi\) boundaries of all the straws with hits in the RoI, sorted in order of increasing 
+
+[MISSING_PAGE_FAIL:5]
+
+### Program Structure
+
+The calling sequence is illustrated by the following graph:
+
+Level Routine  -----  -----  3 main  6 arecon  7 atrigg  13 t1main  14 t1calo  13 t2main  14 t2zpro  15 t2scrg  15 t2carg  15 t2trrg  16 t2trrg  -----  16 t2trrfex  | TRT FEX  17 ttxhough  |  18 t2trtbftrec  |  19 t2trtbflst --- Read DIGI+  |  20 agptrt |  |  21 agfdigi ------+  |  19 t2trtbflhi  |  20 t2ttrtsort  |  19 t2trtbpres  |  19 t2trtbtran  |  20 t2trtsort  |  19 t2trtbftrk  |  20 t2trtsort  |  20 t2trtbfun --- Fine Tuning-+  |  21 t2rtbttune ---End-cap+  |  |  22 t2trtbfend |  |  |  23 t2trtbstabl |  |  |  24 t2trtbsortn |  |  22 t2trtbrtz |  |  23 t2trtsortn |  |  21 t2rtbread |  |  |  22 t2trtbrdst |  |  23 t2trtbntb ---  |  |  21 t2trtbntb ---  |  |  22 t2trtbstabl |  |  |  23 t2trtbsortn |  |  |  23 t2trtbtwop ---Merging 2 part+  |  20 t2trtbtwo |  |  21 t2trtbfunt |  |  22 t2trtbread |  |  23 t2trtbrdst +  |
+
+After the Level 1 calorimeter FEX and Level 2 SCT and CALO FEX routines has been executed the TRTsteering routine T2TRRG is called, which calls TRT L2 featureextraction main routine T2TRFEX which in turn calls module TTXHOGH which performs the feature extraction itself. T2TRRG is called in a initialisation phase at the start of run. During this call the initialisation of the geometry table is performed and 3 bank structures are created:
+
+* ROI header bank
+* TRT FEX bank, filled with the parameters of the reconstructed track candidates: \(p_{T}\), azimuthal and polar angle, number of hits of different types etc.
+* containing the KINE information of the particles inside the ROI
+
+The subroutine T2TRTBTREC, which is called from TTXHOGH, starts by reading the TRT digits (by calling T2TRTBFLST. Then routine T2TRTBFLHI fills some internal commons with the azimuthal angles of the hit straw boundaries required for the preselection stage. This data is then used in T2TRTBRES for an initial search for track candidates using the Hough transformation method. The routine T2TRTBFTRK takes track candidates found in the preselection step and prepares the track banks for the next step - fine tuning. Depending on the pseudorapidity value of the track candidate either the barrel (T2TRTUNB) or endcap (T2TRTUNE) subroutine is called (or both in the case of the transition region). This routines works as described in Section 3.1 : re-collect hits in the narrow road along the direction defined at histogramming stage (T2TRTBREAD), tune slope and \(\phi_{0}\) parameters (T2TRTBSTABL) and define \(cot\theta\) in T2TRTBRTZ. The final part of the fine-tuning procedure is to search for tracks that cross the boundary from one part of the TRT to another.
+
+Finally the tracks crossing two parts (barrel-barrel or barrel-endcap) of TRT are searched for as described in previous section. ( T2TRTBTWOP and T2TRBTW0 routines). The parameters of the reconstructed tracks are then stored in the T2TF bank by T2TRFEX.
+
+### Selection of the best track from several candidates
+
+The default parameters used in the algorithm are loose enough to be able to reconstruct different kinds of particles with a wide range of the \(p_{T}\) in the whole accessible \(\eta\)-region. At design luminosity the occupancy of the TRT is between 10% and 40%, the higher values are for the inner layer of the barrel and the long straws in the end-caps. The large number of straws with hits means that there is a significant probability that a 'fake' track candidate can be formed from a combination of hits from tracks in the minimum bias events. As a result, the algorithm prduces several candidates per real track. Figure 4 shows a distributions of the number of candidates for single muons and electrons events, single electrons events with pile-up and events containing only the pile-up of min. bias events. The majority of track candidates in events with pile-up are due to real low-\(p_{T}\) tracks. However, as it will be shown, the \(p_{T}\) threshold can not be set very high even if we are looking for high-\(p_{T}\) tracks (electrons) because of the Bremsstrahlung effect. It it important, therefore, to have a reliable method to choose the best candidate.
+
+The separation of correctly reconstructed real tracks from fakes follow the procedure described in [5]. It is based on a calculation of the ratio \(L_{t}/L_{b}\) of likelihoods for the reconstructed track with \((N_{hit},N_{s})\) assuming it is due to the real track
+
+\[L_{t}=C_{N_{hit}}^{N_{s}}\cdot P^{N_{hit}}\cdot(1-P)^{(N_{s}-N_{hit})}\]
+
+to that for the hypothesis that hits are from minimum bias or noise
+
+\[L_{b}=C_{N_{hit}}^{N_{s}}\cdot P^{N_{hit}}\cdot(1-P_{b})^{(N_{s}-N_{hit})}\]where \(P=P_{b}+P_{t}\cdot(1-P_{b})\) is the probability of a hit on a track, \(P_{t}\) is the probability of a hit caused by the real particle (\(\approx 0.95\)) and \(P_{b}\) is the probability of a hit from minimum bias or noise (0.15 - 0.5 depending on straw length and position). The best fit is that which maximises the \(L\) defined as:
+
+\[L(N_{hit},N_{hole})=\log(L_{t}/L_{b})=w_{1}\cdot N_{hit}+w_{2}\cdot(N_{s}-N_{ hit})\]
+
+where the weights, \(w_{1}=\log(P/P_{b})\) and \(w_{2}=\log((1-P)/(1-P_{b}))\), can either be estimated from Monte-Carlo simulation or from the experimental data for the real detector. Similar values can be calculated for the likelihood of \(L(N_{time},N_{s})\) and, in the case of electron track, \(L(N_{TR},N_{s})\). The best discriminator for electron tracks is thus:
+
+\[L(N_{s},N_{hit},N_{time},N_{TR})=w_{h}N_{hit}+w_{s}N_{s}+w_{t}N_{time}+w_{TR}N_{TR} \tag{1}\]
+
+The weights are calculated in 4 separate regions of \(|\eta|\) to allow for the variation in occupancy and hence of the probabilities, \(P_{t}\) and \(P_{b}\). The weights and cuts on the number of hit straws and \(L\) are shown in Table 1.
+
+Figure 5 shows the distribution of \(L(N_{s},N_{hit},N_{time},N_{TR})\) in these \(|\eta|\) regions for track candidates in single 30 GeV electron events with pile-up at design luminosity and
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|} \hline \hline \(|\eta|\) interval & \(0\div 0.7\) & \(0.7\div 1.1\) & \(1.1\div 1.8\) & \(1.8\div 2.5\) \\ \hline \(w_{h}\) & 4.1 & 4.6 & 2.57 & 1.79 \\ \(w_{s}\) & -4.37 & -4.24 & -2.83 & -2.23 \\ \(w_{t}\) & 2.03 & 1.64 & 1.64 & 1.67 \\ \(w_{TR}\) & 1.33 & 1.63 & 1.63 & 1.71 \\ \hline \(N_{hit}^{min}\) & 25 & 14 & 25 & 25 \\ \hline \(L_{cut}^{min}\) & 20 & 20 & 20 & 20 \\ \hline \hline \end{tabular}
+\end{table}
+Table 1: Weights and cuts in \(|\eta|\) intervals.
+
+for track candidates in RoIs in events containing only pile-up. The hatched area is for the tracks surviving a cut on L. The distributions of the quantities used to calculate \(L(N_{s},N_{hit},N_{time},N_{TR})\) are also shown. It can clearly be seen that the discrimination power of \(L\) is greater than that of any one of the component quantities alone. From the track candidates with a value of \(L\) above a minimum value, the one with the most hits is selected and is passed on to the next stage of the trigger selection.
+
+Figure 5: Distributions of \(L\), \(N_{hit}\), \(N_{time}\) and \(N_{TR}\) for four \(|\eta|\) regions. In each histogram the distribution peaking to the right is for track candidates from single electrons of \(p_{T}\) = 30 GeV and the distribution peaking to the left is for track candidates in fake RoIs containing only hits from minimum-bias pile-up. The hatched part of the curve for the fake RoIs is for tracks passing the cut on \(L\).
+
+## 4 Algorithm Performance
+
+### Single Track Performance
+
+The quality of the implemented algorithm for \(p_{T}\) reconstruction is shown in four intervals of \(\eta\) in Fig. 6 and 7 for single muons and electrons of \(p_{T}\)=20 GeV.
+
+The scatter plot clearly shows two "good" regions in \(\eta\) - barrel part (\(|\eta|<0.7\)) and the middle of end-cap part (1.1\(<|\eta|<\)1.8), and two regions with degraded quality of reconstruction - a transition region between barrel and end-cap (0.7\(<|\eta|<\)1.1) and the outer part of TRT (\(|\eta|>\)1.8). Figures 8 and 9 shows the \(p_{T}\) and azimuthal angle \(\phi_{0}\) resolutions for single muons in \(p_{T}\) region from 5 to 60of pseudorapidity.
+
+The worsening of resolution in the transition region is due to the lower number of hit straws in this region (see Fig. 2) and the procedure for the combination of track segments from the barrel and end-cap. In the high-\(\eta\) region the \(p_{T}\)-resolution is worse due to poor \(\cot(\theta)\) reconstruction quality. The inverse \(p_{T}\) resolution in the good \(\eta\)-regions regions (\(\sigma(1/p_{T})\sim 1.5\)TeV\({}^{-1}\) for 20 GeV muons) is comparable with the offline reconstruction results for this regions (0.8-1.1 TeV\({}^{-}\)1 [1] p.105). The results for 20 GeV electrons shows a considerable low-\(p_{T}\) tail due to Bremsstrahlung.
+
+### Performance at High Luminosity
+
+Due to the bremsstrahlung tail towards low-\(p_{T}\), a sufficiently low threshold must be applied to the reconstructed \(p_{T}\). The efficiency for reconstructing an electrons is shown as a function of \(p_{T}\) threshold in Fig. 10. The effect of bremsstrahlung is demonstrated by the left-hand plot which shows an electrons curve with that obtained with muons. To achieve an efficiency of about 95% for \(p_{T}=30\) GeV electron events ( with respect to those passing Level-1 and Level-2 calorimeter trigger selections), a \(p_{T}\) cut of about 5 GeV should be applied.
+
+Whilst maximazing the efficiency, it is important to control the fake rate. It is essential to find a reasonable compromise between a sufficiently low fake rate and high efficiency.
+
+It is not straightforward to define a "fake" track. It could be composed of short pieces of real tracks, contain noise hits or be composed of the hits from different tracks with no single track dominant. For the current work, **fake tracks** are defined as a tracks where less than 50% of TRT hits come from one single KINE track **OR** the reconstructed \(p_{T}\) is below threshold (5 GeV) while the corresponding KINE track has \(p_{T}\) greater than threshold. The second condition is specific to this trigger study and is somewhat arbitrary, a proportion of reconstructed tracks will be due to a real tracks with \(p_{T}\) (slightly) below 5 GeV cut. However it does indicate an upper limit of the fraction of fake tracks. A separate study has shown that the measured fake rate is quite insensitive to the choice of threshold value for the \(p_{T}\) of the associated KINE track.
+
+The probability of finding fake tracks has been estimated from a sample of the RoI of size \(\Delta\phi\times\Delta\eta=0.2\times 0.2\) in events containing only pile-up at the design luminosity. Regions containing a charge particles with \(p_{T}>\)5 GeV were excluded.
+
+Figure 11 shows the efficiency for electrons (\(p_{T}\)= 30 GeV) with pile-up as a function of the \(L_{cut}\) parameter, calculated with Eq. 1. The distributions are shown for several \(\eta\)-regions which were chosen to reflect the different conditions for pattern recognition due to the different geometry of the TRT in those regions. The tighter the cut on the \(Lcut\) value, the lower the corresponding fake rate and efficiency. Sets of \(|\eta|\)-dependent cuts on have been calculated corresponding to different reconstruction efficiencies of \(\approx\)95%, 90% and 85% of for \(p_{T}\)=30 GeV electrons with pile-up. Fig. 12 shows the efficiency distributions and the corresponding probability of finding a fake track (right-hand plot) as a function of \(|\eta|\) for the three sets of cuts.
+
+Again there are two "good" regions, with a fake track probability of \(\sim\)0.1%, and two "bad" regions with fake probability of \(>\sim\)1%. One bad region is the transition between barrel and end-cap and the second is the high-\(\eta\) region where the straws have high occupancy (see Fig. 3). Also shown in Fig. 12 right (by the dashed line) is the probability for the fake RoI to contain a real high-\(p_{T}\) track. The typical rate of particles with \(p_{T}>\)5 GeV is about \(2\times 10^{-3}\) per RoI (\(0.2\times 0.2\)), but due to the geometry of the TRT, the actual size of the area in \(\Delta\eta\times\Delta\phi\) space scanned by the algorithm varies from \(0.6\times 0.2\) in the barrel to \(0.2\times 0.2\) over most of the end-cap region and to \(0.4\times 0.2\) for the highest \(|\eta|\) region. In most of the TRT the fake rate is well below the real high-\(p_{T}\) track rate, except for the transition region and \(|\eta|>\)2 region. The fake rate can also be reduced by using tighter Lcut at the price of lower trigger efficiency.
+
+Along with the good efficiency for reconstructing high-\(p_{T}\) particles, the TRT FEX
+
+Figure 10: Efficiency as a function of \(p_{T}\) cut value for single \(p_{T}\)=20 GeV electron and muon events without pile-up (left) and for single \(p_{T}\)=30 GeV electron events with and without pile-up (right). The efficiency is shown relative to events passing Level-1 and Level-2 calorimeter selections. Also shown (right-hand plot) the efficiency relative to events with tracks found by offline software (xKalman).
+
+Figure 11: Efficiency for electrons with \(p_{T}\)=30 GeV with pile-up as a function of \(L_{cut}\) parameter in five \(|\eta|\)-intervals. \(L_{cut}\) is calculated by Eq. 1, the cut for the reconstructed \(p_{T}\) is 5 GeV.
+
+Figure 12: Left-hand plot : Efficiency as a function of \(|\eta|\) for electrons with \(p_{T}\)=30 GeV with pileup for three sets of cuts on \(L\). The efficiency is calculated w.r.t. events passing the Level-1 and Level-2 calorimeter selections. Right-hand plot: The probability of finding a fake track in a \(\Delta\phi\times\Delta\eta=0.2\times 0.2\) region of pile-up at design luminosity for 3 sets cuts on \(L\) which give an efficiency for electron (\(p_{T}\)=30 GeV) reconstruction of 95% (triangles), 90% (open circles) and 85% (squares).
+
+algorithm must provide rejection against background events. The most abundant source of background is considered to be events with QCD jets. Figure 13 show the probability of jet events, passing LVL1 and LVL2 calorimeter selections, to pass additionally the high-\(p_{T}\) selection cuts of TRT FEX.
+
+The majority of background events passing the TRT selection have a real high-\(p_{T}\) track and so cannot be rejected by the stand-alone TRT FEX algorithm. Some of these events could be rejected by the global LVL2 trigger, as described in [8].
+
+### Effect of Drift Time Measurements
+
+The measurement of drift-time (the time needed for an ionisation cluster to reach the wire in the straw tubes of the TRT) provides the capability of measuring the particle trajectory with a high accuracy. The expected drift-time resolution is about 200 \(\mu m\) at the LHC design luminosity [1]. In addition to providing better \(p_{T}\) and \(\phi\) resolutions, drift-time measurements also provide a better rejection against fake track candidates. Fig. 14 illustrates the effect of drift-time measurements on efficiency and fake track rejection. The four sets of curves on each plot correspond to different combinations of available information:
+
+1. Only the number of straws with and without hits.
+2. Include additionally TR hits.
+3. As for 1., but including drift-time (d-t) hits.
+4. Include all information.
+
+For an efficiency of 90% the inclusion of drift-time information allows one to reduce the fake rate by factor 2-3.
+
+The same effect is observed for jets rejection (Fig. 15) - the rejection is higher by 3-5% when using drift time information.
+
+Figure 13: Efficiency of TRT FEX as a function of \(|\eta|\) for jet events with pile-up. Also shown distributions of events with high-\(p_{T}\) charged particles in RoI and events with reconstructed high-\(p_{T}\) track due to real track with \(p_{T}>5\) GeV.
+
+Figure 14: Efficiency for \(p_{T}\) = 30GeV electrons vs. fake track efficiency in different \(|\eta|\)-intervals and for four different combinations of the available information. Fakes are measured in RoI containing only min.bias track with \(p_{T}<\)5 GeV. The \(L_{cut}\) range is the same as in Fig. 11.
+
+Figure 15: Efficiency for \(p_{T}\)=30GeV electrons vs. track efficiency for jets with pileup (after LVL2 CALO trigger) for the same 4 combinations of available information as in Fig. 14. The \(L_{cut}\) range is the same as in Fig. 11.
+
+Timing Measurements
+
+Although the execution time is a very important characteristic of the trigger FEX algorithm, the implimentation used in this note was not optimised in terms of execution time. The execution time of the algorithm is presented in Fig. 16. The measurements have been made on a Pentium-III 450 MHz PC running Linux for jets with and without pile-up. 2
+
+Footnote 2: The compiler version g77 version egcs-2.91.66 19990314/Linnux (egcs-1.1.2 release) and compiler options: -O2 -march=pentium -mcpu=pentium -malign-loops=2 -malign-jumps=2 -malign-functions=2
+
+The mean execution time is much lower in the case of jets without pile-up as the mean occupancy is about 9 times lower comparing to jet events at design luminosity. The two maxima (at execution time \(\sim 200\) and \(\sim 1200\) ms) on the high luminosity plot corresponds to the barrel and end-cap. The execution time is lower for barrel due to the lower complexity of the algorithm, which doesn't require an additional step to find the slope of the trajectory w.r.t z-axis.
+
+## 6 Future Algorithm Development
+
+A new version of the reconstruction code XKALMAN ( xKalman++) has been intensively developed and tested in recent months ([9]). The code has a modular structure and the subdetectors modules could be used as independent FEX processors. The TRT module of xKalman++ has been adapted for using within ATRIG. Special effort was made to minimise the execution time. The preliminary tests show a good performance of the new algorithm. The execution time for jets with pile-up is shown in Figure 17. The median value is 14 ms.
+
+Figure 16: Execution time of the TRT FEX algorithm for jets without pile-up (upper plot) and with pile-up (design luminosity) after LVL2 calorimeter cuts (lower plot). The median (50%) and 95% upper CL of the distribution are given.
+
+## 7 Conclusions
+
+The ability to construct a TRT FEX algorithm with high efficiency (\(\sim 90\%\)) for detecting high-\(p_{T}\) charged particles along with low rate (\(\sim 0.1-1\%\)) of fake tracks has been demonstrated. The algorithm can reject by factor 2-3 background events (from QCD jets) w.r.t. events passing LVL2 calorimeter cuts. The large execution time can be significantly reduced in the new C++ version of the algorithm.
+
+## 8 Acknowledgements
+
+The author wish to thank N.Ellis, D.Froidevaux, J.Baines, I.Gavrilenko and S.Gonzales for support and valuable discussions and help.
+
+## References
+
+* [1] "ATLAS Inner Detector TDR" CERN/LHCC/97-16, 1997.
+* [2] "ATLAS Trigger Performance.Status Report" CERN/LHCC/98-15, 1998.
+* [3] "ATLAS Detector and Physics Performance Technical Design Report, The ATLAS Collaboration, CERN/LHCC/99-15, 1999.
+* [4] "Global Pattern Recognition in the TRT for the ATLAS LVL2 Trigger", M. Sessler, M. Smizanska. ATLAS Internal Note INDET-NO-210, 1998.
+* [5] "Pattern Recognition in TRD", I. Gavrilenko. ATLAS Internal Note INDET-NO-016, 1992.
+
+Figure 17: The execution time of the xKalman++ TRT algorithm for jets with pile-up.

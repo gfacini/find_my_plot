@@ -1,0 +1,333 @@
+# The UK ROB-in
+
+A prototype ATLAS readout buffer input module
+
+###### Abstract
+
+This paper describes the specification, design, operation, performance and status of the UK ROB-in. The UK ROB-in is a prototype ATLAS Read Out Buffer (ROB) input module intended both as a prototype component for the final system and for use in the level 2 Pilot Project and in the Read-Out Crate of the DAQ/EF prototype -1. Its function is to buffer event fragments at the rate expected on a single detector Read Out Link and output or release selected fragments on request. The module is available in PCI or PMC formats and is designed around a MACH5 CPLD and an Intel i960 microprocessor, together with appropriate SRAM and FIFO chips. It takes input via an S-LINK daughter-board connector at a continuous rate of up to 132 MB/s. Its functionality is based on the requirements described in the ROB-in User Requirements Document, itself based on requirements defined for a complete ATLAS ROB.
+
+G.Boorman (RHUL), P.Clarke (UCL), R.Cranfield (UCL), G.Crone (UCL), B.Green (RHUL), J.Strong (RHUL)
+
+## 1 Introduction
+
+The UK ROB-in is a prototype ATLAS Read Out Buffer (ROB) input module. The function of the ROBs in ATLAS is to buffer all event data that passes the first-level trigger (LVL1) until the second-level trigger (LVL2) decision is made, and then to pass the data for accepted events onto the next stage of the data acquisition. Event data that has been accepted by LVL1 is sent to the ROBs in parallel across many Read Out Links (ROLs), each link carrying a fragment of each event. To minimise data movement the LVL2 system copies only that part of the buffered data that falls within a Region of Interest (RoI) identified by LVL1. LVL2 decisions are passed back to the ROBs so that memory containing unwanted events can be re-used. Wanted events are copied to the next DAQ stage on request and then their memory space can also be re-used.
+
+For the purposes of current development work the functionality of the LVL2/DAQ readout system is factored in various ways. The UK ROB-in provides a convenient prototyping module that can be used at the front-end of a prototype system. It takes care of buffering input data at high speed and furnishing it on request.
+
+The original aims of the UK ROB-in design were to provide a realistic input component for prototyping studies in the ReadOut Crate (ROC) of the DAQ/EF prototype -1 and to help form the basis of the final system. The design was a natural development of an earlier prototype ROB (the T2B[1]) used for various Level-2 trigger tests and demonstrations, taking note of the various "standards" that were then emerging. The main features of the upgraded design are conformance with the ROB User Requirements Document (URD)[2] and the use of S-LINK[3] and PCI[4] protocols. User requirements for the board have been spelt out in its own ROB-in URD[5] and also provided by the ROC development group.
+
+## 2 Features
+
+The module is designed to run with its own buffer manager integrated on-board. The buffer manager can, however, be disabled and the buffer hardware accessed from an external processor allowing the testing of alternative buffer manager algorithms, as specified by the ROC requirements.
+
+As mentioned above the module uses two standard protocols for integration with other trigger/DAQ prototyping work: S-LINK for front-end input and PCI for all other communication, including data output and message transfer.
+
+Features include:
+
+* 132 MBytes/sec front-end S-LINK input (160 MBytes/s peak)
+* Page-managed memory
+* Accessible via PCI
+* Integral buffer manager
+* DMA output of event fragment data
+* Conformance with ROB-in URD
+* Test facility
+* Error handling and diagnostics
+* Available in PCI and PMC[6] formats
+
+## 4 Components
+
+The UK ROB-in comprises the following components:
+
+* [noitemsep,topsep=0pt,parsep=0pt,partopsep=0pt]
+* Intel i960-RD processor[7]
+* Boot ROM (0.5MB Flash RAM)
+* Program SRAM (0.5MB Static RAM)
+* Event-fragment buffer SRAM (1MB Static RAM)
+* Input FIFO
+* Free & Used Page FIFO's
+* Control logic (MACH 5 PLD[8])
+
+The board is designed to accept data from S-LINK. It has a socket for an S-LINK destination card and provides access to several S-LINK signals through a control register.
+
+The board also has 6 LEDs, 4 of which are user programmable via the ROB-in Control Register.
+
+## 5 Principle of Operation
+
+Data arrive at the front end input and are routed to the fragment buffer by the control logic. The fragment memory is organised as 1024 pages of 256 32bit words (1024 bytes).1 The control logic determines which page of the buffer to write to by loading the upper bits of its address generator from
+
+Figure 1: Block diagram of UK ROB-in
+
+the Free Page FIFO (see 6.8 below). After writing the last word of an event fragment, or the last word of a page (whichever comes first), the address bits are written into the Used Page FIFO (see 6.9 below) along with some status information. It is the responsibility of the buffer management software, whether running on the on board i960 or an external processor, to keep the Free Page FIFO supplied with page numbers of free pages as shown in Figure 2.
+
+The buffer management software can build an index of which data are stored in the used pages based on the information returned in the Used Page FIFO and in the fragment buffer itself. For the input logic to correctly allocate a new page for each event fragment data must be framed with the Beginning of Fragment (BOF) and End of Fragment (EOF) control words. No other words are treated as special by the hardware. The buffer management software must look in the fragment buffer to find event identification information. The i960 provides no interrupts for the Used Page FIFO. The buffer management software must poll for new pages.
+
+## 6 Details
+
+### Real Data Input
+
+Data enters the buffers via an S-LINK connector that provides a 32-bit-wide data connection together with clock, control and status lines. The current boards are designed to meet the original input specification of 100 MB/s maximum bandwidth and 100 kHz average event rate. The ATLAS input requirement has recently been increased to 160 MB/s; whilst the present UK ROB-in can accept data at this rate for bursts of up to 16 Kbytes long it can only sustain a maximum of 132 MB/s.
+
+Events are demarcated by beginning of fragment and end of fragment control words. The S-LINK control line, LCTRL, is monitored to distinguish control words from data words. Two control words are used; one for the start of event and one for the end. These control words only differ by two bits, and are the only control words assumed. Only one of the bits is monitored by the buffer, to distinguish between the start and end of an event.
+
+Under certain circumstances an XOFF signal is generated on the S-LINK interface in order to stem the flow of data. This occurs automatically whenever the number of entries in the Free Page FIFO drops below a programmable threshold, or when the ROB-in is powered up or reset. XOFF is also asserted when the input FIFO reaches the half-full state.
+
+Figure 2: Buffer management operation
+
+### Test Data Input Port
+
+Between the S-LINK (real data) input and the input FIFO (6.3 below) is a set of multiplexers that can be controlled to select the input data source. A bit in the control register selects test or S-LINK input data source. The test input data source is directly connected to the CPU local bus so that test input data can be written to the input by either the local CPU or from another source connected to the PCI bus.
+
+In addition to the 32 data bits, provision is made to emulate the two S-LINK control bits, LERROR and LCTRL. To allow any bits to be changed on a word by word basis it was decided to handle the LERROR and LCNTRL by mapping the test input port onto four addresses on the local bus with the data bits connected directly to the data bus. The four different addresses set or reset different combinations of the LERROR and LCTRL bits. The various test write registers are: test data write, test data write with error, test control write, and test control write with error. These registers are decoded such that they occupy 64 k bytes of address space, which is both more convenient to decode and also permits burst with automatic address increments to be used for writing to this port.
+
+### Input FIFO
+
+Input data enters through a 1K-long input FIFO. The output of this FIFO is connected to the data bus of the buffer memory. When there is data in the input FIFO it may be written to the buffer memory under the control of the hardware buffer manager. The input FIFO performs two main functions. Firstly it allows the input data source to provide its own clock which can be asynchronous to the buffer clock. Additionally it provides some decoupling of the buffer from the data source. If the buffer becomes full and asserts the input XOFF signal, the input FIFO provides buffering for any data which may arrive subsequently due to slow response.
+
+### Buffer Memory
+
+SRAM is used for the main fragment buffer since it achieves its speed without the complication of requiring the use of burst mode (as would be the case with SDRAM). This allows reads and writes to be interleaved on a word by word basis. The buffer memory is made up of four 256k x 8 bit 10ns SRAM devices, giving a total of 1MB. Use of a larger memory at this stage would just consume more PCB space without providing any significant prototyping advantage.
+
+Access to the buffer memory is multiplexed between the front-end input and the ROB-in processor with both read and write access being allowed from the processor side. In order to meet the original input specification, the buffer memory must be able to take in data at an average rate of 100 MB/s (i.e. one 32-bit word every 40 ns). The memory must actually be a lot faster than that since it is also read by both the buffer manager software (to pick up the event ids) and the DMA engine responsible for outputting event fragments to Level-2 and the Event Filter. At the maximum projected event rate of 100 kHz, the buffer manager software would need to read event ids at a rate of 400 kB/s, whilst the total required output rate is estimated to be up to \(\sim\)15 MB/s.
+
+In the current implementation the maximum input bandwidth is 132 MB/s and the maximum output bandwidth is 66MB/s, but the sum of these cannot exceed the total memory bandwidth of 132 MB/s.
+
+The fragment memory is organised in pages of 1024 bytes (see footnote on page 2). At the end of each page, or at the end of each event-fragment, the last address used is written to the Used Page FIFO along with status bits; one of these is used to indicate the last page of the event-fragment. The address logic then reads the next value in the Free Page FIFO as a base for addressing the subsequent page.
+
+**Buffer memory = 2 x 256 x 16 bit = 1 MB**
+
+### Availability Counter
+
+This counter is implemented in the programmable logic of the hardware buffer manager. The counter counts up as pages are written into the Free Page FIFO and down when pages are written into the Used Page FIFO. It is required to be able to count from zero (buffer full) to 1024 (buffer empty). For this reason it requires 11 bits, which can be read as the least significant 11 bits of the status register.
+
+### Microprocessor
+
+The UK ROB-in makes use of the Intel i960Rx family of I/O microprocessors. Both RP and RD versions have been used. These devices have the convenience of built-in PCI interfaces. As a processor the i960 provides an appropriate balance between speed, power dissipation, size and complexity. Thedevice has a JTAG[9] port that allows an emulator to be connected for debugging the buffer manager code and some of the hardware. This processor can be set to boot from the PCI bus or from an onboard ROM; currently the buffer manager and boot code are held in the ROM.
+
+### Program Memories
+
+The processor is supported by both ROM and SRAM external memory. The SRAM is 10 ns to allow the processor to read and write to it in one clock cycle. The buffer manager and boot code are stored in the ROM, when initialisation is complete the buffer manager code is copied to the SRAM. The ROM is an EEROM (AMD flash memory[10]), which can be modified by writing a special sequence of bytes to a particular location. Using this feature it is possible to update the boot code and buffer manager code with the board in situ.
+
+**Program SRAM = 4 x 128k x8 bit = 0.5 MB**
+
+**Program ROM = 512k x 8 bits = 0.5 MB**
+
+### Free Page FIFO & register
+
+The Free Page FIFO is used to hold the list of buffer memory pages available for the buffer hardware to write data to. The write side of this FIFO is interfaced to the CPU local bus, enabling the CPU to write free page addresses into it. The read side of the FIFO is connected to the programmable logic so the buffer hardware control can identify a free page when it needs one. To identify the 1024 pages in this version 10 bits are required. Actually an 18 bit FIFO is used on the PCI version, and a 36 bit one on the PMC version - a choice determined simply by the cost and availability of suitable chips at construction time.
+
+The Free Page FIFO register allows the CPU to write a list of free pages onto the Free Page FIFO. As there are only 1024 pages in the buffer memory only 10 bits are relevant; the least significant 10 bits are used.
+
+### Used Page FIFO & register
+
+The Used Page FIFO holds the list of buffer memory pages which have had data written to them from the input by the buffer control hardware. When the last word of the page or the last word of an event is written to the buffer memory, the whole memory offset, from the beginning of the buffer memory, is written to the Used Page FIFO.
+
+The Used Page FIFO register allows the CPU to read and remove information from the Used Page FIFO. 17 bits of the data from this FIFO reflect the address at which the last data was written in each page of used memory. This address can be decomposed into the page ID plus the offset of the last word used in this page. The buffer manager software can therefore determine which page to index and how much data is in it. An additional bit is passed through the FIFO alongside the address to indicate whether or not the page is the last page of an event; the software buffer manager can thus treat all the pages of one event together. The top bits of the Used Page FIFO register are instantaneous status bits; so a single read of the register can furnish both status and used page information. The most significant bit indicates if the Used Page FIFO is empty, in which case the used page information is ignored. Additionally there are status bits that have been passed through the FIFO with the used page information. These bits reflect the status at the time the page was being written as well as indicating any errors that may have occurred during the writing of the page.
+
+### Physical Formats
+
+The current design of the ROB-in has been implemented in two different form factors. The first version was built to plug into a PC standard PCI backplane and had the advantages of larger board area, greater allowable power dissipation and a low-cost test environment. Subsequently a version was also built to the PMC specification for use as a daughter board in VME-based prototyping work. In this later version the FIFOs were changed for devices with similar speed but smaller area, half the power dissipation, and twice the bus width, reducing the number of FIFO devices from five to three.
+
+Both formats have an S-LINK daughter card fitted when used with a real or externally emulated data source. This fits within the PC format envelope for a single slot but causes the PMC format assembly to encroach on another slot.
+
+### Pci
+
+PCI bus provides a convenient standard for prototyping work and is a real technology option for the final system. Since the total PCI bandwidth required for the operation of a single channel ROB-in is about 15 MB/s, one or several of these devices can be put on a single bus without exceeding the PCI specification. The possibility then exists of constructing a ROB Complex with the addition of a ROB-controller host processor and a ROB-out network interface to the PCI bus.
+
+Apart from the front-end data input, all communication takes place in PCI address space. Communication with the on-board processor is achieved through the use of circular buffers (software FIFOs) at user-definable locations.
+
+### Error-Handling & Diagnostics
+
+All data requests are handled as soon as the processor sees them. If a data request is received for an event which is not in the buffer the ROB-in sends a response consisting of a header only (as specified in the ROB-in URD). The status word in the header indicates that the data are not available.
+
+The following types of unsatisfied request, specified in the ROB-in URD, are detected and counted for later interrogation:
+
+* [noitemsep,topsep=0pt]
+* Delete requests for fragments which are not in the buffer
+* Data requests for fragments which are not in the buffer
+
+The ROB-in also maintains counts of the following:
+
+* [noitemsep,topsep=0pt]
+* The total number of event fragments indexed
+* The total number of pages indexed
+* The total number of event fragments released
+* The total number of pages released
+
+Event fragments might arrive without BOF or EOF markers. Any data not introduced by a BOF marker is discarded by the hardware buffer manager.
+
+Test programs are available to check the buffer memory or to test the operation of the buffer by writing directly into the test data input.
+
+Software controllable LEDs and probe points are provided for diagnostic purposes.
+
+The use of software FIFOs (circular buffers) for message passing automatically provides a "history window" of the most recent messages.
+
+## 7 Buffer Management
+
+Buffer management is performed by allocating the buffer memory in fixed-size pages and keeping track of which pages contain fragments of which events. The programmable logic need only be supplied with the addresses of free pages, and inform the buffer manager how many bytes have been written into each as they are used; the event id itself can be read by the buffer manager directly from the event data in the buffer.
+
+A page-managed buffer scheme allows all the pages of the memory to be used since the buffer manager notifies the hardware of all the free pages, and keeps track of their usage. The only inefficiency arises from the use of a fixed page size. This is no problem for those sub-detectors with fixed event fragment sizes (no zero-suppression), but in the case of variable fragment sizes a compromise has to be established between minimising the number of pages used per event fragment and minimising the amount of wasted space within pages.
+
+An alternative buffer management scheme has been tested in which the overhead associated with tracking several pages per event has been minimised by linking the pages of an event directly in the buffer memory. This means that small pages can be used without a large book-keeping penalty and enables particularly efficient memory utilisation.
+
+### Hardware Buffer Management
+
+The buffer hardware is interfaced to the CPU via the CPU's local memory bus. The CPU sees the buffer manager hardware as an area of memory, free and used page registers, and the status and control registers. The hardware buffer management is implemented in a MACH 5 CPLD and controls the memory, FIFOs, registers and CPU interface of the buffer hardware. The CPU view of the buffer memory is as a single contiguous area, but for the purpose of management it is split into 1024 pages of 256 bytes x 32 bits (see footnote on page 2).
+
+Input data enters the input FIFO via the S-LINK connector and waits to be dealt with by the hardware buffer manager. The Free Page FIFO contains the numbers of all the pages of the buffer memory that are available. If there are pages free and there is data in the input FIFO, the hardware buffer manager reads the number of the next free page from the Free Page FIFO and transfers data from the input FIFO to the buffer memory, starting at the beginning of the free page. Transfers continue as long as data is available in the input FIFO until either the end of the current page is reached or the EOF marker is read from the input FIFO. At this point the full address of the last written location is written to the Used Page FIFO, along with a status bit which indicates if this was the last page of an event. If the end of the page is reached and there is no EOF marker the hardware buffer manager will read the number of the next free page from the Free Page FIFO and continue to transfer data, starting at the beginning of that page. Read or write access by the CPU may be interleaved on a word by word basis by stealing cycles from the hardware buffer manager.
+
+### Software Buffer Management
+
+The tasks of the software buffer manager are:
+
+* to service the Free Page and Used Page FIFOs
+* to index the event-fragments
+* to receive event-fragment-data requests (for RoI data, monitoring data and Event Filter data) and provide the requested data if possible
+* to receive event release messages and make the relevant data pages available for re-use (by putting them in the Free Page FIFO)
+* to monitor and record error conditions
+* to be able to reset the buffer hardware and carry out appropriate test procedures on request
+
+The ROB-in is supplied with a built-in software buffer manager program (in ROM) that runs in the on-board 1960. The buffer manager software can also be provided externally, in which case the ROB-in hardware would be controlled via its registers across PCI.
+
+The supplied buffer-manager software is based on principles employed in the previous prototypes:
+
+* input sources are polled and serviced in turn
+* event-fragments are indexed in a simple hashing scheme based on the low order bits of the event-ID
+
+The buffer manager software receives data request messages across a PCI interface and initiates DMAs of the identified data back across the PCI interface for subsequent transmission to LVL2 and/or Event Filter.
+
+The built-in buffer manager software has been written in C for transparency and possible portability. Experience with the earlier T2B buffer suggests that C code might run at about half the speed of assembler in this kind of application.
+
+Since the buffer manager's role is essentially to service its input sources, with no significant background tasks, it has been implemented as a large polling loop, rather than employing interrupts. Efficiency has been gained, however, by servicing a group of inputs from each source at a time.
+
+## 8 Operation
+
+The i960RD processor boots from ROM and the buffer manager program is then copied from ROM to the program SRAM where it is executed. The buffer manager is small and there is enough on-chip memory for the main code to run from cache, with consequent speed improvements. Code can also be downloaded across PCI, which is useful for testing and might be convenient for online program changes. JTAG is also used for downloading both programmable logic and microprocessors and also as a route for emulator-based debugging of the microprocessors.
+
+Testing is carried out both by running special programs in place of the buffer manager software and by connecting to auxiliary test facilities, such as the SLIDAS[11] S-LINK data source. The designs also incorporate mechanisms for injecting data directly into the front-end of the ROB-in under host control.
+
+### Internal emulation mode
+
+A software-selectable emulation mode is available where data is stored in the buffer memory in advance and no data comes in through the data input. All the functions of the buffer manager software are still performed, except that delete requests cause events to be renumbered rather than deleted.
+
+## 9 Performance Benchmarking
+
+The performance of the UK ROB-in module has been measured in a test configuration designed to emulate the inputs from and outputs to the real system environment. The general approach was to determine the maximum input event rate that could be sustained for particular combinations of key parameter values. This is one of the alternatives specified for comparative benchmarking of ROB prototypes in the ATLAS Level-2 Pilot Project[12], and the parameter values used were a superset of those specified for this benchmarking. Although the event fragments contained dummy data and the output fragments were sent to a sink, the ROB-in itself performed all its normal operations.
+
+### Pilot Project benchmark values
+
+* Grouping factor for decisions: 100
+* LVL1 event rate
+* Event fragment sizes: 256, 512, 1024, 2048 and 4096 bytes
+* Percentage of the events for which a LVL2 accept is received: 1 %
+* ROI request percentages: 5, 10, 14.3 or 20 %
+
+### Test setup description
+
+The ROB-in was plugged into a PCI slot on a PC which was programmed to emulate the Level-2/DAQ environment, whilst front-end data was generated in a SLIDAS data source plugged on to the ROB-in.
+
+The PC was used to generate both RoI (LVL2) requests and Event Builder (DAQ) requests (Level-2 accepts). Since from the ROB-in point of view these two types of request look the same (with the only potential difference being their destination addresses) the PC was programmed to simply generate event-fragment requests at a frequency equal to the sum of the required Level-2 accept and RoI request frequencies. The PC was also programmed to generate event-fragment release requests in synchronism with the incoming event fragments to keep the buffer from overflowing.
+
+The input event rate itself was automatically controlled by an XOFF mechanism between the ROB-in buffer and the SLIDAS data source so that the system would naturally run at the maximum event rate possible, up to the limit of the SLIDAS, for the given parameter values.
+
+For a realistic measurement of the ROB-in performance requested event fragments were sent out to a real destination on the PCI bus, which was actually the PC main memory. Fragments were indexed and accessed properly according to their event Ids, though the Ids themselves were generated internally by the ROB-in.
+
+Figure 3: Performance benchmarking setup
+
+### Data source
+
+The SLIDAS is a PMC-sized S-LINK data source capable of generating ATLAS-type event fragments. It was mounted as a daughter card on the ROB-in's S-LINK interface and set to a clock frequency of 40 MHz. This clock frequency allows the SLIDAS to produce data at up to 160 Mbytes/s, with the actual rate being regulated by flow control as mentioned above. The module used was a SLIDAS 3.0 which has been designed to produce ROB format data at switch-selectable event sizes corresponding to the Pilot Project test benchmark specification. The actual event sizes used were a superset of the Pilot Project benchmark values.
+
+### ROB-in
+
+The PCI version of the UK ROB-in was used in these tests, but the PMC version is electrically equivalent.
+
+### PC host
+
+The host PC was a AMD K6-2 350 MHz processor with a VIA PCI chipset and 64 MB PC100 memory.
+
+### Test software
+
+The PC test software runs under Linux. It consists of a simple Linux driver and a user-level program (_perfest_). The driver maps ROB-in PCI memory space into user memory space, thereafter allowing control and communication from the user-level program which communicates with the Buffer Manager on the ROB-in to control the latter's operation.
+
+The _perfest_ program sends two kinds of message to the ROB-in: fragment requests and fragment delete messages. For these tests the percentages of ROI requests were considered to be 0% 5% 10% 14% and 20%. Adding a fixed 1% of LVL2 accept (Event Builder) requests to these values gives fragment request percentages of 1%, 5%, 11%, 15%, and 21%, which were the actual values used. The delete messages are lists of Ids of event fragments to be released as a group; for this test a group size of 100 Ids was used.
+
+In the real system fragment requests would be automatically synchronised with fragment data via the Level-1 trigger, the Level-2 RoI builder, and the DAQ Event Builder. In our test environment this synchronisation is emulated by the _perfest_ program monitoring the number of events that have been indexed by the Buffer Manager. The buffer manager maintains a counter of the number of events indexed which is visible across the PCI bus. Since event Ids are assigned automatically in sequence by the i960, this counter also gives the latest event ID. _Perfest_ monitors the counter and, when it sees that 100 events have been indexed, it requests the required percentage of them. The event request protocol is _blocking_ i.e. a new request is not sent until the previously requested transfer has completed. Once all the requested transfers have completed _perfest_ sends a delete message for those 100 events.
+
+### Test procedure
+
+The _perfest_ program is run with the percentage of requests as a parameter. When the program is terminated it prints out the number of events indexed.
+
+Each measurement was made for about 5 seconds with the Linux clock being used to measure the exact duration of the test. One of the measurements for each event size was repeated for 100 seconds as a check on the 5-second measurements. For the 1%-request measurement the test had to be run for 30 seconds to get stable results. The results were recorded and plotted in an Excel spreadsheet.
+
+### Results
+
+The basic measurement results are shown in Figure 4, as the maximum event rate (in fragments per second) against event (fragment) size in bytes for different percentages of fragments requested for output. It can be seen that for the canonical event size of 1 Kbyte the original design specification for the ROB-in is met (100 KHz event rate for 5% RoI requests). At smaller and larger request percentages the event rate is correspondingly higher or lower. The individual plots below are consistent with discontinuities existing at event sizes that are multiples of 1 Kbyte. This is to be expected since the ROB-in page size is 1 Kbyte and fragments larger than this will therefore occupy more than one page, incurring the extra overhead associated with the indexing of multi-page fragments.
+
+The data from Figure 4 are re-plotted in Figure 5, expressing the results in terms of input data rate rather than input event rate.
+
+Figure 4: Input Event Rate v. Event Size
+
+Figure 5: Input Data Rate v. Event Size
+
+The plot in Figure 6, which is again derivable from the Figure 4 data, shows the total data rate into and out of the buffer memory. This is the sum of the ROB-in's input and output data rates. The plot illustrates how, with large enough fragment sizes, the system is limited by the memory bandwidth (132 MB/s), whilst at smaller fragment sizes the bottleneck is elsewhere (Buffer Manager software).
+
+Plots for _output_ rates are not shown since they are determined entirely by the request percentages and are simply those same fractions of the input rates. Since the theoretical PCI bandwidth for output is the same as the buffer memory bandwidth it is clear that the PCI will not be saturated at the realistic request rates (percentages much less than 100) used in the test and that this will therefore not be the limiting factor.
+
+## 10 Applications
+
+The PMC version of the ROB-in has been integrated into the ROC of the DAQ/EF prototype -1 project. This project has allowed the ROB-in to be extensively studied as a component in a prototype ATLAS DAQ system. Measurements from these studies are reported elsewhere [13].
+
+The PC version has been used for in-house performance benchmarking and other testing carried out during the ATLAS Level-2 Pilot Project.
+
+Both are available for future ATLAS test-bed applications.
+
+## 11 Future Development Plans
+
+### Input bandwidth upgrade
+
+Recent agreement in ATLAS has increased the ROB input bandwidth from the original specification of 100 MB/s to 160 MB/s. This speed cannot be achieved with the current design. Possible ways to upgrade the performance are:
+
+* Double the width of the ROB-in data bus, keeping the same logic and clock speed. This could be achieved with the i960RN, which is very similar to the i960RD, but has a 64 bit local bus. The disadvantage of this is that it would increase the size of the logic device required since much of the multiplexing is done inside it. The i960RN also runs at 100 MHz internally, which is a 50% improvement on the 66 MHz i960RD, allowing it to handle tasks faster.
+* Increase the clock speed of the buffer part of the circuit. This would mean clocking the buffer and the local bus at different speeds, which would require some synchronisation circuitry.
+
+Figure 6: Memory Data Rate v. Event Size
+
+### Investigation of the feasibility of a "Simple Rob"
+
+A Simple ROB is a ROB-in expanded into a complete ROB by the addition of an integrated network interface. It can be seen as a limiting case of a ROB Complex in which each input link is associated with its own network connection. The investigation is inspired by the rapidly reducing costs of Ethernet interface components and switches.
+
+## 12 Acknowledgements
+
+**Design consultants / reviewers:** R.McLaren (CERN), E.Van der Bij (CERN)
+
+## 13 References
+
+Addressing details and other information relevant to program-level access of the ROB-in are provided in a separate Programmer's Guide[14].
+
+[1] "A second level data buffer with LHC performance." Nuclear Instruments and Methods in Physics Research A 360 (1995) 359-362.
+
+[2][http://www.cern.ch/HSI/rob/](http://www.cern.ch/HSI/rob/)
+
+[3][http://www.cern.ch/HSI/s-link](http://www.cern.ch/HSI/s-link)
+
+[4][http://www.pcisig.com](http://www.pcisig.com)
+
+[5][http://www.cern.ch/HSI/rob-in/](http://www.cern.ch/HSI/rob-in/)
+
+[6][http://www.grouppic.com/standard/specs.htm](http://www.grouppic.com/standard/specs.htm)
+
+[7][http://developer.intel.com/design/io/datashts/273001.htm](http://developer.intel.com/design/io/datashts/273001.htm)
+
+[8][http://www.latticesemi.com/products/devices/mach5.html](http://www.latticesemi.com/products/devices/mach5.html)
+
+[9]e.g.: [http://www.corelis.com/products/scanovrv.html](http://www.corelis.com/products/scanovrv.html)
+
+[10][http://www.amd.com/products/nvd/techdocs/21445.pdf](http://www.amd.com/products/nvd/techdocs/21445.pdf) (AMD am29040b flash memory)
+
+[11][http://www.cern.ch/HSI/s-link/devices/slidas](http://www.cern.ch/HSI/s-link/devices/slidas)
+
+[12][http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/L2PILOT/l2pilot.html](http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/L2PILOT/l2pilot.html)
+
+[13] ATL-COM-DAQ\(-\)2000-046, "The Read-Out Buffer in DAQ/EF Prototype -1" (17 Dec 1999)
+
+[14][http://www.hep.ucl.ac.uk/atlas/rob-in/programmers-guide.pdf](http://www.hep.ucl.ac.uk/atlas/rob-in/programmers-guide.pdf)

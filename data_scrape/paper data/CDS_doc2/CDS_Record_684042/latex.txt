@@ -1,0 +1,192 @@
+LVL2 Full TRT Scan Feature Extraction Algorithm for B Physics Performed on the Hybrid FPGA/CPU Processor System ATLANTIS: Measurement Results
+
+C. Hinkelbein, A. Kugel, R. Manner, M. Muller, M. Sessler,
+
+H. Simmler, H. Singpiel
+
+1
+Footnote 1: Field Programmable Gate Arrays**
+
+2
+Footnote 2: Compact PCI or **cPCI** is an industrial version of PCI. It is functionally and electrically equivalent to desktop PCI but differs in the mechanics (e.g. board format).
+
+3
+Footnote 3: The SCT Scan is a good candidate for FPGA implementation, as well as preprocessing algorithms in the ROB area.
+
+## 1 Abstract
+
+_This paper updates the preliminary results presented in [4] for a Full Scan TRT algorithm executed on the FPGA1 processor system ATLANTIS. ATLANTIS is a combination of FPGA and CPU based computing platforms. Compact-PCI2 provides the basic communication mechanism. The host CPU is a standard Intel Pentium (II) based PC in cPCI format. The FPGA computing boards reside on the hosts' cPCI bus and operate as co-processors to the host CPU. Viewed from the Level-2 farm ATLANTIS appears as a normal processing node with accelerated execution of specific algorithms. The TRT Scan algorithm described here consists of four steps. The two most demanding steps have been implemented on the FPGA co-processor. The measurement results show a speed-up factor of 9 for these two steps. The resulting TRT Scan rate for the accelerated system would be 190Hz compared to 30Hz on a plain Pentium-II/300 processor. The improved performance allows a significant reduction of the overall size of the Level-2 farm._
+
+Footnote 1: Field Programmable Gate Arrays**
+
+2
+Footnote 2: Compact PCI or **cPCI** is an industrial version of PCI. It is functionally and electrically equivalent to desktop PCI but differs in the mechanics (e.g. board format).
+
+3
+Footnote 3: The SCT Scan is a good candidate for FPGA implementation, as well as preprocessing algorithms in the ROB area.
+
+## 2 Introduction
+
+The current B Physics trigger strategy in Level-2 (LVL2) is built upon a non RoI-guided scan of the full volume of the TRT. This requires the reconstruction of large numbers of tracks. For comparison the \(\Phi\)-tector volume is \(\sim\)100 fold larger than an RoI. It is the most challenging of all LVL2 algorithms in terms of computing power. Therefore a simple and very fast algorithm is essential. The ATLANTIS system has been designed to speed up this algorithm - and other Level-2 algorithms3 - with the help of FPGA based co-processors. The main component in this context is the ATLANTIS Computing Board - ACB - with 4 FPGAs and a modular memory system. A detailed description of the ATLANTIS hardware is given in [3]. Figure 1 shows the system used for the measurements.
+
+Footnote 3: The SCT Scan is a good candidate for FPGA implementation, as well as preprocessing algorithms in the ROB area.
+
+In Chapter 3 the principles of the TRT track reconstruction algorithm [2] are presented. The basic \(\pi\)-rameters of the algorithm for the TRT Barrel are explained and the implementation on the ATLANTIS ACB is characterized. Chapter 4 describes the test environment and software issues and presents the results from recent measurements together with a short summary of former test-bed integration. Possible improvements of the present implementation are described in Chapter 5. Conclusions are drawn in Chapter 6.
+
+## 3 Full Scan TRT algorithm
+
+This chapter describes the principles of the TRT algorithm, displays its characteristic parameters in the TRT barrel and explains details of the present implementation.
+
+### Algorithm structure
+
+The task is a search for all charged particles in the entire TRT volume, which come from the origin region. Since all particle trajectories to search for are known a histogramming method based on the Hough Transform is well suited for the initial track search. The Hough Transform is a standard method in image analysis that allows recognition of global patterns in an image space by recognition of local patterns in a transformed parameter space. It is based on the idea that every hit in the three-dimensional detector image can belong to a number of possible tracks characterized by different parameters. Thus every hit increases the "probability" for the existence of these tracks by 1 (histogramming). At the end of the histogramming process the contents of all histogram counters are compared to a threshold value. Only tracks whose histogram counter is above this threshold are sufficiently well defined and are considered as initial track candidates. In the subsequent step the histogram values of neighboring candidates are compared and only the one with the highest entry is retained4. After a clean-up step followed by a fit the final tracks are selected. The entire algorithm as included in the ATLAS Level-2 reference software consists of the following steps:
+
+Footnote 4: This maximum finding is done by applying a 3x3 filter mask on the result of the initial track finding.
+
+**Initial Track Finding**: Utilizes an LUT-based Hough Transform using histogramming to find potential track candidates. [~74%]5
+
+Footnote 5: These numbers are the percentage of the entire execution time per certain step.
+
+**Threshold Application and Local Maximum Finding**: Selects potential track candidates and eliminates multiple reconstructed tracks. [~15%]
+
+**Track Splitting:** Removes hits incorrectly assigned to a track, and splits tracks that have been erroneously merged. [~6%]
+
+**Track Fitting and Final Selection:** Performs a fit in the r-\(\phi\) (barrel) or z-\(\phi\) (end caps) plane using a third order polynomial to improve the measurement of \(\phi\) and \(p_{T}\). The algorithm uses only the straw position (i.e. the drift time information is not used). Selects the final track candidates [~5%]
+
+The first two out of the four described steps of the algorithm can be executed on the FPGA co-processors. These two steps are Histogramming (or Initial Track Finding) and Thresholding/Local Maximum Finding. On a CPU-only implementation they require 89% of the total processing time.
+
+### Basic parameters
+
+The TRT consists of two subdetector types, the barrel and the end caps. Both measure essentially in two dimensions, the barrel in r-\(\phi\) and the end caps in z\(\phi\). The algorithms for barrel and end caps differ, but the principles are identical. For the performance measurements published in this paper the barrel algorithm was used. The TRT barrel is composed of two identical (in the scope of this document) parts, the left and right barrel half. The following numbers refer to one half barrel.
+
+The total number of straws is approximately 52,500. We assume that data from the TRT are pre-processed and zero-suppressed and that each active straw (= hit) is encoded by a 16 bit straw number6. With an average occupancy of approx. 4% the number of hits per event is 2048. Thus the result of the fragment collection is an event of size 4kByte.
+
+Footnote 6: These assumptions are part of the reference software.
+
+The resolution required for the Initial Track Finding is defined by 1,200 bins in \(\phi\) space and 80 bins in \(p_{T}\) space leading to a total search space of 96,000 patterns.
+
+The average number of track candidates per event is 25. Each track candidate can be characterized by a 17-bit track (or pattern) number, which identifies its position in \(\phi\) / \(p_{T}\)space.
+
+The application of the Hough Transform in the TRT barrel transforms data from r-\(\phi\) space into \(\phi\)-\(p_{T}\) space. With the parameters shown above the average number of possible patterns to which an individual straw may belong is about 100.
+
+### Implementation details and parameters
+
+The ATLANTIS ACB and the CPU execute the histogramming procedure quite differently. The CPU scans the pattern list of every hit and updates the corresponding histogram counters. This is a fully sequential process and the execution time is proportional to the number of hits and the number of search patters.
+
+For the Atlantis ACB a different approach was adopted which exploits the high degree of parallelism inherent in the histogramming process. The LUT stored in the ACB memory modules is used to \(\uppsi\)-date a large number of histogram counters simultaneously for every hit. The present implementation uses 594 bits of data out of the 704 bits available per ACB. Successive passes for the same hit are accumulated to increase the search space. Further advantage is taken from the fact that any particular hit will contribute only to patterns that are within a certain region in \(\phi\). Thus the search space used for a hit can be narrowed down to a fraction of the full search space. This technique is called pseudo RoI (PRoI). The execution time scales with the number of hits and the size of the PRoIs, which is one order of magnitude smaller than the entire search space.
+
+The minimum size of the PRoIs basically depends on the \(\phi\) angle, which is covered by a track of minimum \(p_{T}\). To account for tracks which pass a PRoI boundary an overlap7 is introduced that contains hits from adjacent PRoIs.
+
+Footnote 7: A small size of the PRoIs result in a narrow search space and a small number of required passes. However overlap compensation results in a larger number of hits to be supplied in total, which \(\hat{\uppsi}\)-creases the processing time. Hence the size of the PRoI must be chosen carefully.
+
+The parameters used for the present ATLANTIS implementation are listed in Table 1.
+
+\begin{table}
+\begin{tabular}{|l|c|l|} \hline
+**Parameter** & **Value** & **Comment** \\ \hline Total size of search space & 76,000 & 950 \% * 80 \(p_{T}\) (see footnote8) \\ \hline Number of PRoIs & 16 & Reduced space = 4,736 patterns \\ \hline Simultaneous patterns & 594 & Per ACB, per clock cycle \\ \hline Number of passes & 8 & \\ \hline Overlap factor & 2 & Active PRoI + 50\% of each left and right PRoI \\ \hline Hits per event & 2,048 & \\ \hline Input data volume & 64 kByte & Hits * 2Byte * Passes * Overlap \\ \hline Tracks per event & 25 & \\ \hline Output data volume & 100 Byte & \\ \hline \end{tabular}
+\end{table}
+Table 1: ATLANTIS Barrel TRT Parameters (numbers for half barrel)During the histogramming phase input data (= hits) are processed in subsets on a per PRoI and per pass basis. At the end of each subset thresholding and local maximum finding is executed and results (= track candidates) are transferred to the output queue inside the ACB.
+
+At present there is no local buffer on the ACB available to store the hits for the subsequent passes. Rather the same data are transferred repeatedly. It must be noted that histogramming takes place _on the fly_ while data are transferred into the ACB. Hence the time for data transfer into the co-processor and the execution time for the histogramming have an overlap of almost 100%.
+
+Possible optimizations and implementations of the other algorithmic steps in future FPGA based systems are discussed in [1] and are an area of ongoing studies.
+
+## 4 Measurements
+
+On the ACB boards the LUT is stored as a bit pattern (hit belongs to road: yes/no) in the SRAM memory modules attached to the FPGAs. Each data bit from the SRAM controls a histogram counter residing in the FPGA. At present 594 histogram counters can be updated in parallel on a single ACB at a rate of 19MHz. A special program is used to generate the LUT and to load it into the memory modules on the ACB. This program allows to generate LUTs for a broad range of parameters like \(\phi\) and \(p_{T}\) resolution and memory layout.
+
+The FPGA code is written in the hardware description language VHDL and consists mainly of counter elements, threshold logic and a 3x3 filter operator. Additional logic for the PCI interface and inter-FPGA communication is included.
+
+Performing the TRT Scan the host access to the ACB is done in 3 steps:
+
+* **Hit data in**: Writing hit data to the ACB (this overlaps with the internal histogramming).
+* **Compression**: Local maximum finding of all patterns with hit count above threshold.
+* **Result data out**: Reading result data (track candidates).
+
+For both transfer phases a DMA mode is used in which the PLX chip9 of the ACB actively transfers data into (READ) or from (WRITE) host memory10. Usually DMA transfer rates on a PCI bus exceed 100MB/s for a block size of 64kByte. Unfortunately the cPCI systems used do not at all provide the same WRITE performance as standard desktop PCI systems. The reason for this is related to the use of a PCI-to-PCI bridge, which connects the cPCI bus and the local PCI bus of the host CPU. On a standard desktop processor there is no such bridge. The observed maximum transfer rates have been about 65MB/s and 30MB/s respectively for the two different systems11 and even lower rates for the block sizes used actually. We have been able to increase the maximum rate to approx. 100MB/s by tuning some PCI specific registers on the CPU boards. However the resulting performance is not yet stable. Anyhow the DMA transfer rate is just sufficiently high not to slow down the overall FPGA processing in the present setup for a single ACB.
+
+Footnote 9: This commercial chip is the PCI bus interface.
+
+Footnote 10: For the naming READ and WRITE we take the view of the application. A transfer into host memory is called a READ even if the PLX chip performs a write operation on the PCI bus to execute the READ. For a WRITE the situation is reverse.
+
+Footnote 11: This seems to be a problem of the cPCI systems available at Mannheim and not a limitation of cPCI itself. There are reports that even with several PCI-to-PCI bridges in a chain a WRITE transfer rate of more than 90MB/s can be achieved.
+
+### Software issues
+
+All recent performance measurements have been made with Windows NT systems running version 1.51 of the ATLAS Level-2 reference software. A single node stand-alone application (TRTFEX) was created to ease configuration. This application performs the TRT Full Scan algorithm in the framework of the reference software. A data file containing approx. 300 events was used to get good statistics and identify effects induced by caching and system configuration.
+
+Timing measurements have been done with high precision, high-speed timers at a low level of the algorithm. Also profiling has been done using the timing functions provided by the reference software. Various machines have been tested, equipped with different processors, different amount of memory, and different chip sets. No tuning of the machines has been performed. All results conform with older numbers like presented in [2] and can be reproduced. Detailed knowledge about the performance of different algorithm steps was deduced from timing of many 10,000 events.
+
+For low-level analysis of PCI operation and performance a commercial PCI analyzer was used.
+
+The ATLANTIS Operating Software (AOS) is a highly modular software framework for managing FPGA based co-processors like the ACB. Besides the commercial lowest level driver, all the AOS is implemented in C\(++\) using common OO approaches. The AOS supports multiple boards per cPCI bus using either blocking or non-blocking DMA transfers. It has been shown to be very robust regarding changes in system configuration (firmware) and algorithm implementations.
+
+### Measurement Setup and Results
+
+The following sections list the measurements made and the results obtained. For the CPU-only implementation the reference software, version 1.51, was used with some modifications for improved profiling. The present FPGA implementation does not use the same input and output data formats as the references software hence the results for the hybrid (FPGA plus CPU) implementation are a mix of reference software results and test application results. The full integration of the accelerated system within the framework of the reference software into an application test-bed has already been demonstrated in November 1999, however with a smaller pattern resolution, and is recalled in Section 4.3.
+
+Transfer of event data into the ACB and histogramming is done concurrently. Thus the effective time for the execution of both steps is not the sum of both numbers but the maximum of either. Given the present ATLANTIS implementation without local hit buffer, data are transferred right up to the end of the entire histogramming process12. Therefore FPGA-based histogramming can effectively be characterized by the transfer time. Also the major fraction of the Thresholding and Maxfinding procedure overlaps with the input transfer time.
+
+Footnote 12: In fact a few additional cycles are needed after DMA has finished to empty the ACB’s internal queue. On the other hand, the software needs also some time to signal the completion of transfer.
+
+A Pentium-200 based ATLANTIS system running Windows NT was used to carry out the FPGA-related measurements. DMA transfer rates on this system are better than the ones on the alternative Pentium-II/400 based system. Running two ACB boards in parallel13 using non-blocking DMA transfers slightly improves the utilization of the cPCI bus.
+
+Footnote 13: Both parts of the TRT barrel could be computed simultaneously on two ACB boards instead of sequentially on a single board.
+
+The items needed for a full set of measurements are listed in Table 2 Some data have not yet been directly measured in the course of this program and are either taken from the reference source [2] or are computed. These items are listed in _italic_ text. Table 3 lists resulting numbers for the processing of the full TRT-barrel. Note that for the full TRT barrel execution time on the CPU must be multiplied by 2 while FPGA processing can take advantage from parallel execution of two ACB boards.
+
+A single ATLANFIS ACB executes the histogramming and Thresholding/MaxFinding steps by a factor of 8.5 faster than the Pentium CPU does. Using two ACB boards in parallel results in a further improvement of about 15% which however is less than expected14. As processing on CPU and ACB is truly concurrent the resulting execution time for the full algorithm will be less than the sum of the two individual steps, provided the application is able to work on multiple events in parallel15.
+
+Footnote 14: The bottleneck is the limited DMA transfer rate on the cPCI systems used. The bandwidth of 40MB/s is far below the limit of the PCI bus. Other commercial systems should provide much better performance.
+
+\begin{table}
+\begin{tabular}{|l|l|l|l|} \hline
+**Task** & **Platform** & **Time** & **Comment** \\  & & **[ms]** & \\ \hline _CPU-only Implementation_ & & & \\ \hline _Histogramming_ & _CPU_ & _NA_ & _Measured together with MaxFind._ \\ \hline _Threshold/Max Find_ & _CPU_ & _NA_ & _Measured together with Hist._ \\ \hline
+**Histo/Thresh/Max** & **CPU** & **17** & Pentium-II/300 \\ \hline Track Split & CPU & \(0.8\) & _Note: Times for Track Split, Fit and_ \\ \hline Track Fit + Selection & CPU & \(0.2\) & _Selection are less than expected from_ _[_2_]_ \\ \hline
+**Total unaccelerated processing** & **CPU** & **18** & \\ \hline _Hybrid Implementation_ & & & \\ \hline Event transfer to ACB & _CPCI_ & \(1.9\) & 64kByte data, DMA \\ \hline _Histogramming_ & _FPGA_ & _1.85_ & _Overlaps with Event transfer_ \\ \hline _Threshold/Max Find_ & _FPGA_ & _0.15_ & _Overlaps with Event transfer_ \\ \hline Result transfer to host & _CPCI_ & \(0.1\) & 100 Byte data, DMA \\ \hline
+**Histo/Thresh/Max** & **FPGA** & **2.0** & **From Event in to Result out** \\ \hline _Total accelerated processing_ & _CPU/FPGA_ & **3** & _Computed from FPGA execution plus Split, Fit and Selection on CPU_ \\ \hline \end{tabular}
+\end{table}
+Table 2: Measurement results for one half of TRT barrel
+
+\begin{table}
+\begin{tabular}{|l|l|l|l|} \hline
+**Task** & **Platform** & **Time** & **Comment** \\  & & **[ms]** & \\ \hline _CPU-only Implementation_ & & & \\ \hline _Full TRT barrel processing, unaccelerated_ & _CPU_ & _36_ & _Sequential processing of barrel halves_ \\ \hline _Hybrid Implementation_ & & & \\ \hline _Histo/Thresh/Max_ & _FPGA_ & _4.0_ & _Sequentially on single ACB_ \\ \hline _Histo/Thresh/Max_ & **FPGA** & **3.35** & **Parallel on two ACBs** \\ \hline _Full TRT barrel processing, accelerated by one ACBs_ & _CPU/FPGA_ & \(6\) & _Computed from FPGA execution plus Split, Fit and Selection on CPU_ \\ \hline _Full TRT barrel processing, accelerated by two ACBs_ & _CPU/FPGA_ & _5.35_ & _Computed from FPGA execution plus Split, Fit and Selection on CPU_ \\ \hline \end{tabular}
+\end{table}
+Table 3: Extrapolation to full TRT barrel processing
+
+### ATB Measurements
+
+During November 16th through 18th, 1999, a successful integration of the ATLANTIS system into the LVL2 pilot project ATM/Ethernet application test-bed (ATB) at CERN was performed16. This included both hardware and software integration. It was shown that it is possible to make the ATLANTIS system an integral part of the ATB without requiring any modification on the reference software framework. The ATLANTIS system as seen from the reference software is a processing node or steering processor like the other standard processors. Access to the FPGA hardware in ATLANTIS did not interfere with other hardware installed, for example the ATM network interface from Saclay used for event data transmission and the standard Ethernet network interface used for configuration, both installed and used at the same time with the ATLANTIS FPGA hardware. Also, the additional software layers for configuration and data transfer from and to the FPGA did not interfere with the framework, neither did the driver used to handle the FPGA with WinNT running. Furthermore it could be shown that algorithm quality17 was identical to the CPU-only implementation. However the overall setup in November 1999 did not allow running a performance test of the system.
+
+Footnote 16: We wish to appreciate the support we have received from various institutes and persons during this integration, in particular: D. Calvet, I. Mandjavidze, R. Hauser, and M. Dobsen.
+
+Footnote 17: However the search space used in November 1999 was only a small fraction of the search space used now.
+
+## 5 Possible Improvements
+
+Although the current hybrid implementation provides a significant speed-up of the TRT Scan the ATLANTIS system has the potential for even more performance. The most promising areas for further optimizations are listed below.
+
+1. Local hit buffer The use of a local hit buffer on the ACB decreases the input data volume which has to be transferred. With respect to the current implementation a reduction ratio of 16 can be achieved. Hence event processing will no longer be limited by cPCI transfer rates and utilization of multiple ACB boards will be improved.
+2. Symmetry The symmetry in the barrel is not yet available in the used detector geometry - neither in the reference software implementation nor in the FPGA implementation. Use of symmetry decreases the required address space of the LUT for FPGA implementation by a factor of 8.
+3. Design speed (clock frequency) Currently the maximum clock frequency for the TRT Scan implementation on an ACB is 19 MHz. In principle the ATLANTIS system is designed for a frequency of up to 80 MHz18. Existing single FPGA designs for the TRT Scan are already running with 26 MHz. From our experience we expect to achieve frequencies of up to 30 MHz. Footnote 18: The PCI frequency is 33 MHz.
+
+The realization of the improvements described above is an area of ongoing studies. The main focus in this context are the introduction of local buffering and the extension to full search space (1200 \(\phi\) * 80 \(p_{T}\)).
+
+## 6 Conclusions
+
+Interpreting the results obtained since September 1999 leads to five main conclusions:* The entire TRT barrel scan algorithm is implemented on the FPGA processor system Atlantis. The two most time consuming steps of the algorithm are implemented on FPGAs.
+* The current numbers for the execution time indicate a significant speed-up of an hybrid FPGA/CPU based implementation compared to CPU-only implementation.
+* Complex algorithms like the TRT Scan can indeed be implemented on FPGA-based computing platforms. The performance gain can be efficiently utilized for the Level-2 trigger in a transparent way using a hybrid system like ATLANTIS.
+* Year 2001 FPGA technology will enable to build even more powerful computing platforms19 as described in [1]. Footnote 19: Based on today’s prices and recent evolution we expect a per-unit cost of approx. 4,000 CHF.
+* As a consequence we expect a possible reduction of the Level-2 farm size by a factor20 of 2 to 5 by using the prospective FPGA co-processors.
+
+Footnote 20: [6] has been used to estimate the influence of accelerated algorithm on the farm size.
+
+## 7 References
+
+* [1] Prospects of FPGAs for the ATLAS LVL2 Trigger. C. Hinkelbein, A. Kugel, L. Levinson, R. Manner, M. Muller, M. Sessler, H. Simmler, H. Singpiel, ATL-DAQ-2000-006, CERN, 2000
+* [2] Global Pattern Recognition in the TRT for B-Physics in the ATLAS Trigger. C. Hinkelbein, A. Kugel, R. Manner, M. Muller, M. Sessler, H. Singpiel, J. Baines, R. Bock, M. Smizanska, ATL-DAQ-99-012, CERN, September 1999
+* A Hybrid Approach Combining the Power of FPGA and RISC Processors Based on CompactPCI. K. Kornmesser et al., International Symposium on Field Programmable Gate Arrays, Monterey, California, February 1999
+* [4] LVL2 Full TRT Scan FEX algorithm for B-Physics performed on the FPGA processor ATLANTIS: Preliminary measurement results. C. Hinkelbein, A. Kugel, R. Manner, M. Muller, M. Sessler, H. Simmler, H. Singpiel, ATL-COM-DAQ-99-024, CERN, 1999
+* [5][http://www-li5.ti.uni-mannheim.de/fpga/atlantis/](http://www-li5.ti.uni-mannheim.de/fpga/atlantis/)
+* [6] ftp.nikhef.nl/pub/experiments/atlas/tdaq/Paper/Papermodel300Doc.pdf

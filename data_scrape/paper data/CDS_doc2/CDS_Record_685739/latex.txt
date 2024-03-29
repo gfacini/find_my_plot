@@ -1,0 +1,285 @@
+Preliminary Performance Study of LVL3-like MP architectures.
+
+**G. Mornacchi**
+
+**Atlas DAQ NO-23 1-Nov-94**
+
+## 0 Introduction
+
+The ATLAS LVL3 system will need a huge amount of computing power to satisfy the data reduction requirement. The nature of the algorithms, their implementation and the organization of the LVL3 processors will contribute to inefficiencies in the use of the nominally available processing power.
+
+This note studies performance issues for a candidate processor organization of a LVL3 subfarm. A multi-processor (MP) system with common memory and a shared bus interconnect (between processor elements and shared memory) is considered. Currently several major computer manufacturers have commercial products based on the shared bus interconnect. A collection of independent processing elements (e.g. VME boards) interconnected by a standard bus (e.g. VME) accessing event data in an external memory (e.g. a VME buffer) also fits the processor organization under consideration. Other architectural options, e.g. those based on a multi-stage interconnection network to link processors, are equally relevant to the application and need their own evaluation study.
+
+The efficiency of the shared bus MP system is studied from the point of view of the expected LVL3-like work-load and the contention for shared resources. An event filter runs on each CPU of the MP system, the filter program spends part of the time executing locally in the CPU and part of the time accessing shared memory. Processor organizations such as those built with standard computer boards around an industrial bus (e.g. VME) experience shared memory activity associated to event buffer access only (each board runs a full, independent copy of the analysis program). Symmetric multiprocessors with common memory experience contention due to the activity between cache and main memory.
+
+A simple analytical model, for which the ratio of the access and execution times is the sensitive parameter, has been used to understand the performance for the case where a single bus interconnects CPUs and common memory. The same model is also used to discuss the scaling properties of these systems.
+
+The analytic approach complements, rather than compete with, other performance analysis tool, such as simulation. In the spectrum of tools available for performance analysis, analytic models are computationally inexpensive and provide solutions in terms of steady state probabilities. Conversely simulation is orders of magnitude more computationally expensive but provides access to a more detailed description of the system being modeled.
+
+### 2.0 Single Bus MP Model
+
+### 2.1 Definition and Behavior
+
+The MP system under consideration, sketched in figure 1 for the 2-processor case, consists of the following elements:
+
+* N processor elements (PE) each consisting of one CPU with local memory,
+* one common (shared) memory and
+* a single bus interconnecting processors and common memory.
+
+Shared resources, i.e. the common memory, can be accessed by every process; the local memory is instead accessible from the corresponding local PE only. Such an architecture fits both symmetric multi-processor systems, with the CPU cache playing the role of the local memory, and MP systems built around an industry standard bus (e.g. VME). In this latter case each board includes the full memory system, the common memory role is played by an external buffer from which event data is accessed (e.g. copied into a PE local memory).
+
+To complete the model we specify the work-load. Each PE executes the same application (this is a reasonable assumption for the LVL3 system when the I/O issue is not considered). The working mode of each PE including interference between PEs, exemplified by the Petri net in figure 2 for a 2-processor case, consists of the following steps:
+
+The processors are initially ACTIVE
+
+Figure 1: Shared bus with common memory, 2 processor case.
+
+After a random time they make a bus request
+
+If the bus is not available the processor WAITs.
+
+The processor ACCESSes the memory for a random time
+
+The bus is released
+
+That is to say:
+
+1. The duration of ACTIVE and ACCESS periods are assumed to be random variables.
+2. When a PE requires a access to common memory, a path is immediately established
+
+(i.e. 0 delay) between the PE and the common memory module provided the bus is free.
+3. If a path cannot be established the PE idles.
+4. Upon common memory access, the memory and the bus are immediately released (0 delay) and the PE returns to its active state.
+
+The presence of a single bus _masks the contention_ for common memory, only _bus contention_ is present. This model may not be appropriate for a split-transaction bus, in which case the bus is not held while the memory is active.
+
+Figure 2: Petri net for 2 processor case.
+
+### Queueing Network Model
+
+Since the bus contention is the only source of queueing in the system, it is possible to model the system with a simple queueing network, called the "machine repairman" model [1], [2], as in figure 3.
+
+The queueing network comprises 2 _service stations_:
+
+* The first models ACTIVE processors: it includes as many servers as there are PEs. The servers' service times are random variables describing the PE active times.
+* The second includes only 1 server (the bus, or the common memory) and its service time is a random variable describing the common memory access time.
+
+To define the model one has to specify:
+
+1. The number of PEs, N.
+2. The distributions of the random variables representing the _active_ times for each PE. In our case (all PE running the same application) the same distribution applies to each PE.
+3. The distributions of the random variables representing the _access_ times of the PEs. Because of the single bus we can assume there is only one type of common memory. The single memory and the same application assumptions make reasonable to assume that the same access time distribution applies to each PE.
+
+Figure 3: Queueing Model for Single-bus MP system with external memory.
+
+4. The bus arbitration policy, i.e. how the queue to the bus service station is managed.
+
+The bus arbitration policy can be of three kinds: FCFS (first come first served), Fixed Priority (FP) or Processor Sharing (PS). In case of contention, the first policy grants access to the first PE which requested the bus, the second grants it according to a (statically defined) priority associated to PEs while the third is useful to model a round robin discipline (when each PE is allocated a certain amount of time on the bus; actually the PS policy is the limit of the round robin case for t -\(>\) 0).
+
+### Performance Indicators
+
+An objective for this kind of analysis is to determine the _percentage of time_ a processor is _active_, averaged over all processors. This quantity is equal to the average number of active processors divided by the total number of processors. This quantity is normally known as the _processing efficiency._ Since the total number of processors is known and constant, one can evaluate the _average number of active processors_; this is called the _processing power_ (P).
+
+In the case of a target system where the same work-load applies to all processors, another interesting metric is the "effective unprocessors" (EU). It is defined as the ratio between the time a 1-processor machine takes to process N copies of the work-load to the time an N-processor machine take to process N work-loads (one per processor):
+
+Effective-Uniprocessor \(=\) 1-p execution time/N-processor execution time
+
+EU is a speed-up indicator for the work-load being considered. If T\({}_{\rm x}\) is the execution (active + access) time for a x-processor system, and A is the active time for one processor under the work-load in consideration, EU is the ratio of the N-processor utilization to the 1-processor utilization:
+
+EU= \(\frac{T_{1}}{T_{N}}\) = \(\frac{\frac{A}{T_{N}}}{\frac{A}{T_{1}}}\) = \(\frac{Nprocessor-utilisation}{1processor-utilisation}\)
+
+Effective Uniprocessor can easily be written in terms of the processing power, as it is shown in appendix 2.
+
+Another interesting performance index is the bus utilization (BU), defined as the proportion of time the bus is active.
+
+## 3.0 Single-bus and Exponential Times
+
+### 3.1 Model solution
+
+All the PE have equally exponentially distributed active and access times with parameters \(\lambda\)  and \(\mu\). So in addition to assuming the same active and access distributions, we also assume that these distributions are exponential. Due to the equal exponential distribution for active and access time, the bus arbitration policy is irrelevant [1].
+
+The model reduces to a M/M/1//N system, an M/M/1 queue with a finite population (N customers) cycling through the system. The solution is available in standard queueing theory books [1-2] in terms of the steady state probabilities at the single-server station. The processing power, effective uniprocessor and bus utilization indicators can then easily be derived (appendix 2).
+
+Both the processing power and the effective uniprocessor indicators may be written in a form that only depends on one parameter. The ratio between access and active times: \(\rho=\frac{\mu}{\lambda}=\frac{\lambda}{\mu}\) is called the _load_ of the system.
+
+### 3.2 Results
+
+A simple Mathematica program has been used to produce some numerical results of the selected performance indicators as a function of the load parameter. These are summarised in two sets of tables and graphs.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|} \hline  & \multicolumn{3}{|c|}{p (Number of Processor Elements)} \\ \hline Load & 2 & 5 & 8 & 10 & 15 & 20 \\ \hline \hline
+0.01 & 1.9 & 4.5 & 7.9 & 9.9 & 14.8 & 19.7 \\ \hline
+0.1 & 1.8 & 4.4 & 6.6 & 7.8 & 9.6 & 9.9 \\ \hline
+0.2 & 1.6 & 3.6 & 4.6 & 4.9 & 4.9 & 5.0 \\ \hline
+0.3 & 1.4 & 2.9 & 3.3 & 3.3 & 3.3 & 3.3 \\ \hline
+0.4 & 1.3 & 2.3 & 2.5 & 2.5 & 2.5 & 2.5 \\ \hline
+0.5 & 1.2 & 1.9 & 1.9 & 2.0 & 2.0 & 2.0 \\ \hline
+0.6 & 1.1 & 1.6 & 1.6 & 1.6 & 1.6 & 1.6 \\ \hline
+0.8 & 0.9 & 1.2 & 1.2 & 1.2 & 1.2 & 1.2 \\ \hline \end{tabular}
+\end{table}
+Table 1: Processing Power (p vs. Load)
+
+\begin{table}
+\begin{tabular}{|l|l|l|l|l|l|l|} \hline  & \multicolumn{2}{|c|}{p (Number of Processor Elements)} & \multicolumn{1}{c|}{} & \multicolumn{1}{c|}{} & \multicolumn{1}{c|}{} & \multicolumn{1}{c|}{} & \multicolumn{1}{c|}{} \\ \hline Load & 2 & 5 & 8 & 10 & 15 & 20 \\ \hline \hline
+0.01 & 1.9 & 4.9 & 7.9 & 9.9 & 14.9 & 19.9 \\ \hline
+0.1 & 1.9 & 4.7 & 7.2 & 8.6 & 10.5 & 10.9 \\ \hline
+0.2 & 1.9 & 4.2 & 5.5 & 5.8 & 5.9 & 6.0 \\ \hline
+0.3 & 1.8 & 3.7 & 4.2 & 4.3 & 4.3 & 4.3 \\ \hline
+0.4 & 1.8 & 3.2 & 3.4 & 3.4 & 3.5 & 3.5 \\ \hline
+0.5 & 1.8 & 2.8 & 2.9 & 2.9 & 3.0 & 3.0 \\ \hline
+0.6 & 1.7 & 2.6 & 2.6 & 2.6 & 2.6 & 2.6 \\ \hline
+0.8 & 1.6 & 2.2 & 2.2 & 2.2 & 2.2 & 2.2 \\ \hline \end{tabular}
+\end{table}
+Table 2: Effective Uniprocessors (p vs. Load)
+
+Figure 4: Processing Power vs. Load
+
+### Scaling properties (Saturation)
+
+The scaling properties of the MP architecture model under examination can be derived by studying the system from the single-server station point of view.
+
+Because the system population (N) is finite and for \(\rho<\infty\), the system cannot become unstable, e.g. average response times cannot grow to infinity. Saturation defined as the point where the system becomes unstable does not apply to the model being examined. However an appropriate definition for saturation exists:
+
+\[N_{sat}=\frac{\frac{1}{\mu}+\frac{1}{\lambda}}{\frac{1}{\mu}}=1+\frac{1}{\rho}\]
+
+The saturation number is defined as the cycle time (sum of the average active and access times) divided by the average access time. It is the maximum value of N such that if all PEs required exactly \(\frac{1}{\lambda}\)  sec. of active time and \(\frac{1}{\mu}\)  sec of access time, and were perfectly synchronized, there would be no interference. Indeed since each PE requests \(\frac{1}{\mu}\)  service from memory every \(\frac{1}{-}+\frac{1}{\lambda}\), the memory is idle for \(I=\frac{1}{\lambda}+\frac{1}{\mu}-N\frac{1}{\mu}\) between successive requests from a PE. We can say that the system saturates when the memory is never idle (I=0), thus recovering NSat.
+
+Figure 5: Effective Uniprocessor vs. LoadAs examples one can note that for \(\rho=0.1\)  we get \(\mathrm{N}_{\mathrm{Sat}}=11\), while for \(\rho=0.2\) \(\mathrm{N}_{\mathrm{Sat}}\) becomes 6. More details on the model behavior at saturation are given in appendix 2.
+
+### Validity of the model
+
+The model described is based on a number of simplifying assumptions, such as exponentially distributed active and access times, a simple loop-like behavior of the application programs, absence of operating system activity and in general a lack of details.
+
+* Exponentially distributed active and access times. Calculations using general distributions can be performed, they are more complicated and involve also the bus arbitration policy, and provide some more accuracy. Comparisons with the exponential assumption show, however, that this latter is rather robust, in particular for utilizations [5]. Model validation against trace-driven simulation [4] and prototype performance [3] shows a 5-10% accuracy, which is much better than one might expect given the simplifying assumptions. In addition, when considering the PS bus arbitration policy, the G/G/1 queuing model has the same steady-state solutions as the M/M/1 case [1]; i.e. the steady state probabilities only depend on the average access and active times.
+* A simple loop-like application program behavior and the absence of any modeling of the operating system. These seem to be acceptable assumptions for event filtering programs: they compute and access event data, calculation is overwhelmingly higher than the use of operating system functions.
+* I/O is not modeled. The model could be improved by considering one of the PE as having different active and access time distributions; for example a PE managing the event input into the subfarm could have a load value much higher than the other PE's.
+* Lack of details. A model captures a limited number of the representative characteristics of a real system. The results represent a tool to be used by the designer and not a surrogate for the design process. More confidence may be gained by comparisons with simulations and prototype measurements. However neither the additional details provided with a simulation nor the prototype are the real system either.
+
+Nevertheless this kind of modeling has some attractive features.
+
+* It is very simple and depends on only one parameter, the system load (ratio between local computation and common memory access times).
+* It covers a range of bus-based organizations for MP systems.
+* It is computationally inexpensive, many options can be explored in CPU-seconds.(as opposed to CPU-hours/days when using simulations).
+* It provides insights and rule of thumbs on the performance and scalability of multi-processor systems as a function of the application characteristics.
+
+### 4.0 Bounds
+
+In addition to the results obtained through queueing network analysis, some of the model assumptions may be relaxed or strengthened, hence introducing further simplification in the model, to obtain respectively optimistic and pessimistic bounds for the limiting performance of the MP system. These bounds are obtained assuming deterministic active and access times.
+
+\(\mathrm{N_{Sat}}\) may be used as an _optimistic bound_ for a MP system. This means assuming a deterministic work-load and prefect synchronization. The optimistic bound _minimizes contention_. While \(N\leq N_{Sat}\) there is no contention and the value of effective uniprocessor is N.
+
+Once the system is saturated the effective uniprocessor will not increase with additional processors.
+
+A _pessimistic_ bound would _maximize memory contention_. The most pessimistic one would have all the processors issuing all the memory requests at the same time, then doing all the processing. This assumption is however not very realistic [4]. A more realistic definition of a pessimistic bound can be given [4], the number of processors which first saturates a system under these assumptions is
+
+\[N^{r}=\frac{2\left(\frac{1}{\lambda}\right)+\frac{1}{\mu}}{\frac{1}{\mu}}\]
+
+Effective uniprocessors at the pessimistic bound is:
+
+\[EU=min\left[\frac{N\left(\frac{1}{\lambda}+\frac{1}{\mu}\right)}{\frac{1}{ \lambda}+\frac{1}{\mu}\left(\frac{N+1}{2}\right)},N_{Sat}\right]\]
+
+### 5.0 Example Applications
+
+The above results can be applied to evaluate bus-based processor organization options at LVL3. These results can also be used to compare options and to make estimates of e.g. their cost effectiveness.
+
+Two different options are examined in the following sections. They are presented as examples, to see the model at work, and are not intended as a real evaluation exercises. Too many parameters are still unknown. In particular the behavior of the LVL3 programs will have to be studied before realistic results can be extracted from modeling efforts of any kind.
+
+### VME based multi-processor system
+
+This LVL3 subfarm is made of N VME processor cards; each card has its own memory and runs its own copy of the operating system. Processors may share memory via additional VME modules. We assume that the interface to the event builder is a separate VME module with a dual port memory: one port connects to the event builder output and is used to fill event buffers, the second port is on VME and is used by processor cards to access event data. Events are copied from the dual port memory into the processor local memory before starting the analysis. The effect of the output of selected events (1 out of 10) is neglected. Such a system can be put together today out of commercially available components; indeed the multi-processor part (i.e. with input simulated at infinite speed) has been put together in the RD13 lab and has been used to validate the queueing network model presented in chapter 3. We note that very few assumptions have to be made on the behavior of the analysis program: the average time to process an event and how much of the event data are needed for the analysis. For this latter parameter we assume that the full event is needed.
+
+If we assume:
+
+* an event size of 1 MB on average,
+* a processing time of 500 ms. on average,
+* a transfer speed between the EB interface and the local processor memories of 40MB/ sec,
+* and the fact that the VME bus is held for the full period of the transfer of one event,
+
+we obtain a load value of 0.05. With this value we can compute:
+
+* N\({}_{\text{Sat}}\) (the optimistic bound on the number of processors): 21. Which is also an upper bound for the EU metric.
+* N' (the pessimistic bound on the number of processors): N' = 41. At N' the value of EU is 8.4.
+* Using the queueing model we obtain a curve for EU vs. number of processors as shown in figure 6. Some numerical values for EU and the bus utilization (BU) are shown in table 3.:
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline N & EU & BU \\ \hline \hline
+10 & 9.7 & 46\% \\ \hline
+15 & 14.1 & 67\% \\ \hline
+20 & 17.6 & 84\% \\ \hline \end{tabular}
+\end{table}
+Table 3: EU and BU at load 0.05
+
+### SMP with shared memory
+
+As a second example we consider a bus-based symmetric multi-processor (SMP) system. N CPU's, each with a large (possibly multi-level) cache memory, tied via a high speed bus to the system common memory. A single copy of the operating system, held in the common memory, manages the system.
+
+The following assumptions are used to compute the load parameter and to apply the queueing model of chapter 3.
+
+* A copy of the analysis program is statically assigned to each CPU, so that operating system intervention is minimal and can be neglected.
+* Analysis programs are assumed to work independently on different events(i.e. they do not access concurrently any memory location) in such a way that we can neglect the effects of the cache coherency protocol. Bus activity is therefore assumed to be related to cache misses and write-backs only.
+* We assume a high performance bus such that one bus cycle transfers a word in a time equivalent to one CPU cycle. We also assume that the processor executes on average one instruction per cycle, thus neglecting stalls for memory access.
+
+Figure 6: **EU vs N (load 0.05)*** A large cache, say 1MB, with a block size of 32. The penalty of a cache miss is assumed at 4 CPU cycles for the first word and 1 for each of the other, i.e. 35 CPU cycles. This represents the average access time.
+* The analysis program cache miss ratio (defined as the number of cache misses divided by the number of processor references) is unknown. We use, for the purpose of this example, the published results for the heavy floating point benchmarks in the SPEC suite [6]. They have been measured in uniprocessor mode and imply very little operating system activity, a situation similar to the one considered here for LVL3 processing. The literature reports a very small miss ratio for instructions, which we therefore will neglect, and a miss ratio of 1% (0.01) for data for a 1MB cache with a block size of 32. To this we have to add the effect of write-backs, assumed at 30% of the miss ratio, to obtain the average number of processor to main-memory requests of an analysis program.
+* We assume an average of 0.4 memory (data) references per instruction issued by the processor.
+* The average active time in the model is the average time between misses. We assume one cycle per instruction, hence (expressed in CPU cycles) the average active time is the average number of instructions between misses.
+
+Under these assumptions we get a load value of 0.18. Optimistic and pessimistic bounds are calculated as
+
+\[\text{N}_{\text{Sat}}=6.5;\text{N'}=12.0;\text{EU(at N')}=6.2\]
+
+The plot of EU vs. N in figure 7 results from the queueing network model for load=0.18. Table 4 shows some indicative numerical results.
+
+\begin{table}
+\begin{tabular}{|l|l|l|} \hline N & EU & BU(\%) \\ \hline \hline
+2 & 1.95 & 30 \\ \hline
+4 & 3.6 & 57 \\ \hline
+5 & 4.4 & 67 \\ \hline
+8 & 5.9 & 90 \\ \hline
+10 & 6.3 & 97 \\ \hline \end{tabular}
+\end{table}
+Table 4: Performance metrics at load 0.2A load of 0.18 is such that the system saturates relatively rapidly. However the calculation of the load factor is based on a large number of, at times questionable, assumption. It should only be taken as an example. A proper calculation of the load factor must be based on values, such as the miss ration and the fraction of load/store operations, measured on the analysis programs (as opposed to guesses based on the behavior of benchmark programs).
+
+### Comparison
+
+The "VME-like" option performs and scales much better than the SMP one. Qualitatively this could have been expected, the VME-like system is a better match to an application where processors work independently with minimal interaction. Quantitatively it is interesting to see how, under the assumptions which have been taken, the SMP system scales poorly. SMP systems may be expected to evolve in several directions for improved performance: multiple buses and, more important, caches with a size of several MBs.
+
+A multiple-bus architecture reduces bus contention, but introduces contention for memory modules. It can be described by a queueing network, different from the one used in section 3, which can be solved exactly for a uniform module access pattern. Upper and lower bounds for the performance indicators can also be derived [8].
+
+A larger cache is however expected to bring the major performance improvement to a throughput-oriented application, such as it is the case for the LVL3. Secondary caches as large as 4-8 MB may reduce the miss ratio by a factor of 5-10. In the example discussed above (where the average number of CPU cycles per instruction is assumed to be 1) this
+
+Figure 7: **EU vs. N (load 0.2)**
+
+would mean reducing the load by an equivalent factor, thus shifting the SMP system in the same performance region as the VME based one.
+
+The point here is not to rule out a particular architecture, rather to provide inexpensive tools capable of making quantitative predictions as a function of architectural, implementation and application parameters.
+
+The quantitative information extracted from the model could then be used to make an initial price/performance analysis of different options. Today the VME solution, even cost- wise, is unbeatable. In the future, however, the expected growth of the "SMP workstation" market may drive prices down to a level where they would compete with systems assembled around an industrial bus.
+
+## 6.0 Conclusions
+
+The basic model for the LVL3 farm consists of clusters of processors (subfarm) connected to the output of the event builder. Such clusters may nominally provide a large computing power. The effective use of the computing power should be a major concern. Interference between the processors, caused by conflict for access to common resources, may strongly reduce the effective computing power.
+
+A simple model and a few bounds have been calculated for the performance of bus-based MP systems. They can be used first to prune the architecture space and second to compare the cost effectiveness of alternative solutions. Analytic models are not in competition but are a complement to simulation. The results should be taken with care when considering the simplifying assumptions which make the model analytically tractable. Validation with small scale, laboratory prototypes, where real filtering programs can be run should be used to gain some confidence.
+
+Grouping together independent processors (such as done with VME) is today, performance and cost wise, a better solution than using a commercial SMP system. The situation may be reversed in the near future. SMP based products, today more expensive than an equivalent system based on VME cards, may become more and more popular, thus driving down their prices. Memory density evolution will allow larger caches which will help reducing the performance gap. Price/performance analysis will select optimal solutions; quantitative information on the performance and scaling properties of different options will be needed.
+
+A realistic evaluation of the processing power needs knowledge of the behavior of the analysis programs: instruction mix, memory access, cache performance, etc. They should be carefully studied with proper tools, such as extensive tracing. The same study could also provide interesting insight on the performance of the programs as well.For example uniprocessor speed up factors between 50 and 100% have been reported when algorithms have been restructured for effective use of cache memories [7].
+
+## References
+
+[1] L. Kleinrock, Queueing Systems, Vol. 1 & 2, Wiley, 1975.
+
+[2] A.O. Allen, Queueing models of computer systems, IEEE Computer, Apr. 1980, pp 13-24.
+
+[3] M.A. Marsan et al., Modeling bus contention and memory interference in multi-processor systems, IEEE Transactions on Computers, vol C-32, no.1, January 1983.
+
+[4] G. Gibson, Estimating performance of single bus, shared memory multiprocessors, MS Thesis, Univ. of California at Berkeley.
+
+[5] J.P. Buzen, D. Potier, Accuracy of exponential assumptions in closed queueing models, Proc. 1977 SIGMETRICS/CMG, pp. 53-64.
+
+[6] J.D. Gee & M.D. Hill, Cache performance of the SPEC benchmark suite, technical report UCB/CSD 91/648, Univ. of California at Berkeley.
+
+[7] A.R. Lebeck & D.A. Wood, Cache profiling and the SPEC benchmarks: a case study, IEEE Computer, June 1994.
+
+[8] G. Chiola et al., Product-form solution techniques for the performance analysis of multiple-bus multi-processor systems with nonuniform memory references, IEEE Transactions on Computers, vol. 37, No. 5, May 1988.

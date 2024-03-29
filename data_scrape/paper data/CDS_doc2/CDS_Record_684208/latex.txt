@@ -1,0 +1,139 @@
+August 26, 2001
+
+**Silicon trackers digitization framework**
+
+**David Calvet1**
+
+Footnote 1: calvet@in2p3.fr
+
+NIKHEF, P.O. box 41882, NL-1009DB Amsterdam2
+
+Footnote 2: on leave from Centre de Physique des Particules de Marseille, 163 avenue de Luminy, case 907, F-13288 Marseille cedex 9
+
+This note describes the common framework which has been developed for the digitization of the two Atlas silicon trackers, the Pixel detector and the SCT.
+
+## Introduction
+
+The _digitization_ is the last step of the full simulation of a detector: its output is the _digits_, i.e. the raw data which would have been produced by the real detector. The input to the digitization step is the simulated energy deposition and related information in the active (i.e. read-out) parts of the detector, usually computed by a simulation program like Geant. This input information is referred to as the _hits_. This note describes the SiDigitization software package which contains the basic ingredients to perform the digitization for the two Atlas silicon trackers, the Pixel detector and the SCT. This package is available in the CVS repository in offline/InnerDetector/InDetDigitization.
+
+## 1 Independence of events and detector elements
+
+For the full simulation of the Atlas detector, it is assumed that all events are independent. Therefore, the digitization of the Pixel or SCT detectors is performed independently for each event. Note that an event which is to be digitized may include hit information from several "piled-up" collisions, depending on the luminosity being simulated.
+
+The Atlas silicon trackers are made of individual modules, which are independent from each other. Each module is made of silicon sensor(s) and readout electronic circuits. The basic _detector element_ is defined as a full module in the Pixel detector -- one silicon sensor and its associated electronics -- and one side of a module in the SCT -- one or two electrically connected silicon sensors and their associated electronics [1]. Since these detector elements are independent, the digitization is performed independently for each detector element.
+
+## 2 Hits and digits
+
+A hit in the silicon trackers is characterised by a three-dimensional position inside the silicon sensor, a direction of travel, a deposited energy, a time of deposition and a track number, corresponding to the particle which produced the hit by interacting in the silicon.
+
+A digit is mainly characterised by a readout cell, within one of the electronic circuits of the detector element, which has recorded a signal above a given threshold [2].
+
+Due to the independence of events and detector elements, a collection of hits or digits contains the hits or digits for a single detector element and a single event.
+
+## 3 From hits to digits
+
+The digitization is the production of a collection of simulated digits from a collection of simulated hits. This process requires three main steps:
+
+1. the creation of a cloud of charges by the deposited energy; then the drift of this cloud towards the sensor surface, to create a _surface charge_,
+2. the merging of the surface charges into individual sensitive diodes (pixels or strips), to create _charged diodes_. Diode-level effects are then simulated by processing these charged diodes,
+3. the connection of the charged diodes to the corresponding readout cells, to create _pre-digits_. The pre-digits are then processed to simulate readout cell-level effects.
+
+After these steps, the pre-digits can be converted into digits. The various operations performed during these three steps are very similar for the Pixel detector and for the SCT. Nevertheless they are not exactly the same and therefore it is not possible to have a single program performing the digitization for both detectors. This is why a common framework has been developed for the digitization of these two detectors.
+
+## 4 Detector design
+
+The digitization procedure requires the geometrical description of the detector elements. The two main operations are:
+
+* to compute in which sensitive diode a given space point is located,
+* to compute to which readout cell a given sensitive diode is connected.
+
+These two operations are performed by a _detector design_ object, which is the local description of a detector element, in the detector description model of the Atlas silicon trackers [3].
+
+## 5 Digitization framework
+
+The main class provided by the digitization framework is the SiDetector-Digitizer class: an object of this class is able to produce a collection of digits from a collection of hits. In order to perform this operation it contains (see figure 1):
+
+* a reference to a SiSurfaceChargesGenerator object described in section 5.1,
+* a SiPreDigitImplementer object described in section 5.3,
+* a list of pointers to SiChargedDiodesProcessor objects described in section 5.2,
+* a list of pointers to SiPreDigitsProcessor objects described in section 5.3,
+
+All these objects are needed during the digitization process (see figure 2):
+
+1. a SiChargedDiodeCollection object is created (see section 5.2) using the given collection of hits, the SiSurfaceChargesGenerator object and the SiDetectorDesign object associated to the detector element,
+2. each SiChargedDiodesProcessor in the list is applied to the charged diode collection, in the order they have been registered in the list,
+3. a SiPreDigitCollection object is created (see section 5.3) using the charged diode collection, the SiDetectorDesign object and the SiPreDigitImplementer object,
+4. each SiPreDigitsProcessor in the list is applied to the pre-digit collection, in the order they have been registered in the list,
+5. all pre-digits are converted to SiTrackerDigit objects.
+
+### Surface charges
+
+A SiSurfaceCharge object is a very simple object which describes a cloud of charges located in a point on the silicon sensor surface. It is the result of the drift of a charge cloud, created by an energy deposited inside the silicon sensor bulk.
+
+#### SiSurfaceChargesGenerator class
+
+The surface charges are produced from a collection of hits, with algorithms which may be different for different detectors or for different levels of parameterisation. Therefore, the actual implementation of the surface charges production is left to the framework user and only the interface is provided. This interface is called SiSurfaceChargesGenerator.
+
+### Charged diodes
+
+A SiChargedDiode object describes a single sensitive diode containing an amount of charge. It is the result of the merging of one or more surface charges located in the same diode.
+
+#### SiChargedDiodeCollection class
+
+The SiChargedDiodeCollection class is used to
+
+* contain the list of SiChargedDiode objects corresponding to a single detector element and a single event,
+* create the list of charged diodes from a collection of hits.
+
+The creation of the list of charged diodes is performed as follows: for each hit in the input collection a list of surface charges is produced by calling the SiSurfaceChargesGenerator object. The surface charges of this list are then merged into charged diodes, with respect to the sensor segmentation described by the SiDetectorDesign object [3] associated to the collection, to produce the charged diode collection.
+
+#### SiChargedDiodesProcessor class
+
+The diode-level effects such as cross-talk between diodes, leakage current noise... are produced by processing a SiChargedDiodeCollection. Many different effects can exist and, for each effect, many different ways of simulating it can be implemented. Therefore, the actual implementation of these effects is left to the framework user and only the basic interface is provided. This interface is called SiChargedDiodesProcessor.
+
+### Pre-digits
+
+A SiPreDigit object is the result of the connection of one or more charged diodes to a single readout cell. It contains the same data as a regular digit [2], the difference between a digit and a pre-digit being the available methods: digits _cannot_ be modified by the user whereas pre-digits _have to_ be modified by the user (the digitizer).
+
+### SiPreDigitCollection class
+
+The SiPreDigitCollection class is used to
+
+* contain the list of SiPreDigit objects corresponding to a single detector element and a single event,
+* create the list of pre-digits from a SiChargedDiodeCollection.
+
+The creation of the list of pre-digits is performed as follows: for each charged diode in the input collection, the readout cell to which it is connected is requested from the SiDetectorDesign object [3] associated to the collection. The pre-digits are created using the SiPreDigitImplementer object described in section 5.3.
+
+### SiPreDigitImplementer class
+
+The SiPreDigit class contains objects derived from base classes in order to allow different implementations for the Pixel detector and the SCT digits. When creating a new pre-digit for a given detector a mechanism is needed to be able to create the correct derived objects: a SiPreDigitImplementer object may be able to create a Pixel detector pre-digit, whereas another one may be able to create a SCT pre-digit.
+
+### SiPreDigitsProcessor class
+
+The readout cell-level effects such as discrimination, noisy cells generation... are produced by processing a SiPreDigitCollection. Many different effects can exist and, for each effect, many different ways of simulating it can be implemented. Therefore, the actual implementation of these effects is left to the framework user and only the basic interface is provided. This interface is called SiPreDigitsProcessor.
+
+### Use of the digitization framework
+
+The end-user of the digitization framework must therefore create a few processors:
+
+* surface charges processors to simulate the drift and diffusion of the charges in the silicon bulk,
+* charged diodes processors to simulate the diode-level effects,
+* pre-digits processors to simulate the readout cell-level effects.
+
+Then, the end-user must only "plug" these processors in the digitizer in order to be able to digitize a collection of hits.
+
+## Conclusion
+
+A common framework has been developed for the digitization of the two Atlas silicon trackers, the Pixel detector and the SCT. This framework provides the technical ingredients of the digitization: the end-user needs only to implement some processors, thus concentrating on the physics.
+
+The modularity of this architecture facilitates the use and comparison of different algorithms in the digitization in a very simple way: for example, by replacing a processor by another one in the processors list it is easy to replace a very detailed time-consuming algorithm by a fast parameterisation.
+
+## Acknowledgements
+
+I would like to thank Christopher Lester and Szymon Gadomski for fruitful discussions during the design of this framework, and Norman McCubbin for his comments on this note.
+
+## References
+
+* [1] Atlas Inner Detector Technical Design Report, Atlas Inner Detector Community, CERN/LHCC 97-16 and CERN/LHCC 97-17.
+* [2] Silicon Trackers Event Package, in the Atlas CVS repository (of-line/InnerDetector/InDetEvent/SiTrackerEvent).
+* [3] Silicon Trackers Detector Description Package, in the Atlas CVS repository (offline/InnerDetector/InDetDetDescr/SiTrackerDetDescr).

@@ -1,0 +1,347 @@
+Read-Out Buffer in DAQ/EF prototype -1
+
+**Authors :G. Crone, D. Francis, M. Joos, J. Petersen and S. Veneziano**
+
+Keywords :
+
+_The workers have nothing to loose but their chains. They have a world to gain. - Marx, 1848,_
+
+NoteNumber :
+
+Version : 3.0.d
+
+Date : 18-08-00
+
+Reference :
+
+## 1 Introduction
+
+### Purpose of the document
+
+This document summarises the design, implementation and performance of the Read-Out Buffer in the context of the DataFlow system in ATLAS DAQ/EF prototype -1 [1]. This document fulfils the ATLAS DAQ/EF prototype -1 milestone of September '99.
+
+### Overview of the document
+
+This document consists of six sections. This section presents the aims and structure of the document. Section 2 puts the Read-Out buffer into the context of DAQ/EF-1. Section 3 presents a brief description of the design and implementation of the ROB and section 4 gives the results of measurements made on a Read-Out Buffer. In Section 5 a summary of the Read-Out Buffer is given and section 6 presents some conclusions on the work presented.
+
+### 2 The Read-Out Buffer context
+
+### Background
+
+This section puts the Read-Out Buffer (ROB) into context. It is not meant to be a complete discussion. More details can be found in the references indicated below.
+
+The DAQ/EF prototype -1 has been organised into four major systems: _DataFlow_[4], _Back-End_[5], _Event Filter_[6]_and Detector Interface_[7]. The DataFlow consists of the hardware and software elements responsible for: receiving, buffering and distributing event data; providing event data for monitoring; storing event data from the detector. It is composed in turn of three sub-systems: the _Front-End DAQ_ provides the receiving, buffering and forwarding of event fragments from the detector; the _Event Builder_ provides the merging of event fragments into full events; the _Sub-Farm DAQ_ provides the sending to and retrieving of events from the Event Filter and for sending events to mass storage.
+
+The Front-End DAQ consists of Read-Out Crates (ROCs). A ROC supports the read-out from one or more detector segments and has one or more connections to the Event Builder. ROCs work concurrently and independently of each other. The ROC consists of two functional elements: the _LDAQ_[8] and the _DAQ-Unit_[9]. The latter implements the flow of the event data in the ROC. The LDAQ provides the local control and monitoring within the ROC and interfaces the ROC to the Back-End system for global control and monitoring.
+
+### Streamo Asked for a Figure Here.
+
+The major component of the DAQ-Unit is the I/O Module (IOM). It provides the means to input, buffer and output data and data control messages. Specific instances of an IOM are the ROB, Trigger interface (TRG) and Event Builder InterFace (EBIF). An IOM is also located at the boundary between the DAQ-Unit and other functional elements. Therefore, it also implements the interface between the DAQ-Unit and other DataFlow sub-systems and other systems (_e.g._ the Trigger system).
+
+In Figure 1 the main components of a ROC are shown and the messages exchanged between them. The messages exchanged between the different instances of the IOMs fall into two categories: _data control messages_ and _data_. The former are small, O(24 bytes), while the latter is of the order of 1-4 kbyte per ROB1. Here data refers to one or more ROB fragments. Note: in this document the term event is used interchangeably with ROB fragment.
+
+Footnote 1: This range depends on the number of ROLs per ROB and uses a canonical value of 1 kbyte per event per ROL.
+
+Referring to Figure 1, the TRG sends data control messages to the ROBs and EBIF. Two types of message are sent to the ROBs by the TRG: those that inform the ROBs to reject one or more ROB fragments (L2R) and those that inform the ROBs to forward data to the Level 2 trigger system (ROI). The message sent to the EBIF (L2A) leads to the Data Collection process: the transfer of the ROB fragments, associated to a Level 2 accepted event, from the ROBs to the EBIF.
+
+### Design and implementation decisions
+
+The IOMs are, in light of the performance requirements, implemented as single threaded processes. Requests for I/O, including data control message passing, are served via polling and not by interrupts and I/O drivers. In addition, to reduce portability issues, the use of operating system calls is avoided, particularly at run-time. These decisions are of particular importance when considering the performance required of the ROB.
+
+## 3 The Read-Out Buffer
+
+### Logical model
+
+The different instances of the IOMs are data driven: they receive and process data and/or data control messages from one or more I/O channels. Data is buffered and subsequently forwarded to other IOMs or to other (sub-) systems. All functionality associated to an I/O channel is called a _Task_. The framework of the Tasks and the framework supporting the Tasks is common to all instances of an IOM. This common framework and core functionality, _e.g._ message passing between IOMs, is provided by a component called the Generic IOM (GIOM) [10]. There
+
+Figure 1: A functional view of the ROC DAQ:Unit.
+
+fore, the different instances of the IOMs consist of the GIOM and one or more Tasks. The latter being the elements which define the specific instance of the IOM.
+
+A Task performs a specific function, an I/O or processing request, and is scheduled by a scheduler, a component of the GIOM. Each Task declares an _Action_ and _Polling Condition_ to the scheduler. If the Polling condition is successful the Task's Action function is scheduled. The polling conditions may be evaluated on a round-robin or priority scheme depending on the requirements of the IOM instance.
+
+#### The Tasks of the ROB
+
+The ROB receives and buffers a ROD fragment [11] from a Read-Out Link (ROL) per event. A ROB may have one or more ROLs. In addition, these fragments must be: copied to an external Trigger system; accessed by the EBIF for Data Collection; and removed from the buffer. The ROB must also format the received event fragments to form a ROB fragment. The ROB has three main logical Tasks:
+
+1. _Input_: This task receives and buffers the ROD fragments coming from the ROLs. In the absence of a ROL _i.e._ for development and testing purposes, it is also the source of ROD fragments. The polling condition for this task indicates that a ROD fragment must be transferred from the ROL to the buffer or that a fragment has been asynchronously transferred from the ROL to the buffer. In the case that the fragment is pending on the ROL, this task may have to set-up and perform the transfer and handle the ROL protocol.
+2. _Communications with the TRG_: This task receives and processes data control messages from the TRG. Two types of data control messages are received from the TRG: a ROI type indicating that ROB fragments must be forwarded to the Level 2 Trigger system and a L2R type indicating that ROB fragments must be removed from the buffer. This task polls on the arrival of data control messages from the TRG.
+3. _Communications with the EBIF_: This task collaborates with the EBIF to facilitate the Data Collection process. It receives a request data control message from the EBIF and sends a response data control message to the EBIF. The request message contains the Level 1 Identifier (L1ID) of the event fragment to be collected and the L1ID of a previously collected event. The response data control message contains the location (or locations) within the ROB buffers of the data associated to the requested L1ID. The event data associated to the L1ID of a previously requested event is removed from the internal buffers of the ROB. On receiving the response data control message the EBIF transfers the data from the ROBs to its local buffer. The polling condition for this task indicates the arrival of data control messages from the EBIF.
+
+The Tasks of the ROB access the buffer for the storing, retrieving and deleting of events. The buffer management and the access mechanisms to the buffer contents are provided by the Event Manager component [12]. The interface implemented by this component supports one or more buffers.
+
+3.2 The ROB implementation
+
+#### General
+
+The initial implementation of the IOMs is based on VMEbus Single Board Computers (SBCs), specifically the CES RIO 8062 (RIO2) [13] and the MOTOROLA MVME2xxx [14], running the LynxOS operating system (versions 2.5.1 or 3.0.1). Communication between SBCs is via the VMEbus and, optionally, a secondary bus supporting broadcast functionality. To date, only the PCI Vertical InterConnect [16] has been used as a secondary bus.
+
+The SBCs mentioned above have two PMC sites and the number of supported PMCs may be increased with the addition of a PCI expansion board. Currently, only the PEB 640x [15] has been used in conjunction with the RIO2, thus increasing the number of PMCs supported by a SBC to six.
+
+The ROBIN is the functionality of receiving ROD fragments from a ROL, fragment buffering and fragment access: location, retrieval and deletion. It is the combination of an Input task and an Event Manager. One or more ROBINs are supported by an Event Manager interface. This interface is used by the other tasks of the ROB to access events. Three implementations of the ROBIN have been made: the Local-ROBIN, the UK-ROBIN and the MFCC-ROBIN.
+
+#### The Local-ROBIN
+
+In this implementation of the ROBIN the Input task and the Event Manager are implemented on the processor of the SBC and ROD fragments are transferred from a ROL interface over PCI bus into the SBCs system memory under the control of the Input task. In the case that the SBC is a RIO2 or MVME2xxx the ROL interface used is the Simple SLINK to PCI (SSP) PMC. All tasks of the ROB are part of the same application, therefore, access to events via the Event Manager API are function calls.
+
+Alternatively to the RIO2 or the MVME2xxx, this ROBIN could be deployed on an MFCC [17], which is architecturally similar to the RIO2. This deployment is of particular interest in the case of the MFCC-ROBIN, see section 3.2.3.
+
+#### The UK- and MFCC-ROBIN
+
+These ROBINs differ to that of the Local-ROBIN in that the ROBIN functionality is deployed over the SBC and an intelligent I/O processor [18]. Two intelligent I/O processor, based on the PMC format, have been used for these studies. Each PMC consists of a processor (i960 or PowerPC for the UK or MFCC-ROBIN respectively), an FPGA and some "glue" logic. The FPGA handles the receiving and buffering of the data, the Input task, while the main functionality of the processor is to provide Event Management.
+
+It should be noted that the full Event Management functionality of the ROBIN is distributed over the processors of the SBC and the PMC. The accessing of events via the Event Manager by ROB Tasks, other than the Input task, implicitly implies single cycles and or block transfers over the PCI bus of the SBCs.
+
+#### 3.2.3.1 UK-ROBIN specific
+
+A block diagram of the UK-ROBIN is shown in Figure 2.
+
+Event fragments are received, from SLINK, and routed to the fragment buffer under control of the MACH5 PLD. The event fragment memory is organised as 1024 pages of 256 32bit words (1024 bytes). The PLD determines which page of the buffer to write to by loading the upper bits of its address generator from the Free Page FIFO. After writing the last word of an event fragment, or the last word of a page (whichever comes first), the address bits are written into the Used Page FIFO along with some status information. It is the responsibility of the buffer management software, whether running on the on board i960 or an external processor, to keep the Free Page FIFO supplied with page numbers of free pages.
+
+The buffer management software can build an index of which data are stored in the used pages based on the information returned in the Used Page FIFO and in the Fragment Buffer itself. For the input logic to correctly allocate a new page for each event fragment data must be framed with the Beginning of Fragment and End of Fragment control words as described in [19]. No other words are treated as special by the hardware. More details can be found elsewhere [20].
+
+Figure 2:
+
+#### 3.2.3.2 MFCC-ROBIN specific
+
+A block diagram of the MFCC-ROBIN is shown in Figure 3.
+
+The FE-FPG of the MFCC handles the input of event fragments from S-Link and copies them into the main memory (SDRAM) of the MFCC. An application running on the CPU under the LynxOS operating system detects the arrival of new fragments by polling a FIFO in the FPGA and declares them to the "local" Event Manager.
+
+Currently a limitation in the implementation of the DMA engine of the FE-FPGA limits the effective maximum page size to 1020 bytes. Future versions of the FE-FPGA firmware should have this limitation removed.
+
+More details can be found elsewhere [21].
+
+## 4 Performance measurements
+
+### 4.1 Overview
+
+This section presents the performance of the ROB, with the different flavours of ROBINs, that has been described in the previous sections. Measurements have been made to understand the performance of the ROB within the context of a ROC, section 4.3, and outside the context of the ROC, section 4.2. In the latter case, using test programs, the measurements aimed to better understand the basic functionality and performance of the ROBIN, that is to say the maximum rate at which events may be: located, retrieved1 and deleted from one or more ROBINs as a function of the basic ROBIN parameters _i.e._ Event Management parameters.
+
+Footnote 1: Retrieval in this case implies a copy of the fragment data from the ROBIN to the SBC system memory.
+
+#### 4.1.1 Basic parameters
+
+The buffer (or buffers) associated to an Event Manager is based on pages of contiguous memory. Event fragments may be buffered in one or more pages. The Event Manager uses the technique of hashing and list searching to access events within the buffer [10]. The hashing operation, using the L1ID, yields a logical pointer to a list (there is a list per hash table ele
+
+Figure 3: Block diagram of the MFCC 8441.
+
+ment). This list is searched for the element which has the same L1ID as that was used in the hashing operation. The element contains a pointer to the first buffer page containing the event fragment. Consequently, the size of the hash table, an event and buffer pages and the number of buffer pages, are parameters which influence the rate at which events may be located, retrieved and deleted. For example, a small hash table and all buffer pages used could imply the search of long lists when trying to locate an event fragment. The dependence of these basic operations on these parameters is shown in Table 1.
+
+The optimum performance of the Event Manager is expected to be obtained when: the list searching is reduced to a minimum _i.e._ the event required is the first in the list and events are contained in single buffer page. The rate at which events may be retrieved will have a strong dependence on the size of the event. The retrieval and deletion of an event imply the locating of an event. The retrieval of an event also implies a copy of the event from the buffer to another location.
+
+#### 4.1.2 Other parameters
+
+In addition to the basic Event Manager parameters mentioned in the previous section, other considerations have been taken into account in understanding the performance of an Event Manager based on the UK- or MFCC-ROBINs:
+
+* the number of ROBINs supported by the Event Manager. The load on the system bus (PCI) will increase as a function of the number of ROBINs.
+* the ROBIN may internally generate events or receive events from a SLIDAS,
+* the ratio L2A:L2R:ROL
+* the rate at which event fragments may be deleted from the buffer also depends on the number of events that are requested to be deleted at any one time (the delete group size).
+
+#### 4.1.3 Measurement techniques
+
+The measurements were performed using the Time Stamping package [22]. The average overhead of a time stamp is ~250 ns, but fluctuations up to 1 \(\upmu\)s may occur due to caching effects. In addition, PCI bus and VMEbus analysers have been used to confirm the time stamping results [23].
+
+\begin{table}
+\begin{tabular}{|l|c|c|c|} \hline  & Locate & Retrieve & Delete \\ \hline \hline Position in list & \(x\) & \(x\) & \(x\) \\ \hline Event fragment size & \(N/A\) & \(x\) & \(N/A\) \\ \hline (Event fragment size) / (Buffer page size) & \(N/A\) & \(x\) & \(x\) \\ \hline Delete group sizea & \(N/A\) & \(N/A\) & \(x\) \\ \hline \end{tabular} a. See section 4.1.2.
+
+\end{table}
+Table 1: The dependence of the basic functions on the basic parameters of the Event Manager
+
+#### 4.2.1 Local-ROBIN
+
+##### 4.2.1.1 Remarks
+
+The hardware platforms were the CES RIO8062 [13] and the CES MFCC 8441 [17]. The RIO8062, contrary to the MFCC, is equipped with 1 Mbyte of L2 cache which is important in order to understand the measurements, see below.
+
+In a test program, the Event Management functions are executed in a software context which is simpler than that of the Read-Out Crate context where, for example, events are generated differently. In particular this may affect the behaviour of the program in the area of caching (instruction and data). As far as possible, caching effects have been minimised by defining event data areas which are larger than the size of the L2 cache size of the RIO2. The cache effects may be studied by comparing the results of the RIO2 with those of the MFCC which does not have a L2 cache.
+
+##### 4.2.1.2 Event locating
+
+In Figure 4 the time taken to locate an event fragment as a function of its position in the list, is shown for a RIO8062 and an MFCC. The curves are linear as expected. The difference between the curve for the MFCC and the RIO8062 is due to the presence of a level two cache on the RIO8062. It is observed that the minimum execution time is \(\sim\) 0.5 msec and increases linearly the average position in the list.
+
+##### 4.2.1.3 Event deletion
+
+The time taken to delete an event fragment as a function of the delete group size, is shown in Figure 4(a) for event fragments which are buffered in single buffer pages. As expected the variation with the group size is small since the grouping only has the effect of reducing the number of function call overheads. Figure 4(b) shows the time taken to delete an event fragment,
+
+Figure 4: The time taken to locate an event fragment as a function of its average position in the list.
+
+as a function of the number of buffer pages per event fragment, for different average positions in the event list. The dependence on the position in the event list is similar to that obtained for locating an event fragment. As a function of the number of buffer pages per event fragment, the execution time increases with about a factor of two between one-page and four-page events.
+
+#### 4.2.1.4 Event retrieval
+
+The time taken to copy an event fragment that is buffered in a single buffer page as a function of the event fragment size is shown in Figure 5(a). The results reflect the performance of a memory copy. The overhead in copying an event is about one microsecond. As can be expected from the results shown in the previous sections, the dependence of the other parameters is weaker. Figure 5(b) shows the time taken as a function of the number of pages per event for a fixed event size. For a four-page event, the execution time is higher by about 10%.
+
+Figure 5: The time take to delete an event versus (a) the group size and (b) number of pages per event for different average positions in the event list.
+
+Figure 6: The time taken to copy an event versus (a) the event size and (b) the number of buffer pages per event.
+
+#### 4.2.2 Uk-Robin
+
+#### 4.2.2.1 Remarks
+
+For these measurements five UK-ROBINs have been used. Two ROBINs have been placed on the RIO2 and a PEB 6406 and a single ROBIN placed on a PEB 6407. The ROBINs are referred to by a PMC number. The mapping between this number and the physical location of the ROBIN is shown in Table 2.
+
+It is worth noting that the PMC numbers 3 to 5 (_i.e._ those positioned on the PEBs) are not located on the same PCI bus as PMC numbers 1 and 2. Therefore any transfer of data between the host CPU and these PMCs implies the crossing of a PCI-to-PCI bridge.
+
+#### 4.2.2 Event locating
+
+The rate at which events can be located in the Event Manager as a function of their position in the list and for different numbers and positions of ROBINs is shown in Figure 7.
+
+In this implementation of the ROBIN, the rate at which events can be located within the Event Manager depends strongly on the size of the list, as it is that part of the Event Manager deployed on the SBC which searches for the event fragment in the memory of the ROBIN _i.e._ the list search is performed over the PCI bus.
+
+It can also be seen from this figure that the rate at which fragments can be located varies, approximately, inversely to the number of ROBINs being used. Again due to the search being
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|} \hline  & \multicolumn{2}{|c|}{RIO 2} & \multicolumn{2}{|c|}{6406} & \multicolumn{2}{|c|}{6407} \\ \hline  & PMC 1 & PMC 2 & PMC A & PMC B & PMC A & PMC B \\ \hline \hline PMC number & \(1\) & \(2\) & \(3\) & \(4\) & \(5\) & - \\ \hline \end{tabular}
+\end{table}
+Table 2: Relationship between ROBIN numbering scheme and physical location
+
+Figure 7: The rate at which events can be located versus the position in the list.
+
+performed over PCI bus and the fact the ROBINs are searched sequentially. In addition, it can be seen that in the case of a single ROBIN being used (curves PMC 1 and PMC 3), the rate decreases by \(\sim\)20% if the ROBIN is located on the PEB compared to the RIO2.
+
+#### 4.2.2.3 Event deletion
+
+The rate at which event fragments can be deleted in a UK-ROBIN as a function of the delete group size and for an event fragment size of 1024 bytes is shown in Figure 8.
+
+It can be seen that there is no dependence on the delete group size for a value greater than ten1. The deletion of one or more event fragments in a UK-ROBIN involves the exchange of a single message between that part of the Event Manager deployed on the SBC and that part deployed on the ROBIN. There is no acknowledgement from the ROBIN that the requested event fragments have been deleted. For a delete group size greater than ten, the message queue on the ROBIN is full _i.e._ the ROBIN cannot delete events as fast as requested. For a delete group size of one, the performance and variation with the number of ROBINs is determined by the message passing performance.
+
+Footnote 1: The curve PMC 1 -to- 5 has two anomalous points which are currently subject to further investigation.
+
+#### 4.2.2.4 Event retrieval
+
+To retrieve an event fragment from a ROBIN, that part of the Event Manager deployed on the SBC sends a message to each ROBIN and subsequently polls for an acknowledgment. The part of the Event Manager deployed on the ROBIN, on reception of the message, locates and copies the event fragment to the system memory of the SBC, using its DMA controller, and then acknowledges the completion of the request to the Event Manager deployed on the SBC. The transaction therefore consists of the exchange of two messages and an event fragment transfer.
+
+The rate at which event fragments can be retrieved from a UK-ROBIN as a function of the event fragment size and for different numbers and positions of ROBINs is shown in Figure 9. The rate is determined by the a convolution of the message passing performance and the performance of the DMA transfer from the ROBIN to the system memory of the SBC. The rate at
+
+Figure 8: The rate at which event fragments can be deleted versus the delete group size.
+
+which event fragments can be retrieved from a ROBIN placed on a PEB is systematically higher than that for a single ROBIN placed on a RO2. Indicating that the bridge of the PEB is more efficient in its use of the SBC PCI bus than the i960.
+
+As is to be expected the rate at which event fragments can be retrieved decreases with respect to the number of ROBINs in the system. The decrease in rate is not inversely dependent on the number of ROBINs being used due to a convolution of many factors.
+
+#### 4.2.3 MFCC-ROBIN
+
+##### 4.2.3.1 Remarks
+
+As described in section 3.2.3, the MFCC has an architecture very similar to a RIO 8062 and measurements, using test programs, on the performance of a LOCAL-ROBIN deployed on an MFCC were presented in section 4.2.1. The MFCC was used as if it were a SBC. In this section results are presented on the performance of an SBC equipped with an MFCC-ROBIN.
+
+The functionality to be performed by the MFCC-ROBIN is a subset of the ROB application, see section 3.1.1, its application consists of three Tasks: a task for the communication with the ROB host; two tasks for the generation of events. For tests without SLINK input there is a fourth task which emulates the front-end FPGA. In this mode, the event generation tasks create a user defined number of events at initialisation time and then become idle, therefore only contribute a polling overhead in any subsequent measurement. An exception is the deletion of events. In this case, the deletion of an event enables the other tasks to input new events.
+
+##### 4.2.3.2 Event locating
+
+In Figure 10 the time taken to locate an event fragment is displayed as a function of the average position of an event in the list for one to four ROBINs installed directly on the RIO2 (MFCC 1 and 2) or on a PEB 6406 (MFCC 3 and 4). The difference in time between locating an event fragment which is first and eighth in the list is 2-3 \(\upmu\)s. This corresponds to the results already discussed in section 4.2.1.2. By subtracting the execution time taken to locate an event
+
+Figure 9: The rate at which event fragments can be retrieved versus the size of the event fragment.
+
+fragment with a Local-ROBIN deployed on an MFCC, see Figure 4, it is seen that the message passing overhead between the RIO2 and the MFCC is about 13 \(\upmu\)s which agrees with the values obtained elsewhere [2].
+
+An important observation is that the curves for N and N+1 ROBINs are only separated by 2-3 \(\upmu\)s. The ROB host sends the EM_GetById messages sequentially to the MFCCs. This takes approximately 1.5 \(\upmu\)s per MFCC (message length = 3 words, 1 word protocol overhead). Triggered by these messages the MFCCs process the requests in parallel. As it should take all MFCCs the same time to prepare the reply messages they will be sent with the same time offset of 1.5 \(\upmu\)s. As soon as the hosts receives the reply from the first MFCC it starts to process it. During this processing delay the other MFCC start sending their replies. When the ROB host is done with the reply from MFCC#1, MFCC #2 has already sent most if not all of its message and the host can process it without an additional delay.
+
+#### 4.2.3 Event retrieval
+
+The time taken to retrieve an event fragment, for simple events, as a function of the fragment size is shown in Figure 11 for one to four MFCCs. The messages required to prepare the transfer of the event data are sent as single cycles but the MFCCs use DMA for the transfer of the event data itself. The time to copy small events from a single MFCC is 18 \(\upmu\)s which mainly
+
+Figure 10: The time taken to locate an event as a function of its average position in the event list.
+
+consists of the message passing overhead and the latency of the application running on the MFCC. The slope of the curves (= DMA transfer performance) is of the order of 50 MB/s.
+
+#### 4.2.3.4 Event deletion
+
+In order to measure the time it takes to delete an event fragment without interference from the event generation tasks, the latter have been blocked for the duration of the measurement. In this mode the times measured contain only a very small contribution from the poll functions. Figure 11(a) shows time taken to delete events as a function of the delete group size (_i.e._ the number of events that are asked to be deleted) for one to four MFCCs. For all group sizes the message from the ROB host to the ROB-IN have been sent in DMA mode. For group sizes of less than ten LIIDs this is inefficient due to the resulting size of the message transferred and the DMA overhead. For less than ten LIIDs single cycle transfers would be more appropriate. For large group sizes (\(>\)30) the time to delete a single event is below 2.5 \(\upmu\)s (400 kHz) even for
+
+Figure 11: The time taken to copy an event versus the event size.
+
+four MFCCs. This is consistent with the observation that the time to delete one event on the MFCC is about 1 \(\upmu\)s.
+
+Figure 12b shows the effect of multi page events on the delete time. The latency in the ROB host as well as the message passing latency is obviously independent from the number of data pages per event. The internal latency of the MFCC, however, increases by approximately 700 ns per data page.
+
+#### 4.2.3.5 MFCC-ROBIN with S-Link input
+
+In our set-up the MFCC interfaced to a SLIDAS module via the VMEbus P2 connector. It was therefore not possible to execute measurements with more than one MFCC per RIO2.
+
+The S-Link protocol and the transfer (DMA) of the event data into the SDRAM of the MFCC was handled by the Front-End FPGA of the MFCC which in turn was controlled by the MFCC's CPU via two FIFOs. The SLIDAS used was able to generate data at rates up to 160 MB/s. Due to the overhead of the FIFO accesses the maximum sustainable event input rate was measured to be 145 MB/s for single page events of 1 KB.
+
+Figure 13 shows the time it takes to delete a single page event under the condition of input of new events from the SLIDAS. This time is not limited by the SLIDAS as the maximum input bandwidth is of the order of 60 MB/s (Events of 504 bytes at 8\(\upmu\)s). The bottleneck here is the CPU of the MFCCs which has to deal with the delete requests from the ROB host and the protocol to drive the front-end FPGA. Measurements with larger event fragments will have to be
+
+Figure 12: The time take to delete an event versus (a) the delete group size and (b) the number of pages per event for different average positions in the list.
+
+carried out to determine as from which fragment size the traffic on the PCI bus becomes the bottleneck.
+
+### ROC performance
+
+#### 4.3.1 Remarks
+
+This sub-section presents results on the performance of a ROB equipped with one or more ROBINs, specifically a UK- or MFCC-ROBIN, in the context of a ROC. The ROC consisted of a TRG, an EBIF and one ROB. Intra-crate message passing was performed uniquely over the VMEbus. Most of the measurements were done with no input from an SLINK Read-Out link. In the case of the UK-ROBIN two measurements were done with SLINK input. Input to the TRG and output by the EBIF were emulated. The Data Collection process between the EBIF and the ROB proceeded in two steps: the ROB collects all event fragments locally then the EBIF collects all ROB fragments.
+
+The results are presented in terms of the sustained level 2 reject rate as a function of the number of ROBINs used and for different rates of level 2 accepts, 1% and 5% of the level 1 event rate.
+
+Parameters used for the measurements where: event fragment size of 1024 bytes; number of buffer pages 1024; has table size of 1024; delete group size of 20.
+
+#### 4.3.2 Results
+
+#### 4.3.2.1 ROC with UK-ROBIN
+
+Shown in Figure 14 is the performance of a ROC using the UK-ROBIN. In the case of no SLINK input and both values of level 2 accept rate, the sustainable ROC rate decreases with the number of ROBINs used. This indicates that the performance is limited by the available bandwidth on the system bus, PCI bus, of the RIO2 being used as a ROB. However, in this
+
+Figure 13: The time taken to delete a single page event while currently inputting an event from a SLIDAS.
+
+setup for a level 2 accept rate of 1% the sustainable rate is everywhere larger than 90 kHz. It can be seen that for both values of level 2 accept that in the performance is not smooth in changing from two to three ROBINs. This is because when using three or more ROBINs one is using the PEB and, as noted earlier, the PEB is able to use the PCI bus of the RIO2 more efficiently than a i960.
+
+Also shown in Figure 14 are two measurements with SLINK input. The performance, in the case of a 1% level 2 accept, has decreased by \(\sim\) 40% compared to the case with no SLINK. This is attributable to the extra load on the ROBIN _i.e._ handling the ROL. For the case of a 5% level 2 accept rate, the ROC rate has only decreased by \(\sim\) 10% indicating that in this case the rate is probably limited by the loading on the system bus of the ROB RIO2. More data is needed to be more conclusive.
+
+#### 4.3.2 ROC with MFCC-ROBIN
+
+Shown in Figure 15 is the performance of a ROC using the MFCC-ROBIN. For 1% level 2 accept the performance shows little variation for one to three ROBINs. This indicates that the limiting factor is the CPU of the ROBIN. With four ROBINs the sustainable rate decreases to approximately 100 kHz and is attributable to the additional load on the PCI bus of the ROB. The measurements with 5% level 2 accept confirms this. With 5% level 2 accept, four ROBINs and at a level 2 reject frequency of 50 kHz the bandwidth required on the PCI bus of the ROB for data collection alone is of the order of 20 Mbytes/s.
+
+Finally, a performance measurement has been carried out with more realistic S-Link hardware. The set-up consisted of one TRG, EBIF and ROB. The ROB hosted one MFCC-ROBIN which in turn received data from a FibreChannel S-Link interface. The other end of this FibreChannel link was installed on a SLITEST card together with a SLIDAS that was used to generate the
+
+Figure 14: The Read-Out Crate performance as a function of the number of UK-ROBINs in use.
+
+data. The event size was 504 bytes, the L2R group size 20 and the L2A ratio 1%. In this configuration a total event rate of 92 kHz was measured in the ROC.
+
+Figure 15: The Read-Out Crate performance as a function of the number of MFCC-ROBINs in use.
+
+## 5 Summary
+
+This document has summarised performance of Read-Out Buffer in ATLAS DAQ/EF -1, Specifically, its performance when implemented with one or more ROBINs. The performance has been presented using three different ROBINs: Local-ROBIN, UK-ROBIN and MFCC-ROBIN.
+
+The ROBINs are hidden from the ROB application via an Event Manager API, that is to say the ROB access events in a buffer and does not have to be aware of the hardware specific features associated with each ROBIN. For each ROBIN flavour the rate at which events may be located, deleted and retrieved from the ROBIN as a function of the number of ROBINs has been measured. For the UK- and MFCC-ROBINs the performance decreases as the number of ROBINs deployed increases due to no broadcast functionality on the PCI bus. The Local-ROBIN performance is limited by the PCI bandwidth as events are not buffered in the SLINK interface but in system memory of the SBC.
+
+The performance of ROC with a ROB deploying one or more ROBINs has also been measured. For the UK- and MFCC-ROBINs the performance degrades as the number of ROBINS increases and also as the level 2 accept rate increases, again due the limited bandwidth on PCU bus. However, for 1-3 ROBINs a input rate of over 100 kHz can be sustained.
+
+Library associated to the UK-ROBIN operates on the ROBINs sequentially and executed on the processor of the ROB. Performance gains may be possible if a client server model was implemented between the ROB application and the ROBIN, thus implying probably more processing power on the ROBIN. It has also been noted with the UK-ROBIN that the performance degrades if the size of the event fragments is larger than the page size used in the buffer. It would be desirable to be able program the size of a buffer page.
+
+Currently only a single MFCC-ROBIN can be deployed on a ROB as the SLINK input is via the VMEbus P2 connector.
+
+## 6 Conclusions
+
+With current technology, if more than a single Read-Out link is to connected to a ROB then a ROBIN based on a processor is a must. However, even with such devices the bandwidth available on the PCI bus of to-days single board computers limits the number that may be deployed to 1-2. Gains would clearly be made if single board computers with a PCI bus operating at 66 Mhz and 64-bit were used. It would also be convenient if the successor to PCI bus implemented broadcast functionality.
+
+## References
+
+* [1]_The ATLAS DAQ and Event Filter Prototype "-1" Project_, presented at Computing in High Energy Physics 1997, Berlin, Germany. [http://atddoc.cern.ch/Atlas/Conferences/CHEP/ID388/ID388.ps](http://atddoc.cern.ch/Atlas/Conferences/CHEP/ID388/ID388.ps).
+* [2]_Intra and inter-IOM communications summary document_, ATL-COM-DAQ-99-003.
+* [3]_Performance summary of the DAQ-Unit in DAQ/EF -1_, ATL-COM-DAQ-99-044.
+* [4]_The DataFlow for the ATLAS DAQ/EF Prototype -1_, [http://atddoc.cern.ch/Atlas/Notes/069/Note069-1.html](http://atddoc.cern.ch/Atlas/Notes/069/Note069-1.html)
+* [5]_The DAQ/EF prototype -1 Back-End_, [http://atddoc.cern.ch/Atlas/DataSoft/Welcome.html](http://atddoc.cern.ch/Atlas/DataSoft/Welcome.html)
+* [6]_The DAQ/EF prototype -1 Event Filter_, [http://atddoc.cern.ch/Atlas/EventFilter/main.html](http://atddoc.cern.ch/Atlas/EventFilter/main.html)
+* [7]_The Detector Interface Group_, [http://atddoc.cern.ch/Atlas/DetfeIt/Welcome.html](http://atddoc.cern.ch/Atlas/DetfeIt/Welcome.html)
+* [8]_The LDAQ ATLAS DAQ prototype -1_, [http://atddoc.cern.ch/Atlas/Notes/040/Note040-1.html](http://atddoc.cern.ch/Atlas/Notes/040/Note040-1.html)
+* [9]_The Read-Out Crate in ATLAS DAQ/EF prototype -1_, CERN-EP/99-xxx, in preparation.
+* [10]_The generic I/O module in ATLAS DAQ prototype -1_, [http://atddoc.cern.ch/Atlas/Notes/041/Note041-1.html](http://atddoc.cern.ch/Atlas/Notes/041/Note041-1.html)
+* [11]_The Event Format in ATLAS DAQ/EF prototype -1_, [http://atddoc.cern.ch/Atlas/Notes/050/Note050-1.html](http://atddoc.cern.ch/Atlas/Notes/050/Note050-1.html)
+* [12]_Event Manager API in ATLAS DAQ/EF prototype -1 DAQ-Unit_, [http://atddoc.cern.ch/Atlas/Notes/071/Note071-1.html](http://atddoc.cern.ch/Atlas/Notes/071/Note071-1.html)
+* [13]RIO2 806x. Product catalogue, Creative Electronics Systems, Geneva, Suisse.
+* [14]MOTOROLA MVME2xxx, [http://www.mcg.mot.com](http://www.mcg.mot.com)
+* [15]PEB 640x. Product catalogue, Creative Electronics Systems, Geneva, Suisse.
+* [16]PCI Vertical InterConnect (PVIC). Product catalogue, Creative Electronics Systems, Geneva, Suisse.
+* [17]MFCC. Product catalogue, Creative Electronics Systems, Geneva, Suisse.
+* [18]_Intelligent I/O processors in the DAQ-Unit of ATLAS DAQ/EF prototype -1_, [http://atddoc.cern.ch/Atlas/Notes/065/Note065-1.html](http://atddoc.cern.ch/Atlas/Notes/065/Note065-1.html)
+* [19]_The event format_, [http://atddoc.cern.ch/Atlas/Notes/50/Note50-1.html](http://atddoc.cern.ch/Atlas/Notes/50/Note50-1.html)
+* [20]_The UK-ROBin, a prototype ATLAS read-out buffer input module_, ATL-DAQ-2000-013.
+* [21]_The MFCC-ROBIN in the DAQ/EF -1 Project_, ATL-COM-DAQ-99-047.
+* [22]_The Time Stamping library_, [http://atddoc.cern.ch/Atlas/Notes/124/Note124-1.html](http://atddoc.cern.ch/Atlas/Notes/124/Note124-1.html)
+* [23]PBTM-315 PMC Analyzer and the VBT-325 Advanced VMEbus tracer, VMETRO, Oslo, Norway.

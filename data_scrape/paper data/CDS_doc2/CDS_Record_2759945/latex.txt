@@ -1,0 +1,385 @@
+# Evaluating statistical uncertainties and correlations using the bootstrap method
+
+The ATLAS Collaboration
+
+The bootstrap method is a powerful technique to evaluate the statistical uncertainty of a measurement and correlations between bins. This method uses a set of replicas of the nominal dataset, derived by introducing Poisson perturbations corresponding to statistical fluctuations. Each replica is then analyzed in the same way as the nominal dataset to arrive at a set of replica measurements. The statistical uncertainty and correlations can then be extracted from these replica measurements. This note describes a version of the bootstrap method suitable for data analysis in high energy physics and provides an associated software implementation. Various applications are discussed, such as determining the statistical error on systematic uncertainties. A novel feature of the provided software is that the fluctuations that generate the bootstrap replicas are deterministic. This makes it is possible to evaluate statistical correlations between measurements that are using fully or partially overlapping input data, even if the associated analyses are performed by different teams, or years apart.
+
+1
+
+Updated link to published BootstrapGenerator software to point to permanent Zenodo DOI.
+
+###### Contents
+
+* 1 Introduction
+* 2 Nomenclature
+* 3 Description of method
+	* 3.1 Description of method
+	* 3.2 Example 1: Calculation of the statistical uncertainties for an unfolded measurement
+	* 3.3 Example 2: Propagation of control or signal region uncertainties
+	* 3.4 Example 3: Propagation of uncertainties in an unbinned fit
+	* 3.5 Example 4: Correlation between multiple measurements
+	* 3.6 Example 5: Statistical uncertainty on systematics
+* 4 Implementation
+	* 4.1 BootstrapGenerator
+	* 4.2 TH1Bootstrap and derived classes
+	* 4.3 TH1Bootstrap initialisation
+	* 4.4 TH1Bootstrap filling
+	* 4.5 TH1Bootstrap manipulation
+	* 4.6 TH1Bootstrap statistical error and correlations
+* 5 How to cite
+* 6 Conclusion
+
+## 1 Introduction
+
+Rigorous evaluation of statistical uncertainties in particle physics measurements and searches can be a challenging task. These kinds of analyses are often complex, and many involve non-trivial procedures such as propagation of statistical uncertainties across different subsets of the data or through detector-correction procedures. Complications in evaluating statistical uncertainties and correlations arise due to partial correlation of events in related measurements, the migration of events between bins, and in general the breakdown of the assumption of Gaussian behaviour in low-statistics regions. In such cases, the usual formulae used to calculate statistical uncertainties may become unreliable, or too complex to propagate (for example, through procedures like Iterative Bayesian Unfolding [1]).
+
+This note presents a method based on the _Bootstrapping technique_[2, 3], which provides a reliable approach to propagating and evaluating statistical uncertainties, and which was first used by ATLAS in Ref. [4]. With this method, pseudo-experiments are generated in a coherent way such that it is possible to evaluate statistical correlation amongst measurements performed by different analyses. Tools have been developed within the ATLAS collaboration that extend the usual ROOT histogramming classes to formalise the useof this method. Since these tools are of general use, the collaboration is making these tools public. The software is available on Zenodo at the link given by Ref. [5]. This is the companion note for these tools. It explains the method and describes its software implementation.
+
+The note is structured as follows. First, a glossary of the nomenclature used in this note is provided in Section 2. Second, the method is explained qualitatively in Section 3, along with examples of potential applications of the method. Third, the details of how the method is implemented in the newly-released public code is explained in Section 4. Finally, a detailed example of how the code can be used are is given in Appendix A.
+
+## 2 Nomenclature
+
+For maximal clarity, and to minimise ambiguities or confusion, we begin the note with a glossary of the terms used in the rest of the note.
+
+* **Ensemble**: a set of replicas for a given event or dataset. See **Replica**.
+* **Measurement**: in this note, a _measurement_ refers to the calculation of the value of an observable or parameter of interest, and the related uncertainties. For example, the event yield of a given bin of a differential cross-section measurement should be understood as a separate measurement in this context.
+* **Nominal**: the _nominal event_ is taken to be the raw, unmodified event from a data or simulation sample, before the application of the Bootstrap method. The set of nominal events taken together is the _nominal dataset_. The _nominal analysis_ refers to the set of operations performed using the nominal events leading to the _nominal measurement_ of some observable. One may speak of a _nominal histogram_ to mean a histogram filled with nominal events.
+* **Pseudo-dataset**: see **Replica**.
+* **Pseudo-experiment**: see **Replica**.
+* **Pseudo-random number**: A _pseudo-random number_ is a number generated in a quasi-random way by a computer programme. Although these are colloquially referred to as "random", they in fact do repeat after a long period, and are reproducible given a particular seed. As such, they are properly called pseudo-random.
+* **Replica**: a _replica_ is a "copy" of the nominal dataset that contains its own unique statistical fluctuations. In this note, each _replica dataset_ contains all the events of the nominal dataset, but each event has been assigned a unique and deterministically-generated weight sampled from a Poisson distribution with a mean of unity. A replica may also be referred to as a _pseudo-dataset_ or _pseudo-experiment_. A set of \(N\) replica datasets together is referred to as an _ensemble_ of replica datasets, pseudo-datasets or pseudo-experiments. Colloquially, the word _toy_ can be used to refer to these concepts, although it may refer to either the replica dataset or the measurement performed using the replica depending on the context. The _replica analysis_ refers to the set of operations performed using a given ensemble of replica events leading to a _replica measurement_ of some observable. One may speak of a _replica histogram_ to mean a histogram filled with the corresponding replica events.
+
+* **Seed**: the _seed_ of a pseudo-random number generator is a value (or set of values) that is given to the generator to initialise it. Seeds are used to guarantee reproducibility. For a given initialising set of seeds, the sequence of pseudo-random numbers produced by the generator will always be the same. In this note, three seeds (corresponding to event number, run number and sample number for simulation) are used to uniquely but reproducibly initialise the pseudo-random number generator for each event, when generating the Poisson weights for the ensemble of replica events.
+* **Toy**: see **Replica**.
+
+## 3 Description of method
+
+### Description of method
+
+For a given analysis, events from a statistical process are collected to form a dataset. This dataset is subsequently analyzed to perform a measurement. The bootstrap method can be thought of as considering alternative datasets otherwise collected under the same conditions, i.e. datasets that might have been collected in parallel universes. As defined in Section 2, such alternative datasets are referred to as replica datasets, and lead to corresponding replica measurements.
+
+In the original bootstrap method [2, 3], each pseudo-dataset is created by sampling \(N_{\text{nom}}\) events with replacement from the nominal dataset, where \(N_{\text{nom}}\) is the number of events in the nominal dataset. This results in an ensemble of pseudo-datasets that all have the same size. This does not reflect the reality of collider experiments, where the size of the dataset is itself a Poisson variable. Hence, a common approach is to instead sample a unique weight for each event from a Poisson distribution with a mean of unity. A weight of 0, which occurs with 36.8% probability, effectively removes an event from the dataset, while a weight of e.g. 3 (6.1% probability) would correspond to the event being selected 3 times. The size of the resulting replica datasets will follow a Poisson distribution with mean \(N_{\text{nom}}\), since sums of independent Poisson variables is a Poisson variable with mean equal to the sum of means (\(\text{Pois}(N)\sim\sum_{i=1}^{N}\text{Pois}(1)\)). This approach also has a computational advantage since one can create a whole ensemble of pseudo-datasets in a single loop through the nominal dataset by sampling a vector of Poisson weights for each event, corresponding to the different replicas.
+
+The method employed by ATLAS (see Ref. [5] for link to associated software) assigns a unique and deterministic Poisson weight for each event and replica that is based on the event number and an index of the associated replica dataset. As a consequence, complex statistical correlations between two different analyses that use partially overlapping datasets can be fairly easily evaluated as the replica datasets will contain the same statistical fluctuation for the shared events. This applies to all features extracted from the dataset, division, subtraction, likelihood fits, and so on. If the measurement concerns multiple objects within an event (for example jet production rates), then all objects from a given event will correctly be treated as fully correlated.
+
+For example, consider the ratio \(\hat{r}=\hat{a}/\hat{b}\) between two measurements \(\hat{a}\) and \(\hat{b}\), performed with partially overlapping data. The nominal measurement \(\hat{r}_{0}\) is performed using the nominal dataset, while a series of bootstrap measurements are performed using an ensemble of pseudo-experiments. A replica measurement \(\hat{r}_{i}=\hat{a}_{i}/\hat{b}_{i}\) is performed using replica datasets \(i\). In such replica measurements, the shared evens have the same fluctuations away from the nominal dataset, which will affect the measurements coherently: in the same direction if the measurements are positively correlated or in opposite direction if they are anti-correlated. The distribution of measurements \(\hat{r}_{i}\) can be treated as the probability distribution function of \(\hat{r}\) and an uncertainty on this quantity can be derived from this distribution, e.g. from its standard deviation if appropriate.
+
+Furthermore, using the ensemble of bootstrap replicas, it is possible to evaluate the statistical covariance between any two observables \(a\) and \(b\) according to
+
+\[\text{COV}(a,b)=\frac{1}{N_{\text{rep}}}\sum_{i=0}^{N_{\text{rep}}}(a_{i}-\bar{ a})(b_{i}-\bar{b}), \tag{1}\]
+
+where \(N_{\text{rep}}\) is the number of bootstrap replicas, and \(a_{i}\) and \(b_{i}\) are the measured values of the observables in bootstrap replica \(i\). The variance of \(a\), which is often taken as the square of its statistical uncertainty, is obtained from Eq. 1 by setting \(b=a\), i.e. \(\sigma_{a}=\sqrt{\text{COV}(a,a)}\) and in the same way \(\sigma_{b}=\sqrt{\text{COV}(b,b)}\). Similarly, the correlation between the measurements is given by \(\rho_{ab}=\text{COV}(a,b)/(\sigma_{a}\,\sigma_{b})\).
+
+Further reading on this method can be found in Refs. [6] and [7]. The bootstrap implementation that is described in this note was first employed by the ATLAS collaboration in jet cross-section measurements at 7 TeV [4], 8 TeV [8] and 13 TeV [9], where the method was used to propagate statistical uncertainties through the particle-level unfolding procedure, and evaluate the statistical correlations between different measurements. It has also been used in jet calibration and performance studies, such as Refs. [10] and [11].
+
+Specific examples that may help in understanding how the method operates and the situations where it can be useful are given in the follow sub-sections.
+
+### Example 1: Calculation of the statistical uncertainties for an unfolded measurement
+
+Measurements of particle-level differential cross-sections have correlations between bins due to event migrations between the bins (at the unfolding step), but also due to the fact that it is possible to have several histogram entries per event. These cases are correctly handled by the replica histograms, if the unfolding is performed separately for each replica. In the Refs. [8] and [9], an ensemble of 10000 replicas was used to calculate a covariance matrix for the inclusive jet cross-section in each jet rapidity bin. The total statistical uncertainty was obtained from the covariance matrix, where bin-to-bin correlations were also encoded. The separate contributions from the data and from the MC statistics were obtained from the same procedure by fluctuating only either the data or the simulated events. Furthermore, an overall covariance matrix was constructed to describe the full statistical covariance among all analysis bins.
+
+### Example 2: Propagation of control or signal region uncertainties
+
+In many analyses, one or several control regions are used to evaluate a background process in a so-called signal or search region. It is most often quite cumbersome to propagate the effect of statistical uncertainties in the control region(s) into the signal region. The bootstrap method is very useful in this situation as it stores replica histograms for each distribution. The full analysis is repeated for each replica, including determining the transfer factors (or likelihood fit). This leads to a slightly different constraint on the signal or search region for each replica, which in turn yields the propagated statistical uncertainty on the final measurement. Similarly, if a search has overlapping signal regions, these are not always statistically combined due to the difficulty in evaluating correlation from the shared events between regions. The exclusion from the most sensitive region is often chosen in such cases, which weakens the final result since information from other regions is thrown away. With the bootstrap method one could use all the signal regions since the correlations from the overlapping events are correctly accounted for.
+
+### Example 3: Propagation of uncertainties in an unbinned fit
+
+This method can also be used for an unbinned fit, where the fit is repeated for each replica. While the BootstrapGenerator class (see Section 4.1) can be used to deterministically seed the pseudo-random generation of numbers, we do not delve deeper into this possibility as this note concentrates on the implementation of the method in histograms, which are binned by definition.
+
+### Example 4: Correlation between multiple measurements
+
+Since each event has a unique seed determined by run/event/sample number, one can fill different distributions and get the same fluctuations in their replica histograms. This means that a given event will be associated with a particular set of fluctuations, regardless of which histogram(s) are filled with it. Therefore, different measurements, potentially made by different teams, which use a subset of the same events, would fluctuate their objects in the same way for those events. This allows the calculation of cross-correlations, or correlations between different measured spectra, either within the same analysis or different one. Indeed, if the replica histograms are preserved and published, a post-hoc assessment of the statistical cross-correlation of different measurements is possible. There are already examples of ATLAS measurements that have preserved their replica histograms in their HEPData entries, such as Refs. [12] and [13].
+
+### Example 5: Statistical uncertainty on systematics
+
+When eevaluating a systematic uncertainty, a histogram filled using a nominal calibration is often divided by a histogram filled using the same sample but an alternative calibration, resulting in a relative systematic uncertainty. Often, the corresponding bins in each histogram are filled with many of the same events, the correlation must be taken into account when evaluating the statistical uncertainty on their ratio. By generating replicas for the nominal histogram and systematic histogram, and dividing the synchronized replicas, the proper statistical uncertainty--including correlations--can be found by simply calculating the standard deviation of replica measurements for each histogram bin. This information is particularly useful as an input when smoothing the systematic uncertainty shape, as was done for example in Refs. [10] and [11].
+
+## 4 Implementation
+
+The ROOT data analysis package is ubiquitous in the HEP community, so the Bootstrap method was implemented as an extension to the ROOT histogramming classes in C++. The ROOT classes have a Python interface called PyROOT. The additional Bootstrap classes are similarly integrated into PyROOT. The code for these additional Bootstrap objects is collected in Ref. [5], and the implementation is discussed below.
+
+### BootstrapGenerator
+
+The BootstrapGenerator class is the one that sets the pseudo-random number seed and generates the pseudo-random numbers used to fill the replica histograms in the Bootstrap method. In order to be integrated into the ROOT framework, the BootstrapGenerator class inherits from the generic ROOT classes TNamed, like most other ROOT objects. It also inherits from TArrayI, in order to efficiently store arrays of integers.
+
+The key BootstrapGenerator member variables are:
+
+* fNReplica: this is an integer that stores the number of Bootstrap replica histograms to use in the Bootstrap method (usually of the order of 1000);
+* fSeeds: an array of integers storing the seeds to use when generating pseudo-random numbers;
+* fStoch: a pointer to a StochasticLib2 object, an external C++ pseudo-random number generator class;
+* fArray: inherited from the TArrayI, an array of integers storing the pseudo-randomly generated numbers;
+
+The BootstrapGenerator class has several constructors that set these member variables, populating them either with default values or those provided as arguments, and initialises the pseudo-random number generator. There are also dedicated setter and getter methods to manipulate the member variables, although the user should not need to do so in most cases.
+
+The method that does the heavy lifting in the BootstrapGenerator class is the Generate method, which takes the event's run number and event number as unsigned integer inputs. If one is using the Bootstrap method on MC simulation, and additional integer may be provided that corresponds to the sample number of the simulated sample (since MC samples may use the same run and event numbers). The method collects this set of integers and uses them to set the seed of the pseudo-random number generator. In this way, each event of any data or MC sample is assigned a unique, reproducible seed. Then, an array of size equal to the number of replica histograms fNReplica, which houses the relevant pseudo-random numbers drawn from a Poisson distribution with rate parameter equal to 1.
+
+The pseudo-random numbers are then unique for a given set of run, event and channel numbers. They are used to fluctuate the amount by which each replica histogram is filled, as described below.
+
+### TH1Bootstrap and derived classes
+
+_In this section and hereafter we will focus on the TH1Bootstrap class, but TH2Bootstrap and TH3Bootstrap classes are also implemented, which behave exactly the same as their one-dimensional counterparts._
+
+The most common type of histogram used in ROOT is the TH1 class, which presents one-dimensional histograms. It has derived classes TH1F and TH1D that represent histograms where the \(x\)-axis values are stored as C++ float and double values respectively. These objects are referred to collectively as TH1* objects hereafter. The implementation of the Bootstrap method described here seeks to create versions of these classes that automatically apply the Bootstrap method, with very little change in usagefor the user compared to the TH1* classes. They are referred to as TH1Bootstrap, TH1FBootstrap and TH1DBootstrap (or TH1*Bootstrap collectively).
+
+The TH1Bootstrap class is the base class from which TH1FBOootstrap and TH1DBootstrap inherit. It forward-declares the methods of TH1FBOootstrap and TH1DBootstrap, and has member variables for the number of replica histograms and the associated BootstrapGenerator object (see Section 4.1) that generates the pseudo-random Poisson numbers that affect the replica histograms.
+
+### TH1Bootstrap initialisation
+
+The Bootstrap histogram classes are effectively wrappers around regular ROOT histogram objects. The "main" histogram, which takes the place of the TH1* object the user would be used to, is referred to as the as the "Nominal" histogram and is a member variable of the corresponding TH1*Bootstrap class (accessed by a dedicated GetNominal() method). In addition to the nominal histogram, the Bootstrap histogram classes have an array of other TH1* objects, which represent the replica histograms. These normally do not need to be individually manipulated by the user, but can be accessed by GetReplica( int iReplica) method. When a new TH1*Bootstrap object is created, the nominal and all replica histograms are all initialised at once with the binning specified by the user.
+
+Each TH1Bootstrap object may either create its own BootstrapGenerator object on initialisation, or one may specify a particular instance of BootstrapGenerator when constructing a TH1Bootstrap. The latter option is preferred, since it's more efficient in terms of memory use, and simplifies the Fill method described below.
+
+The typical constructor for a TH1Bootstrap object would therefore be: TH1Bootstrap(const char *name, const char *title, int nreplica, BootstrapGenerator *boot = nullptr), where if the final BootstrapGenerator argument is left empty, a dedicated object will be created, and the user is responsible for passing the event, run and sample numbers to the object each time it is filled. Example pseudo-code that show how these objects are initialised can be found in Listing 1, with a more complete example in Appendix A.
+
+### TH1Bootstrap filling
+
+In the simplest case, TH1*Bootstrap objects use the set of pseudo-random Poisson values already generated by their BootstrapGenerator object to fill the replica histograms. This means that the associated Generate() method should be called for each event (setting the unique seed with event, run and sample numbers), before filling any Bootstrap histograms, via the usual Fill(double x,double w) method. If the TH1Bootstrap was not associated to a particular BootstrapGenerator upon initialisation, one should also specify the run, event and sample numbers when filling so that the internal BootstrapGenerator may set the correct seed: Fill(double x, double w, unsigned int RunNumber, unsigned int EventNumber, unsigned int mcChannelNumber).
+
+In either case, when filling a Bootstrap histogram, the set of pseudo-random Poisson integers is accessed from the BootstrapGenerator. The fill is executed separately for each replica histogram, but unlike the nominal that is filled once, the replica histograms are filled according to the pseudo-random integers from the array. This means the replica histograms may be filled with weight 0, 1 or more depending in the value of the random integer. Examples of pseudo-code showing how to fill a TH1Bootstrap can be found in Listings 2 and 3, with a more complete example in Appendix A.
+
+### TH1Bootstrap manipulation
+
+The TH1Bootstrap classes also come with implementations of the usual methods for histogram manipulation that ROOT users would expect: AddBinContent(), Add(), Multiply(), Divide(), Scale(), Rebin()... are all implemented, and apply these operations to the nominal histogram, but also to each of the replica histograms. This means that once a set of TH1Bootstrap objects have been initialised, the user can continue the analysis, filling, combining, taking ratios, and so on, without worrying about the replica histograms, which are handled under the hood. Pseudo-code that shows the manipulation of TH1Bootstrap can be found in Listing 4, with a more complete example in Appendix A.
+
+### TH1Bootstrap statistical error and correlations
+
+Once the filling and manipulation is done, one can call the helper functions GetBootstrapMean(), GetBootstrapRMS() to calculate the mean and error in each bin from the replica histograms, and GetBootstrapCorel(), GetCovarianceMatrix(), GetCorrelationMatrix()... to assess statistical correlations between bins. The covariance between two bin event yields \(b_{i}\) and \(b_{j}\) of bins \(i\) and \(j\), respectively, is given according to Eq. 1 using the formula below:
+
+\[C_{ij}=\frac{1}{N_{\text{rep}}}\sum_{k=1}^{N_{\text{rep}}}(b_{ik}-\bar{b}_{i}) (b_{jk}-\bar{b}_{j}), \tag{2}\]
+
+where \(k\) is an index corresponding to the replica, \(N_{\text{rep}}\) is the number of replicas, \(\bar{b}_{i}\) and \(\bar{b}_{j}\) are the average event yields of \(b_{i}\) and \(b_{j}\), respectively, across all replicas.
+
+These simple methods complete the bootstrap method, allowing the user to calculate statistical errors and correlations correctly, without worrying about keeping track of the replica histograms themselves. To combine results with other measurements, one need only keep bootstrap replica histograms and call the statistical errors and correlation methods after combining the results. This is achieved with the Append() function, which appends two 1- or 2-D THBootstrap instances. For the 1-D case, this appends the bins from one histogram to another for both the nominal instance and the replicas. In the 2-D case, the histograms are first collapsed to one dimension, by appending the x-bins from the second y-bin to those from the first y-bin, and so on. The resulting TH1Bootstrap can then provides correlations between the two spectra that were appended. Example pseudo-code showing how TH1Bootstrap objects can be appended, and how the correlation matrix is extracted, can be found in Listing 5, with a more complete example in Appendix A.
+
+## References
+
+* [1]//Bookbootstrapobjects
+* [2]intnrep=1000;//numberofreplicas
+* [3]floatlumi=36000;
+* [4]autogen=newBootstrapGenerator("Gen","Gen",nrep);
+* [5]auteco_hist=newTH1DBOootstrap("reco_hist","reco_hist",10,0.,10.,nrep,gen);
+* [6]autocbackground_hist=newTH1DBOootstrap("background_hist","background_hist",10,0.,10.,nrep,gen);
+* [7]autoctruth_hist=newTH1DBOootstrap("truth_hist","truth_hist",10,0.,10.,nrep,gen);
+* [8]autodata_hist=newTH1DBOootstrap("data_hist","data_hist",10,0.,10.,nrep);
+* [9]
+* [10]//Fillthem
+* [11]for(inti=1;i<nevent;i++){//foreachevent...
+* [12]gen->Generate(runNumber,eventNumber,sampleNumber);
+* [13]//(...fillBoostraps...)
+* [14]
+* [15]
+* [16]//ManipulatethemasnormalTH1objectstheseoperationswillbeappliedalsos
+* [17]//toeachreplicahistograminadditiontothenominalhistogram.
+* [18]
+* [19]//Bin-by-bincorrectionsfactors.Copytruth,dividebin-by-binbyreco
+* [20]autoc_factors=(TH1DBOootstrap)truth_hist->Clone();
+* [21]c_factors->Divide(reco_hist);
+* [22]
+* [23]autunfolded_hist=data_hist->Clone();
+* [24]unfolded_hist->Add(background_hist,-1);
+* [25]unfolded_hist->Multiply(c_factors);
+* [26]unfolded_hist->Rebin(2);
+* [27]unfolded_hist->Scale(1./lumi);
+* [28]
+* [29]//Thenextlinecalculatesthebootstrapstatuncertaintiesand
+* [30]//updatesthebinerrorsofthennominalhistogram accordingly
+* [31]unfolded_hist->SetErrBootstrapRMS();
+* [32]
+* [33]//Thebootstraperrorscannowbeaccessedlikethis:
+* [34]doublebsError1=unfold_hist->GetNominal()->GetBinError(1);
+
+## 5 How to cite
+
+If you use the TH*DBootstrap classes described above for your work, please reference this note and the following publications where the code was first used, using the.bib entries in Listing 6.
+
+## 6 Conclusion
+
+This note was written to accompany the public release of the ATLAS BootstrapGenerator code [5], and to explain the main features of the boostrap method and how it is implemented in software. The method allows for a rigorous and reproducible evaluation of the statistical covariance across several related measurements. The software package, which is made public by ATLAS extends the usual ROOT histogram classes to implement this method, with minimal change to the user.
+
+## Appendix A Example
+
+A detailed an annotated example on how to use the bootsrap classes for bin-by-bin unfolding is given in Listing 7. The code can be compiled in C++:
+
+```
+1#ifdef__CLING__
+2R_LOAD_LIBRARY(libBootstrapGenerator.so)
+4#endif
+5
+6//importBoosrapclasses
+7#include"BootstrapGenerator/Bootstrap.h"
+8#include"BootstrapGenerator/TH1DBootstrap.h"
+9#include"BootstrapGenerator/TH2DBootstrap.h"
+10
+11#include<cstdio>
+12
+13#include"TH2D.h"
+14#include"TRandom3.h"
+15#include"TVector3.h"
+16#include"TLorentzVector.h"
+17#include"TFile.h"
+18#include"TStopwatch.h"
+19#include"TSVDUnfold.h"
+20#include"TMath.h"
+21#include"TCanvas.h"
+22#include"TLegend.h"
+23
+24voidUnfoldingExample()
+25{
+26//use1000replicas,and1millionevents
+27intnrep=1000,nevent=100000;
+28
+29//Bookagenerator:
+30autogen=newBootstrapGenerator("Gen","Gen",nrep);
+31
+32//Transfermatrix
+33autotransfer_hist2d=newTH2DBootstrap("transfer_hist2d","transfer_hist2d",10,0.,10.,10.,nrep,gen);
+34
+35//Spectra
+36autotruth_hist=newTH1DBootstrap("truth_hist","truth_hist",10,0.,10.,nrep,gen);//Truthspectra
+37autoreco_hist=newTH1DBootstrap("reco_hist","reco_hist",10,0.,10.,nrep,gen);//Recospectra
+38autodata_hist=newTH1DBootstrap("data_hist","data_hist",10,0.,10.,nrep,gen);//Dataspectra
+39
+40//"Systematics"
+41autodata_hist_up=newTH1DBootstrap("data_hist_up","data_hist_up",10,0.,10.,nrep,gen);//SystematicshiftsofdataUpand
+42autodata_hist_dn=newTH1DBootstrap("data_hist_dn","data_hist_dn",10,0.,10.,nrep,gen);//Down//GenerateparticleswithEbetween0and10atrandomangles:
+*TRandom3*rnd=newTRandom3();
+*for(inti=1;i<nevent;i++){if(i%10000==0){printf("Processed%devents\n",i);
+*}
+*//Truthparticle.Herewsimplysamplefromuniformdistribution
+*doublepT=rnd->Rndm(1.0)*10.;
+*doublephi=TMath::TwoPi()*rnd->Rndm();
+*doubleeta=rnd->Gaus(1.0);
+*//Detector"smeared"quantities
+*doublepT_reco=PT*rnd->Gaus(0.98,0.1);//assumebias-2%,smear10%
+*doublephi_reco=phi*rnd->Gaus(1.,0.01);//assumenobias,smear1%
+*doubleth_reco=eta*rnd->Gaus(1.,0.01);//assumesmear1%
+*//fillLorentzvectorsforttruthandreco
+*TLorentzVectorp_truth,p_reco;
+*p_truth.SetPtEtaPhiM(pT,eta,phi,0);//assumem=0
+*p_reco.SetPtEtaPhiM(pT_reco,eta_reco,phi_reco,0);//assumem=0
+*//"Systematics"shiftof1%
+*TLorentzVectorp_reco_up,p_reco_dn;
+*p_reco_up.SetPtEtaPhiM(pT_reco,eta_reco,phi_reco,0);p_reco_up*1.01;
+*p_reco_dn.SetPtEtaPhiM(pT_reco,eta_reco,phi_reco,0);p_reco_up*0.99;
+*//Updateweights:
+*gen->Generate(219305,i);
+*truth_hist->Fill(p_truth.Pt(),1.0);
+*if(rnd->Rndm()>0.05){//5%inefficiencyindetectorreconstruction
+*transfer_hist2d->Fill(p_reco.Pt(),p_truth.Pt());
+*reco.hist->Fill(p_reco.Pt(),1.0);
+*if(rnd->Rndm()<0.2){//Only20%oftheeventsmakethe"data"spectrumdatahist->Fill(p_reco.Pt(),1.0);
+*data_hist_up->Fill(p_reco_up.Pt(),1.0);
+*data_hist_dn->Fill(p_reco_dn.Pt(),1.0);
+*}
+*}
+*//Unfoldingresult
+*TH1D*unfolded_hist=nullptr;
+*TH1D*unfolded_hist_up=nullptr;
+*TH1D*unfolded_hist_dn=nullptr;
+*//Unfoldingreplicasresults
+*TH1D**unfolded_replicas=newTH1D*[nrep];
+*TH1D**unfolded_replicas_up=newTH1D*[nrep];
+*TH1D**unfolded_replicas_dn=newTH1D*[nrep];
+*//Nominalunfoldingautotsvd_unfold_object=newTSVDUnfold((TH1D*)data_hist->GetNominal(),
+* (TH1D*)reco_hist->GetNominal(),
+* (TH1D*)truth_hist->GetNominal(),
+* (TH2D*)transfer_hist2d->GetNominal());
+*  unfolded_hist=tsvd_unfold_object->Unfold(6.0);//usekreg=6.0
+*  deletetsvd_unfold_object;
+*  tsvd_unfold_object=newTSVDUnfold((TH1D*)data_hist_up->GetNominal(),
+* (TH1D*)reco_hist->GetNominal(),
+* (TH1D*)truth_hist->GetNominal(),
+* (TH2D*)transfer_hist2d->GetNominal());
+*  unfolded_hist_up=tsvd_unfold_object->Unfold(6.0);//usekreg=6.0
+*  unfolded_hist_up->Add(unfolded_hist, -1);//Makebootstrapofthedifferencetogeterroronsystematic
+*  deletetsvd_unfold_object;
+*  tsvd_unfold_object=newTSVDUnfold((TH1D*)data_hist_dn->GetNominal(),
+* (TH1D*)reco_hist->GetNominal(),
+* (TH2D*)transfer_hist2d->GetNominal());
+*  unfolded_hist_dn=tsvd_unfold_object->Unfold(6.0);//usekreg=6.0
+*  unfolded_hist_dn->Add(unfolded_hist, -1);//Makebootstrapofthedifferencetogeterroronsystematic
+*  deletetsvd_unfold_object;
+* //Replicaunfolding
+*  for(inti=0;i<nrep;++i){
+*  tsvd_unfold_object=newTSVDUnfold((TH1D*)data_hist->GetReplica(i),
+* (TH1D*)reco_hist->GetReplica(i),//Usereplicasoftransfermatrixsothat
+* (TH1D*)truth_hist->GetReplica(i),//MCuncertaintyisincluded.
+* (TH2D*)transfer_hist2d->GetReplica(i));
+*  unfolded_replicas[i]=tsvd_unfold_object->Unfold(6.0);
+*  deletetsvd_unfold_object;
+*  tsvd_unfold_object=newTSVDUnfold((TH1D*)data_hist_up->GetReplica(i),
+* (TH1D*)reco_hist->GetNominal(),
+* (TH1D*)truth_hist->GetNominal(),
+* (TH2D*)transfer_hist2d->GetNominal());
+*  unfolded_replicas_up[i]=tsvd_unfold_object->Unfold(6.0);
+*  unfolded_replicas_up[i]->Add(unfolded_replicas[i], -1);//Makebootstrapofthedifferencetogeterroronsystematic
+*  deletetsvd_unfold_object;
+*  tsvd_unfold_object=newTSVDUnfold((TH1D*)data_hist_dn->GetReplica(i),
+* (TH1D*)reco_hist->GetNominal(),
+* (TH1D*)truth_hist->GetNominal(),
+* (TH2D*)transfer_hist2d->GetNominal());
+*  unfolded_replicas_dn[i]=tsvd_unfold_object->Unfold(6.0);
+*  unfolded_replicas_dn[i]->Add(unfolded_replicas[i], -1);//Makebootstrapofthedifferencetogeterroronsystematic
+*  deletetsvd_unfold_object;
+*  deletetsvd_unfold_object;
+* //Collectunfoldedresultwithsynchronizedreplicas
+*  autounfolded_bootstrap=newTH1DBootstrap("result","result",unfolded_hist,unfolded_replicas,nrep);unfolded_bootstrap_->SetErrBootstrapRMS(); // Only containts statistical error from data in this example
+* // Evaluate error on systematic shift error
+* auto unfolded_bootstrap_up = new TH1D8ootstrap("relSysUp", "sysUp", unfolded_hist_up, unfolded_replicas_up, nrep);
+* auto unfolded_bootstrap_dn = new TH1D8ootstrap("relSysDown", "sysDown", unfolded_hist_dn, unfolded_replicas_dn, nrep);
+* unfolded_bootstrap_up->SetErrBootstrapRMS();
+* unfolded_bootstrap_up->Divide(unfolded_bootstrap); // make it relative
+* unfolded_bootstrap_dn->SetErrBootstrapRMS();
+* unfolded_bootstrap_dn->Divide(unfolded_bootstrap);
+* // Save unfolded result, with synchronized replicas
+* TFile file("unfold.root", "RECREATE");
+* unfolded_bootstrap->Write();
+* ((TH1D*)unfolded_bootstrap_up->GetNominal())->Write();
+* ((TH1D*)unfolded_bootstrap_dn->GetNominal())->Write();
+* file.Close();
+* // Make a plot showing things work
+* TCanvas c("c", "c", 600, 6000);
+* truth_hist->Scale(1.0/5.0);
+* truth_hist->GetNominal()->SetLineColor(kRed);
+* truth_hist->GetNominal()->Draw("hist");
+* unfolded_bootstrap->GetNominal()->SetLineColor(kBlue);
+* unfolded_bootstrap->GetNominal()->Draw("hist same");
+* data_hist->GetNominal()->Draw("hist same");
+* TIegend legend(0.5, 0.75, 0.9, 0.90);
+* legend.AddEntry(truth_hist->GetNominal(), "True spectra", "l");
+* legend.AddEntry(data_hist->GetNominal(), "Reco spectra", "l");
+* legend.AddEntry(unfolded_bootstrap->GetNominal(), "Unfolded spectra", "l");
+* legend.Draw();
+* c.SaveAs("unfolding.png");
+* TH2D axis("axis", "axis", 1, 0, 10, 1, -0.10, 0.10);
+* axis.Draw("axis");
+* unfolded_bootstrap_up->GetNominal()->SetMarkerStyle(1);
+* unfolded_bootstrap_up->GetNominal()->SetMarkerColor(kRed);
+* unfolded_bootstrap_up->GetNominal()->SetLineColor(kRed);
+* unfolded_bootstrap_up->GetNominal()->Draw("pesame");
+* unfolded_bootstrap_dn->GetNominal()->SetMarkerStyle(1);
+* unfolded_bootstrap_dn->GetNominal()->SetMarkerColor(kBlue);
+* unfolded_bootstrap_dn->GetNominal()->SetLineColor(kBlue);
+* unfolded_bootstrap_dn->GetNominal()->Draw("pesame");
+* TIegend legend_systematics(0.2, 0.80, 0.6, 0.90);* [24]legend_systematics.AddEntry(unfolded_bootstrap_up->GetNominal(), "Positive uncertaintyshift", "1pe");
+* [25]legend_systematics.AddEntry(unfolded_bootstrap_dn->GetNominal(), "Negative uncertaintyshift", "1pe");
+* [26]legend_systematics.Draw();
+* [27]c.SaveAs("syserr.png");
+* [29]deleetunfolded_bootstrap;
+* [21] } ```
+
+Listing 7: An complete example of how to use TH1Bootstrap objects for a a simple bin-by-bin unfolding in C++.
+
+## References
+
+* [1] G. D'Agostini, _A multidimensional unfolding method based on Bayes' theorem_, Nucl. Instrum. Meth. A **362** (1995) 487, issn: 0168-9002 (cit. on p. 2).
+* [2] B. Efron, _Bootstrap Methods: Another Look at the Jackknife_, Annals Statist. **7** (1979) 1 (cit. on pp. 2, 4).
+* [3] B. Efron and R. Tibshirani, _An Introduction to the Bootstrap_, Chapman & Hall, 1994 (cit. on pp. 2, 4).
+* [4]ATLAS Collaboration, _Measurement of dijet cross sections in pp collisions at 7 TeV centre-of-mass energy using the ATLAS detector_, JHEP **05** (2014) 059, arXiv: 1312.3524 [hep-ex] (cit. on pp. 2, 5).
+* [5]ATLAS Collaboration, _BootstrapGenerator_, version 1.11.2, Zenodo, 2021, url: [https://doi.org/10.5281/zenodo.5361038](https://doi.org/10.5281/zenodo.5361038) (cit. on pp. 3, 4, 6, 12).
+* [6] G. Bohm and G. Zech, _Introduction to statistics and measurement analysis for physicists_, 2005, isbn: 978-3-945931-13-4 (cit. on p. 5).
+* [7] G. J. Babu, P. K. Pathak, and C. R. Rao, _Second-Order Correctness of the Poisson Bootstrap_, The Annals of Statistics **27** (1999) 1666, issn: 00905364, url: [http://www.jstor.org/stable/2674086](http://www.jstor.org/stable/2674086) (cit. on p. 5).
+* [8]ATLAS Collaboration, _Measurement of the inclusive jet cross-sections in proton-proton collisions at \(\sqrt{s}=8\) TeV with the ATLAS detector_, JHEP **09** (2017) 020, arXiv: 1706.03192 [hep-ex] (cit. on p. 5).
+* [9]ATLAS Collaboration, _Measurement of inclusive jet and dijet cross-sections in proton-proton collisions at \(\sqrt{s}=13\) TeV with the ATLAS detector_, JHEP **05** (2018) 195, arXiv: 1711.02692 [hep-ex] (cit. on p. 5).
+* [10]ATLAS Collaboration, _Determination of jet calibration and energy resolution in proton-proton collisions at \(\sqrt{s}=8\) TeV using the ATLAS detector_, (2019), arXiv: 1910.04482 [hep-ex] (cit. on pp. 5, 6).
+* [11]ATLAS Collaboration, _Jet energy scale measurements and their systematic uncertainties in proton-proton collisions at \(\sqrt{s}=13\) TeV with the ATLAS detector_, Phys. Rev. D **96** (2017) 072002, arXiv: 1703.09665 [hep-ex] (cit. on pp. 5, 6).

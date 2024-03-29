@@ -1,0 +1,116 @@
+A description of the ATLAS Inner Detector (ID) software trigger algorithms running online on the high level trigger (HLT) processor farm is presented. The prospects for a redesign of the ID trigger afforded by the 2013-2014 long shutdown are discussed. The ID trigger HLT algorithms are essential for a large number of signatures within the ATLAS trigger. During the shutdown, modifications are being made to the LHC machine, to increase both the beam energy and luminosity. This in turn poses significant challenges for the trigger algorithms both in terms of execution time and physics performance. To meet these challenges the ATLAS HLT software is being restructured to run as a single stage rather than in the two distinct levels present during the Run 1 operation. This is allowing the tracking algorithms to be redesigned to make more optimal use of the CPU resources available and integrate new detector systems being added to ATLAS for post-shutdown running. Expected future improvements in the timing and efficiencies of the Inner Detector triggers within the new merged single stage architecture are also discussed. In addition, potential improvements in the algorithm performance resulting from the additional spacepoint information from the new Insertable B-Layer are presented.
+
+Introduction
+
+The ATLAS detector [1] is one of two general purpose experiments at the LHC [2] and has been operating successfully since the first proton-proton (\(pp\)) collisions at the LHC. During the 2010-11 running period the LHC was operated with a \(pp\) collision energy of 7 TeV, increased to 8 TeV during 2012 \(pp\) running. Since the first collisions in 2010 the instantaneous luminosity has increased by many orders of magnitude. This was achieved through an increase in the number of colliding bunches and by significantly increasing the number of protons in each bunch. The average number of distinct \(pp\) interactions per bunch crossing (referred to as \(\mu\)) during 2012 running was 21, with multiplicities higher than 35 being not uncommon. The 2010, 2011 and 2012 data-taking periods are collectively referred to as Run 1.
+
+The high number of interactions and resulting large track multiplicity in each event provides a very challenging environment for tracking in the ATLAS trigger [3]. The trigger played a vital role in the recent observation [4] of a resonance consistent with the Higgs boson, where fast, online selection of leptonic decay products was essential for identifying events of interest.
+
+During the current LHC Long Shutdown 1, the LHC machine and experiments are being upgraded in preparation for Run 2. The LHC machine will be upgraded to a collision energy of 13-14 TeV, together with an improvement in the instantaneous luminosity, which will lead to an increase in the average number of interactions per bunch crossing from \(\langle\mu\rangle=21\) to \(\langle\mu\rangle=50\). The increase in collision energy and instantaneous luminosity necessitate significant improvements to the ATLAS detector, and particularly the trigger and data acquisition system. This document will focus on improvements to the tracking software algorithms and architecture used in the ATLAS trigger.
+
+### The ATLAS trigger system and Inner Detector
+
+The ATLAS Inner Detector (ID) is formed of three sub-detectors arranged in concentric layers, each using different tracking technologies: the Pixel detector uses silicon pixel sensors, the SemiConductor Tracker (SCT) detector uses silicon microstrip sensors and the Transition Radiation Tracker (TRT) uses straw tubes. The Pixel detector is made of three concentric layers in the barrel (\(|\eta|<2.8\))1 and three disks in each endcap (\(1.9<|\eta|<2.7\)). The SCT barrel (\(|\eta|<1.7\)) consists of four concentric cylindrical layers, while the endcap systems (\(1.2<|\eta|<2.5\)) consists of nine radial disks in each endcap. The Pixel and SCT detectors cover the range \(|\eta|<2.5\), while the TRT covers the range \(|\eta|<2\). The Insertable B-Layer (IBL) [5] is a new Pixel detector layer to be installed during LS1, and will become the new innermost ID barrel layer. The current innermost layer of the Pixel detector is 50.5 mm from the nominal interaction point (IP) at the centre of the detector, while the IBL will be situated 25.7 mm from the IP. The IBL improves vertexing performance and impact parameter resolution, and adds robustness against missed hits and disabled modules in track identification; all of which are extremely beneficial in high pileup conditions.
+
+Footnote 1: The ATLAS coordinate system has its origin at the nominal interaction point at the centre of the detector and the \(z\)-axis coincident with the beam pipe, such that pseudorapidity \(\eta\equiv-\ln(\tan\theta/2)\). The positive \(x\)-axis is defined as pointing from the interaction point towards the centre of the LHC ring and the positive \(y\)-axis is defined as pointing upwards. The azimuthal degree of freedom is denoted \(\phi\).
+
+During Run 1 the ATLAS trigger consisted of three distinct, sequential trigger levels - the hardware Level 1 (L1) trigger, running on limited granularity data predominantly from the muon spectrometer and calorimeter subsystems, and the two high level trigger (HLT) systems - the Level 2 (L2) and the Event Filter (EF) systems, each running on its own large farm of commodity processors. The trigger system must reduce the rate of events from the nominal 40 MHz bunch crossing rate to the 400 Hz that can be recorded online. During Run 1 the L1 output rate ranged from 20 to 75 kHz. This determines the rate at which events must be processed by the software algorithms of the HLT. The first level in the trigger able to access the data from the ID is the L2 stage of the HLT.
+
+When an event is accepted by the L1 trigger, data are read out from the pipelines on the detector front end electronics into custom ReadOut Buffers (ROBs), where they are stored for access by the L2processors. To reduce the rate at which data must be read out from the ROBs, Regions of Interest (RoIs) are identified by the L1 trigger. These contain features of interest which merit further processing. For the ID trigger, these RoIs are identified from hits in the muon spectrometer that may be consistent with muon candidates, and also from clusters of energy in the calorimeter consistent with electron or tau candidates, or jets. The processing at L2 is generally limited only to those RoIs, thus reducing the data volume that must be read out to around 2% of the full detector volume. Different track finding algorithms [6] can be executed at L2 to reconstruct tracks. Following the L2 decision, if the event is to be kept, the full detector data is read out for processing by the EF.
+
+During Run 2 the ATLAS tracking algorithms will be augmented by a new hardware track finder - the Fast TracKer (FTK) [7]. The FTK will reconstruct track candidates using custom fast electronics for events already accepted by L1. The FTK will provide tracking information for each event accepted by L1, ready at the start of the L2 processing. It will process the silicon hits with full detector coverage rather than localised within RoIs.
+
+## 2 Algorithm development
+
+The ATLAS HLT is currently being redesigned in preparation for Run 2. Instead of the two levels - L2 and EF - the HLT processing will take place on a single CPU node in the single HLT farm. This will reduce the overall data volume that needs to be requested by the HLT system, since data requested by the L2 algorithms will no longer need to be requested again when building the event for the EF processing.
+
+This single node operation provides an opportunity to redesign the tracking algorithms to combine the reconstruction currently performed separately at L2 and the EF in a more optimal way. In addition, it allows information from the new detector subsystems such as the IBL and FTK to be integrated into the algorithm design from the very beginning.
+
+Figure 1 shows a schematic of the new tracking design. As in the Run 1 system, it will again be divided into two sections, but extensive use of the opportunities afforded by running on a single node will be made. The redesigned system for running after LS1 includes a _fast tracking_ stage, based on similar pattern recognition algorithms to those used at L2 during Run 1, followed by a more _detailed tracking_ stage, similar to the Run 1 EF tracking, but seeded by individual tracks from the fast tracking.
+
+The fast tracking stage is being designed to use alternatively track seeds from individual spacepoint combinations, tracks identified by the FTK, or tracks from the L1 tracking foreseen for a future ATLAS upgrade [8].
+
+However, even including the FTK and single node processing, the tracking algorithms in the trigger are still very expensive in terms of CPU usage. Consequently, different techniques including auto
+
+Figure 1: A schematic of the planned redesigned software HLT Inner Detector trigger.
+
+vectorisation, and increased opportunities for parallelism in the software algorithm environment as a means of increasing the processing speed are being studied.
+
+### Insertable B-Layer
+
+Whilst the HLT software tracking algorithms will also be updated and restructured during this period, it is instructive to measure with simulated data which includes the IBL, the performance of the L2 and EF triggers as they were during Run 1 operation. To this end, for this study, the minimum modifications required to include the IBL information in the pattern recognition and track reconstruction were made to the tracking algorithms.
+
+By including a possible additional hit from the IBL for each track, close to the beam line, it is expected that the reconstruction efficiency should increase and the resolution on the impact parameter measurement should improve.
+
+For this study 14 TeV samples of \(t\bar{t}\) events generated using MC@NLO[9] were used. These were used to allow the tracking to be evaluated under reasonably high multiplicity conditions. The samples filtered to select events containing single muon and di-muon final states. The average number of interactions per bunch crossing for this sample was \(\langle\mu\rangle=21\). The performance of the ID trigger reconstruction, both with and without the inclusion of the IBL information was evaluated by comparison with Monte Carlo truth particles. The truth particles in this case were muons, subject to the requirements \(|\eta|<2.5\) and \(p_{\mathrm{T}}>3\) GeV. The tracks reconstructed by the triggers were required to be in the range \(|\eta|<2.5\), and to have at least one hit in the silicon detectors. The following figures show the L2 and EF reconstruction resolutions for several reconstructed track parameters. The reconstruction was performed twice on the same sample, once with the IBL hits included and again with the IBL disabled in the reconstruction.
+
+It can be seen from Figures 2 - 7 that in all cases the resolutions for measurements of \(d_{0}\), \(z_{0}\) and \(\eta\) are improved when IBL hits are included. The resolutions are seen to be improved by approximately 25% or more and persist to high transverse momenta.
+
+Since the same Monte Carlo sample is used for the studies both with and without using the IBL information in the trigger reconstruction, for those resolutions excluding the IBL information additional multiple scattering in the IBL material will still be present. The resulting resolutions in this case would be expected to be slightly worse than if the IBL were not present. This effect is expected to be most significant at lower \(p_{\mathrm{T}}\).
+
+Figure 2: L2 reconstructed \(d_{0}\) resolution as a function of (a) signed \(p_{\mathrm{T}}\) and (b) \(\eta\). The hollow (red) points are without IBL, the solid points are with IBL.
+
+Figure 4: L2 reconstructed \(z_{0}\) resolution as a function of (a) signed \(p_{\mathrm{T}}\) and (b) \(\eta\). The hollow (red) points are without IBL, the solid points are with IBL.
+
+Figure 5: EF reconstructed \(z_{0}\) resolution as a function of (a) signed \(p_{\mathrm{T}}\) and (b) \(\eta\). The hollow (red) points are without IBL, the solid points are with IBL.
+
+Figure 3: EF reconstructed \(d_{0}\) resolution as a function of (a) signed \(p_{\mathrm{T}}\) and (b) \(\eta\). The hollow (red) points are without IBL, the solid points are with IBL.
+
+Figure 6: L2 reconstructed \(\eta\) resolution as a function of (a) \(p_{\rm T}\) and (b) \(\eta\). The hollow (red) points are without IBL, the solid points are with IBL.
+
+Figure 7: EF reconstructed \(\eta\) resolution as a function of (a) \(p_{\rm T}\) and (b) \(\eta\). The hollow (red) points are without IBL, the solid points are with IBL.
+
+High level trigger tracking upgrade
+
+### Software Profiling and Optimisation
+
+The timing performance of the Inner Detector Trigger software was evaluated using profiling tools to identify possible areas where code optimisation would be beneficial. A selection of HLT software benchmark test jobs was created to process a representative sample of input data collected from the 2012 running period to determine where possible performance improvements could be made. These test jobs were configured to reconstruct tracks in the full volume of the Inner Detector (using a single RoI covering the whole detector) so that the impact of performance hotspots could be highlighted more prominently. A dedicated testbed was configured to run HLT jobs exclusively, to ensure that no other active applications running concurrently were able to affect the timing results. Accurate timing information was gathered from the CPU monitoring and timing service routines [10] available in the ATLAS software framework.
+
+The relative times spent per event for the algorithms from one of the track reconstruction strategies used at Level 2 are shown in Figure 8. The algorithm timing per event is averaged over the 1367 events processed by the test job. Note that absolute timing values depend on the underlying hardware; thus those from the dedicated testbed are slightly different from those observed on the online systems.
+
+Although the overall timing breakdown was instructive to determine the impact of code optimisation, it was necessary to gather more detailed profiling data to determine which areas of code would benefit most from optimisation. Test jobs were profiled using the _callgrind_ tool [11] which collects the number of instruction fetches (used as a measure of cost) and the total number of calls for each function used in the execution of the code. In addition, a complete reference of callers and callees associated with each function was gathered for an analysis of the relationship between the different algorithms in the code.
+
+Profiling data was gathered for a subset of algorithms in the HLT software. Despite the large amount of functions profiled during the execution of the test job (over 2000 functions) it was found that only a small fraction of functions contributed to the majority of instruction fetches measured by _callgrind_.
+
+The functions with the highest number of CPU instruction fetches per event are shown in Figure 9. Note that the number of calls made to these functions as part of event processing varied considerably. The iterator function was on average called over 37,000 times per event whilst the function _findZInternal_, part of the Z-Finder algorithm which identify candidate \(z\)-vertex positions, is only called once per RoI. In the former case performance improvements may be found if the number of calls to the function can
+
+Figure 8: Relative time per event spent in Level 2 Strategy A algorithms. The timing values were taken from the processing of 1367 events collected in the 2012 running period.
+
+be reduced, whilst in the latter case optimising a critical section of code within the costly function will be more effective on the overall algorithm timing.
+
+In addition to call-level profiling data, additional profiling tools were used to determine whether the CPU time spent by each algorithm was being used efficiently. The Linux performance counter subsystem (_perf_) [12, 13] and the Generic Optimization Data Analyzer (GOoDA) package [14] were used to sample the CPU hardware counters during the execution lifetime of the test jobs. The GOoDA tools provided an analysis of the low-level counter information collected by _perf_ to allow inefficiencies in workloads, such as cache-misses and branch misprediction - where the processor makes a mistake predicting the outcome of a branch - to be identified and attributed to specific sections of source code.
+
+Figure 10 illustrates the CPU cycle data collected for _findZInternal_ which is, as can be seen from Figure 9, one of the most costly functions profiled in the ID Trigger code. The detailed profiling for this function shows that branch mis-prediction is the cause of 21% of the total unhalted cycles during function execution and was therefore considered as an area for potential optimisation.
+
+Figure 10: Total number of unhalted CPU cycles sampled during 100 processed events in the ID Trigger function _findZinternal_. Stalled cycles are a subset of the total unhalted cycles and load latency, branch-misprediction and instruction latency are a subset of the total stalled cycles.
+
+Figure 9: Number of CPU instruction fetches per event generated collected by the callgrind profiling tool. Functions with the highest number of instruction fetches are illustrated. The software library containing each function is shown in parentheses.
+
+An isolated copy of the Z-finder algorithm was modified with the aim of reducing the amount of stalled CPU cycles due to branch mis-prediction. These modifications consisted predominantly of unrolling and restructuring several of the nested loops to simplify the flow of control. A significant improvement in the timing per event for this test code can be seen in Figure 11. The mean execution time per RoI is 2.1 ms with the unmodified code and improves to 1.1 ms after optimisation.
+
+Where the CPU time is dominated by a high number of iteration statements - such as _for_ loops - vectorization can be an effective means of improving code performance. This is achieved by using the wide registers available on modern CPUs to perform block calculation of identical operations on similar elements in parallel. It does this by packing those elements into the registers in groups such that it can provide implicit instruction parallelisation. Vectorization instructions can be used either explicitly in the code or through the use of auto-vectorization capabilities available in most C/C++ compilers. Auto-vectorization in GNU C/C++ is enabled by default as part of the optimisations applied by the compiler and is therefore already applied as part of the ATLAS software build process.
+
+Although this is a relatively inexpensive method to gain performance improvements it is only found to be suitable for relatively simple cases where no dependencies exist - excluding modification to shared data structures. A profiling exercise of the HLT Inner Detector software compilation has shown that the majority of potentially vectorisable code flagged by the GNU C/C++ compiler was unsuitable for vectorisation due to such dependencies.
+
+To gain significant performance improvements from vectorization it was therefore necessary to manually vectorize code using explicit instructions from an SIMD instruction set containing extensions to allow faster floating point operations (SSE intrinsics). The differences in RoI processing for a simple test case compiled with no vectorization, auto-vectorization, and with manual SSE vectorization instructions are shown in Figure 12.
+
+It can be seen that auto-vectorization is able to provide a slight improvement and that further performance improvements from manual vectorization are possible with targeted effort. In this instance, performance gains from manual vectorization were relatively modest. Work will continue using those profiling techniques described in this section to identify code that will most benefit from explicit vectorization. Functionality tests using emerging auxiliary compilers such as _ispc_[15] were found these to be a useful alternative to the inclusion of explicit SSE instructions in the existing code.
+
+Figure 11: Comparing execution time for two versions of the Z-Finder algorithm, before and after optimisation to reduce branch mis-prediction.
+
+## 4 Outlook
+
+The opportunity afforded by the 2013-14 long shutdown to redesign and upgrade the ATLAS Inner Detector trigger is being exploited. Progress in a complete redesign of the tracking strategies is being made. In particular, the ability to run the HLT on a single CPU node is enabling a more staged, "pipelined" approach to the reconstruction, running a fast tracking stage from which tracks can be used to seed the more detailed, precision tracking stage.
+
+Incorporating modifications to make use of the additional spacepoint information from the Insertable B-layer will result in significantly better resolution for the transverse impact parameter and improved performance for tagging heavy flavour jets. Such changes are being integrated with the new tracking strategy. Optimisation studies continue with the Run 1 algorithms and are being extended to the post-shutdown algorithms.
+
+Taken together, these changes will allow the ATLAS Inner Detector trigger to continue to perform as well as, or better than in Run 1, despite the significantly higher luminosities expected when the LHC restarts after the shutdown.
+
+## References
+
+* [1] ATLAS Collaboration, _The ATLAS Experiment at the CERN Large Hadron Collider_, Journal of Instrumentation **3** no. 08, (2008) S08003. [http://stacks.iop.org/1748-0221/3/i=08/a=S08003](http://stacks.iop.org/1748-0221/3/i=08/a=S08003).
+* [2] O. Bruning, Sim, P. Collier, P. Lebrun, S. Myers, R. Ostojic, J. Poole, and P. Proudlock, _LHC Design Report_. CERN, Geneva, 2004.
+* [3] ATLAS Collaboration, G. Aad et al., _Performance of the ATLAS Trigger System in 2010_, Eur.Phys.J. **C72** (2012) 1849, arXiv:1110.1530 [hep-ex].
+* [4] ATLAS Collaboration, G. Aad et al., _Observation of a new particle in the search for the Standard Model Higgs boson with the ATLAS detector at the LHC_, Phys.Lett. **B716** (2012) 1-29, arXiv:1207.7214 [hep-ex].
+
+Figure 12: Comparing execution time for three versions of the test method. Two versions have identical code, but auto-vectorisation has been enabled in one case. The third has had vectorisation explicitly introduced using SSE intrinsics (auto-vectorisation is also enabled).

@@ -1,0 +1,642 @@
+ATLAS Internal Note
+
+SOFT-No-31
+
+LUNDF6/(NFFL-7133)1996
+
+November 25, 1996
+
+**Reconstruction and analysis in the ATLAS Inner Detector 1**
+
+Footnote 1: This document is available as HTML at
+
+[http://atlasinfo.cern.ch/Atlas/GROUPS/INNER_DETECTOR/LAYOUT/recomanual/recomanual.html](http://atlasinfo.cern.ch/Atlas/GROUPS/INNER_DETECTOR/LAYOUT/recomanual/recomanual.html)
+
+**Uhrik Egede**
+
+_Lund University, Sweden._
+
+Version 1.02
+
+###### Contents
+
+* 1 Introduction
+	* 1.1 Scope of manual
+	* 1.2 Organisation
+	* 1.3 Presentation of examples
+		* 1.3.1 Single muons
+		* 1.3.2 Higgs events
+	* 1.4 The balance between batch programs and interactive analysis
+* 2 Files needed for reconstruction
+	* 2.1 Binaries
+	* 2.2 Test data files
+	* 2.3 Datacards for reconstruction
+	* 2.4 Standard output files
+	* 2.5 Files used by atlsim
+* 3 Reconstruction with atrecon
+	* 3.1 Existing packages for pattern recognition
+	* 3.2 Pattern recognition from seeds
+	* 3.3 Datacards
+* 4 Analysis with atlsim
+	* 4.1 The AGE language for beginners
+	* 4.2 The bank structure
+	* 4.3 Monte Carlo truth information
+		* 4.3.1 The KINE bank
+		* 4.3.2 The GENZ bank
+	* 4.4 An atlsim session
+* 5 A complete example
+* A Definition of the reconstruction banks
+* A.1 The xkal bank
+* A.2 The road bank
+* A.3 The trak bank
+* A.4 The tfit bank
+* A.5 The hiti bank
+* B An example of a subroutine written in AGE
+
+C Trouble shooting * C.1 No output file from atrecon * C.2 The dynamic linking of atlsim does not work * C.3 My analysis N-tuple is always memory resident * C.4 I get errors trying to read reconstruction banks * C.5 Odd questions when starting atlsim * C.6 The **disp recb** command in atlsim does not work * C.7 I try to run the examples but I cannot read the datafiles.
+
+Introduction
+
+For the ATLAS inner detector a large amount of physics simulation and analysis are required. For this it is urgent to get more people involved in the process but this has always been limited by the non existent documentation for basic use of the ATLAS software.
+
+From an exclusive viewpoint of the inner detector it is here explained how to reconstruct tracks in simulated events and how to extract the information for physics analysis.
+
+### Scope of manual
+
+The manual is intended for people who have not used the ATLAS reconstruction before, however it can hopefully also be a help for more experienced users of the ATLAS reconstruction software. To simplify the situation for new users not all subjects are covered in details. If detailed documentation exist in specific areas references are made.
+
+It is assumed that the reader has some knowledge of the following topics or at least will get introduced to it by other people.
+
+* The general design of the ATLAS detector.
+* The concept of physics event generation, detector simulation and reconstruction.
+* Programming in Fortran-77 including the use of HBOOK for operations on N-tuples and histograms.
+* The use of PAW and the KUMAC language.
+* The standard tools of UNIX like redirection of data, scripts and editors.
+* The concept of using ZEBRA as a memory manager for Fortran based programs.
+
+Not everything is required before reading this manual and can to some extend be learned along the way.
+
+If something is omitted in the manual or simply not explained well enough for a new user then please report with complaints/suggestions to Ulrik.Egede@quark.lu.se. Correction of errors are also welcome.
+
+### Organisation
+
+The manual is organised in the same order as the different parts of the software has to be used. Examples are given illustrating the different steps on the way to physics analysis of simulated data. At the end the examples are given in their full length for reference and an appendix is devoted to trouble shooting.
+
+### Presentation of examples
+
+To illustrate the process of reconstruction and analysis two different examples will be used in all places.
+
+#### 1.3.1 Single muons
+
+In the first example simulated events with just one single muon in each events are used. This is the simplest example possible and is also usable for many performance studies of the detector.
+
+#### 1.3.2 Higgs events
+
+The second example has events simulated with the physics process of Higgs production with forced decay to \(\mathrm{b\overline{b}}\). The example is more complicated and should in general first be looked at when the first example is fully understood. With the \(\mathrm{H}\to\mathrm{b\overline{b}}\) decay as a kind of performance test for the inner detector this example will also be directly usable for many users.
+
+### The balance between batch programs and interactive analysis
+
+The sharing proposed in this manual between reconstruction in a batch program environment and analysis with the interactive program atlasim avoids to use the source code of the ATLAS software. However all subroutines running in the batch program atrecon can also run inside atlasim and the other way around.
+
+Hence the track reconstruction can be performed inside atlasim or the analysis inside the atrecon job. This would involve either recompilation of atrecon or require extraction of source code for dynamic linking into atlasim and is considered outside the scope of the manual.
+
+Files needed for reconstruction
+
+As the first thing for running ATLAS software is needed an account on the ATLAS work group servers at CERN. How to get this and some general aspects about computing inside ATLAS can be read in the ATLAS Offline software manual 2.
+
+Footnote 2: [http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/documents/SOFTWARE_MANUAL/HTML/ATLASSW/ATLASSW.html](http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/documents/SOFTWARE_MANUAL/HTML/ATLASSW/ATLASSW.html)
+
+It is recommended to start working on the ATLAS computers at CERN first and then afterwards exporting the software to a home institute. This will minimise problems with platform compatibility, wrong directories etc. in the initial phase. The sections below tells which files needs to be linked or copied to the users directory to get everything to work. Look also in section 5 to see how this is done for specific examples.
+
+### Binaries
+
+The precompiled versions of the programs used during reconstruction and analysis can be found in the directory $LHC_ROOT/XXX/bin where XXX is a name of the type _96_11_ which refers to the November version of the binary files. The work for the TDR will from now on take place with the 96_11 version. The following will make all the needed programs available in a local directory.
+
+ln -s $LHC_ROOT/96_11/bin/atrecon. ln -s $LHC_ROOT/96_11/bin/atlsim. ln -s $LHC_ROOT/96_11/bin/geant3. ln -s $LHC_ROOT/96_11/bin/geant3.def.
+
+The $LHC_ROOT environment variable has the value /afs/cern.ch/atlas/offline/@sys. For running at a home institute the files can be copied from the above location. Substitute for the @sys directory the name of your operating system. Remember to distinguish between the HP-UX 9 and HP-UX 10 systems.
+
+### Test data files
+
+To be used with the 2 examples presented in section 1.3 a number of datafiles exist in the directory /afs/cern.ch/user/e/egede/www/recomanual/data. The muon files have 100 events with single muons simulated at \(\eta\) = 0.3 and \(p_{\rm T}=100\) GeV. The Hbb file has 20 simulated \({\rm H}\to{\rm b}{\overline{\rm b}}\) events with a mass of 100 GeV of the Higgs and \(|\eta|<2.5\) for both b quarks.
+**muon_digitised.dat**: Muon data after the event has been digitised. It contains the full Monte Carlo information, simulated hits and the digitisation banks of the hits. From this file track reconstruction can start directly.
+**Hbb_digitised.dat**: The same as muon_digitised.dat just with the \({\rm H}\to{\rm b}{\overline{\rm b}}\) events.
+**muon_reconstruct.dat**: Muon data after the reconstruction. The full MC information is still there but the banks with hits and digits has been dropped. The reconstruction banks, recb, are now present.
+**Hbb_reconstruct.dat**: The same as muon_reconstruct.dat for the \({\rm H}\to{\rm b}{\overline{\rm b}}\) events.
+
+A link like
+
+ln -s /afs/cern.ch/user/e/egede/www/recmanual/data/muon_digitised.dat ZEBRA.P will make this file readable by the atrecon binary program.
+
+### Datacards for reconstruction
+
+To control what actions are taken by atrecon a datacard file is read on the standard input. In the directory /afs/cern.ch/user/e/egede/www/recmanual/datacard can be found the files.
+
+* **muon_reconstruct.datacard**. This datacard has been used to create the file muon_reconstruct.dat from the file muon_digitised.dat. The datacard has comments included and the parts specific for reconstruction are in detail described in the sections 3.2 and 3.3.
+* **Hbb_reconstruct.datacard**. A similar datacard used for the generation of the file Hbb_reconstruct.dat with reconstructed tracks in the \({\rm H}\to{\rm b}{\overline{\rm b}}\) events.
+
+### Standard output files
+
+In the directory /afs/cern.ch/user/e/egede/www/recomanual/stdout can be found the standard output from running track reconstruction. The files can be used to see how the standard output looks for a successful run of atrecon.
+
+**muon_reconstruct.stdout**: The standard output from running atrecon on the file with digitised muons and using the datacard muon_reconstruct.datacard.
+**Hbb_reconstruct.stdout**: Similar standard output file for the reconstruction of the \(\mathrm{H}\to\mathrm{b}\overline{\mathrm{b}}\) events.
+
+### Files used by atlsim
+
+The atlsim interactive program uses the KUIP interface known from PAW and can thus run kumac files with commands. Also a makefile used for the creation of shared libraries is needed. The kumac files are only used by atlsim and not by any other program. In the directory /afs/cern.ch/user/e/egede/www/recomanual/atlsim can be found the files.
+**geom.kumac**: This kumac takes care of the dynamic linking. It should always be present in the directory where atlsim runs.
+**Makefile**: The makefile used for creation of shared libraries. Should always be present in the directory where atlsim runs.
+**muon_analyse.kumac**: An example on how to run a complete analysis job with atlsim on the datafile muon_reconstruct.dat mentioned in 2.2.
+**Hbb_analyse.kumac**: A similar file for the \(\mathrm{H}\to\mathrm{b}\overline{\mathrm{b}}\) events.
+**readxkal.g**: Example of an analysis subroutine.
+
+## 3 Reconstruction with atrecon
+
+Reconstruction of tracks can be done with the general reconstruction program atrecon. What operations are carried out by the program is controlled by a datacard file read by atrecon from standard input. Here will be described how to use atrecon to read in a file with digitised events and write a new file with reconstructed tracks. The output file can later be used by the atlsim program described in section 4 for analysis.
+
+The file with data read by the program should have the name ZEBRA.P and the output file will always have the name ZEBRA.O. The lines
+
+ln -s /afs/cern.ch/user/e/egede/www/recomanual/data/muon_digitised.dat ZEBRA.P atrecon < muon_reconstruct.datacard > muon_reconstruct.stdout mv ZEBRA.0 muon_reconstruct.dat will perform reconstruction on the digitised muon events from muon_digitised.dat and store the reconstructed tracks in muon_reconstruct.dat. This file should be identical to the file /afs/cern.ch/user/e/egede/www/recomanual/data/muon_reconstruct.dat provided they are reconstructed with the same version of atrecon. In the same way the standard output should be nearly identical to the file mentioned in section 2.4.
+
+To run the reconstruction as a batch job at the CERN shift machines look in the ATLAS under AFS3 manual.
+
+Footnote 3: [http://wwwcn.cern.ch/~dodgson/atlasmanual.ps](http://wwwcn.cern.ch/~dodgson/atlasmanual.ps)
+
+### Existing packages for pattern recognition
+
+At the present there are 3 packages available for pattern recognition in the inner detector. All are fully independent and can be used for parallel studies of the same events.
+
+**IPatRec**: A package which starts the pattern recognition with a combinatorial search in the outer layers of the silicon detector. Details on the algorithm used can be found in the note ATLAS-SOFT-094.
+
+Footnote 4: [http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/DOCUMENTS/IPATREC/ipatrec.html](http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/DOCUMENTS/IPATREC/ipatrec.html)
+**Kalman**: Pattern recognition starting with a histogramming algorithm in the TRT and continuing inwards using the method of Kalman filtering. Detailed information5 exist on the usage of the package while documentation of the algorithm is still at the developing stage.
+
+Footnote 5: [http://wwwcn.cern.ch/~egede/xkalman.html](http://wwwcn.cern.ch/~egede/xkalman.html)
+**PIXLRec**: A pattern-recognition program operating in the ATLAS SCT (Pixels+Strips), starting from the innermost layer of pixels and going outwards. Documentation6 is also available for this package.
+
+Footnote 6: [http://wwwcn.cern.ch/~vacavant/pixlrec.html](http://wwwcn.cern.ch/~vacavant/pixlrec.html)
+
+Note that not all features are implemented for all packages.
+
+### Pattern recognition from seeds
+
+The reconstruction of tracks is implemented as reconstruction from some _seeds_ which provides a geometrical region of the detector where tracks are reconstructed. The concept is almost the same as the regions of interest defined for the ATLAS second level trigger.
+
+Pattern recognition takes place in a confined region (a road) of the inner detector defined by a central \((\eta,\varphi)\) and the half widths \((\Delta\eta,\Delta\varphi)\) of a box around the direction to search.
+
+A linear chain of inro banks in the detm bank structure contains the default values of steering parameters. The idea with the different inro banks is that it is possible from datacards to select the seeds used to provide roads for the reconstruction. If electromagnetic clusters are selected as seeds then pattern recognition will be performed in a road around all reconstructed clusters exceeding the defined threshold energy.
+
+The inro banks contain the variables
+
+**Type**: There are 7 different types of seeds, with numerical identifiers as given in table (1), creating roads of the types
+
+\begin{table}
+\begin{tabular}{|l|c|c|c|c|c|c|c|} \hline Type & All ID & EM clusters & muon & jets & KINE & GENZ & User \\ Numeric ID & 0.0 & 1.0 & 2.0 & 3.0 & 4.0 & 5.0 & 6.0 \\ \hline OnOff & 0.0 & 0.0 & 0.0 & 0.0 & 1.0 & 0.0 & 0.0 \\ PTSeed & 0.0 & 5.0 & 1.0 & 5.0 & 1.0 & 1.0 & 0.0 \\ Min Et a & -3.00 & -3.00 & -3.00 & -3.00 & -3.00 & -3.00 & -3.00 \\ Max Et a & 3.00 & 3.00 & 3.00 & 3.00 & 3.00 & 3.00 & 3.00 \\ Min Phi & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 \\ Max Phi & 6.28 & 6.28 & 6.28 & 6.28 & 6.28 & 6.28 & 6.28 \\ PDG1 & 0.0 & 0.0 & 0.0 & 0.0 & 13.0 & 5.0 & 0.0 \\ PDG2 & 0.0 & 0.0 & 0.0 & 0.0 & -13.0 & 25.0 & 0.0 \\ PDG3 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 & -25.0 & 0.0 \\ PDG4 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 & 0.0 \\ HWEtSe & 3.00 & 0.5 & 0.5 & 0.5 & 0.5 & 0.5 & 0.5 \\ HWFiSe & 3.15 & 0.5 & 0.5 & 0.5 & 0.5 & 0.5 & 0.5 \\ HWxyVT & 0.0015 & 0.0015 & 0.0015 & 0.0015 & 0.0015 & 0.0015 \\ HWrzVT & 5.59 & 5.59 & 5.59 & 5.59 & 5.59 & 5.59 & 5.59 \\ Pt Min & 0.50 & 0.5 & 0.5 & 0.5 & 0.5 & 0.5 & 0.5 \\ \hline \end{tabular}
+\end{table}
+Table 1: The default values for reconstruction with the XKalman module using the different seed types. The numeric identification of the different seed types are used when changing default values in the datacard file.
+
+**All inner detector**: The complete inner detector in each event.
+**EM clusters**: Clusters of size 7x3 in the electromagnetic calorimeter.
+**Muon tracks**: Tracks found in the muon detector.
+**HCAL**: Jets found in the calorimeters.
+**KINE**: Tracks in the KINE bank. The KINE bank contains information on all particles tracked by GEANT in the inner detector. Electrons from conversions and bremsstrahlung photons are included.
+**GENZ**: Particle generator information from the GENZ bank including all stable and unstable particles simulated by the event generator.
+**User**: A seed type specified by the user. How this can be done for the XKalman module is described in the examples7 of the online manual for using XKalman.
+
+Footnote 7: [http://wwwcn.cern.ch/~egede/xkal_example.html](http://wwwcn.cern.ch/~egede/xkal_example.html)
+**OnOff**: Determines if the specific type defined by the **Type** variable is used for pattern recognition or not.
+
+0.0 : Seed type is not used.
+
+1.0 : Seed type is used.
+
+As default all seed types are turned off except KINE seeds.
+**PtSeed**: The minimal transverse momenta or energy that will be used as seed. For the different values of **Type**, **PtSeed** has the meaning.
+
+0.0 : Dummy variable.
+
+1.0 : Minimal transverse energy in 7x3 cluster.
+
+2.0 : Minimal reconstructed transverse momenta of muon.
+
+3.0 : Minimal transverse energy in HCAL jet.
+
+4.0 : Minimal transverse momenta of particle in KINE bank.
+
+5.0 : Minimal transverse momenta of particle in GENZ bank.
+
+6.0 : As defined by user
+**MinEta**: Particles/clusters with a pseudorapidity below the limit will not be used as seeds.
+**MaxEta**: Particles/clusters with a pseudorapidity above the limit will not be used as seeds.
+
+**MinPhi**: Particles/clusters with a \(\varphi\) coordinate below the limit will not be used as seeds.
+**MaxPhi**: Particles/clusters with a \(\varphi\) coordinate above the limit will not be used as seeds.
+**PDG**: Determines which simulated particles will create roads. For the different values of **Type** using Monte Carlo truth information is has the meaning
+
+* The PDG codes of the KINE particles which will create roads. Several particles can be selected by assigning different values to the variables **PDG1**, **PDG2** etc. Sign is taken into account and 0.0 means ignore this variable. As default positive and negative muons create roads.
+* For GENZ particles the **PDGx** variables are used to demand a specific decay. **PDG1** is the PDG code of the main particle searched for, **PDG2** its mother, **PDG3** the mother of **PDG2** and **PDG4** the mother of **PDG3**. Only positive PDG codes are used, a negative value of **PDGx** indicates that the particle should **not** be of this type.
+* \(\begin{array}{lcr}\mbox{PDG1}&=&5&\mbox{(b quarks)}\\ \mbox{PDG2}&=&25&\mbox{(Higgs)}\\ \mbox{PDG3}&=&\mbox{-25}&\mbox{(Not a Higgs)}\\ \mbox{PDG4}&=&0&\mbox{No further demands}\end{array}\) In the example above all b or \(\vec{\mbox{b}}\) quarks from Higgs decay will be used as seeds, provided the b quark survives the cuts on **PtMin**, **EtaMin** etc. The extra demand that the Higgs should not come from a Higgs itself is due to an artifact in the GENZ bank. If it is not inserted each \(\mbox{H}\to\mbox{b}\vec{\mbox{b}}\) event will have 4 seeds.
+* As defined by user.
+**HWEtSe**: The half width in the \(\eta\) direction of the road used for pattern recognition.
+**HWFiSe**: The half width in the \(\varphi\) direction of the road used for pattern recognition. All tracks with a \(\varphi\) at the origin and \(p_{\rm T}\) above **PtMin** in the interval \([\varphi_{\rm seed}-\mbox{HWFiSe},\,\varphi_{\rm seed}+\mbox{HWFiSe}]\) will be inside the search road.
+**HWxyVt**: Half width of road in transverse plane at the vertex. Not used by the X Kalman module
+
+**HWrzVt**: Half width of road in longitudinal direction at the vertex. Not used by XKalman.
+**PtMin**: The minimal transverse momenta which will be searched for during the pattern recognition.
+
+The default values for all variables implemented for the Xkalman module are shown in table (1). Without any changes to the default values tracks will be reconstructed around muon tracks taken from the KINE bank.
+
+### Datacards
+
+The datacard file describes what operations are carried out by the atrecon program. Below is the datacard **Hbb_reconstruct.datacard** with comments for each operation.
+
+C------------------------------------------------------------------------- C C Hbb_reconstruct.datacard Ulrik Egede 18/8-96 C C C - to read back ZEBRA data C C - to call Atlas Reconstruction C C - Reconstruct tracks from GENZ bank C C------------------------------------------------------------------------- C C C Write this datacard on standard output at runtimeLIST C C C Number of events to process. If the number is higher than the number of C event in the data file ZEBRA.P all events are read. TRIG 100000 C C Time allowed to write an event to disk. TIME 2=5. 3=1 C C Error exeption handling for atrecon. TRAP 0 3 10 1 0 10 1 4 10 C C ------------------------------------------------------------------------- C C Events are read from ZEBRA.P file. KINE -1 C C Digitization, simulation and analysis status. 0 means to ignoreC the operation, 1 to perform it. Here we perform RECONSTRUCTION and C OUTPUT data to a file. SIMULATION 0 DIGI 0 RECONSTR 1 ANALYSIS 0 OUTP 1 C C Which bank trees to read in from the ZEBRA.P data file.
+*BKIO 'P' 'RUNT'
+*BKIO 'P' 'EVNT'
+*BKIO 'P' 'GEOM'
+*BKIO 'P' 'KINE'
+*BKIO 'P' 'HITS'
+*BKIO 'P' 'DIGI' C Which bank trees to write on the output data file ZEBRA.O. Note C the hits and digits are not saved but the reconstruction banks C are included.
+*BKIO 'O' 'RUNT'
+*BKIO 'O' 'EVNT'
+*BKIO 'O' 'KINE'
+*BKIO 'O' 'RECB' C
+
+C------ SLUG debugging parameters/modes ------ DEBU 0 0 0 C C End of first part of datacard STOP C C C-----------------------------------------C C Second part of datacard. Here are parameters that control the C modules that perform the reconstruction. C-----------------------------------------CLIST C C Reduce print out from SLUG
+*MODE 'GENE' 'PRIN' 1 C C Set a general print level for reconstruction to 1
+*MODE 'RECO' 'PRIN' 1C Set some general print levels
+*MODE 'PIXB' 'RECO' 1 'PRIN' 1
+*MODE 'PIXE' 'RECO' 1 'PRIN' 1
+*MODE 'SCTT' 'RECO' 1 'PRIN' 1
+*MODE 'ZSCT' 'RECO' 1 'PRIN' 1 C
+
+C Activate the XKalman reconstruction package with a print level of 2. Run C with default behaviour to reconstruct tracks around muons from the C KINE bank
+*MODE 'XKAL' 'RECO' 1 'PRIN' 2 C
+
+C Change the default behaviour of XKalman. Muons from the KINE bank
+
+C as seeds are turned off, and seeds from the GENZ bank turned on.
+*DETP 'XKAL' 'inro=' 4.0 'OnOff=' 0.0 'inro=' 5.0 'OnOff=' 1.0 C
+
+STOP
+
+Most of the lines in the datacard file can be left unchanged in the first part of the file. The second part determines how the pattern recognition is done and will require specific changes to each new type of physics analysis.
+
+With the *DETP datacard the banks with default values can be changed. The default values for reconstruction in the inner detector are stored in the inro banks as described in section 3.2.
+
+To stop the default reconstruction from KINE tracks and instead get reconstruction from electromagnetic clusters with standard parameters the *DETP datacard will look like
+
+*DETP 'XKAL'  'inro='1.0 'OnOff='1.0  'inro='4.0 'OnOff='0.0 where the selector 'inro='1.0 means that the variables following the selector will be changed in the inro bank of type 1.0. If changes are needed in several inro banks the inro selector has to be repeated several times as in the example. 'OnOff='1.0 means that this type will provide roads for the pattern recognition. Note that there can only be one *DETP datacard for the xkal (Xkalman) module but that it can continue on several lines as in the example. The different type identification numbers can be found in table (1).
+
+A more complicated example could be to reconstruct tracks in a region around all J/\(\Psi\)'s from B\({}_{\rm d}\) decays. Furthermore require the half width of the searched region to be 1.0 in both the \(\eta\) and the \(\varphi\) direction.
+
+*MODE 'XKAL' 'PRIN' 1 'RECO' 1 *DETP 'XKAL' 'inro='4.0 'OnOff='0.0 'inro='5.0 'OnOff='1.0 'PDG1='443.0 'PDG2='511.0 'PDG3='0.0 'HWETSE='1.0 'HWFISE='1.0
+
+Note again how the datacard is continued on several lines. The description of all variables and their default values can be found in section 3.2. The examples here are given with the XKalman package but a simple substitution of XKAL to IPAT or PIXL will run pattern recognition with IPatRec or PIXLRec instead.
+
+## 4 Analysis with atlsim
+
+To analyse data with reconstructed tracks the atlsim program can be used. The program is an interactive program and operations can be controlled either from the command line or from KUMAC files.
+
+A powerful feature of atlsim is that dynamic linking of subroutines is supported. This means that a users subroutine for analysis can be linked in as a part of the program. If an error is found in the user routine is can simply be changed and linked into atlsim again without restarting atlsim.
+
+Analysis routines are written in the AGE language which is Fortran-77 with some extensions. The extensions related to reconstruction are explained in the following section.
+
+### The AGE language for beginners
+
+For using atlsim for extracting reconstruction banks and doing analysis only a very limited knowledge is needed. A file written in the AGE language is often called a.g file since it is customary to give the source code the extension.g. Making a shared library of an AGE file it is first precompiled into Fortran code and then afterwards compiled in the usual way for Fortran files. An AGE subroutine can be written almost as a standard Fortran subroutine with the exceptions
+
+* The subroutine should not contain any double quotes like " or brackets like [ and ]. phone * Continuation lines are made by appending an underscore_to the end of the line in the same way as for Kumac files.
+* Never give a label the number 1.
+
+The AGE language has very easy access to the data in ZEBRA banks by introducing the concepts of **structures** and the **use** operators.
+
+A structure is placed among the declarations of a subroutine and contains the variables of a specific bank. If the bank **abcd** contains the integer variable **n** and the real variables **x,y** and **z** the structure declaration will look like
+
+structure abcd {int n, x, y, x}
+
+Note that variable names in a structure as default are reals and that integers are preceded by **int**.
+
+The **use** operator is used to read a specific instance of a bank in the executable part of the subroutine. To read the 5th bank **abcd** in a linear chain below the **recb** bank and print the variables one can write
+
+use /recb/abcd(5)
+
+print*, abcd_n, abcd_x, abcd_y, abcd_z
+
+Note that when using the variables from a specific bank their names are preceded by the bank name and an underscore.
+
+An example of a subroutine written in AGE using **structures** and **use** operators can be found in appendix B.
+
+### The bank structure
+
+The tree of the banks containing the reconstructed tracks can be seen in fig. 1. For each new event read from a file the recb structure is dropped and a new tree read in from the file.
+
+The bank named xkal in the figure is the top bank for tracks reconstructed with the XKalman reconstruction package. Other reconstruction packages will have a different top bank but the structure below this will be the same. In appendix A all variables in the banks are explained together with the structures defining them.
+
+### Monte Carlo truth information
+
+Monte Carlo truth information can either be extracted from the GENZ bank or the KINE bank.
+
+#### 4.3.1 The KINE bank
+
+The KINE bank is filled by GEANT and contains information on all particles tracked by GEANT through the inner detector. Decay products of long lifetime particles like \(\rm K_{s}^{0}\) are included as well as conversion electrons and bremsstrahlung photons. Calls to the GEANT routines GFKINE (particles) and GFVERT (vertices) are used. They are documented in the GEANT manual8 section KINE100. The numbering scheme used for the particles can be found in section CONS300.
+
+Footnote 8: [http://wwwcn.cern.ch/asdoc/geant_html3/geantall.html](http://wwwcn.cern.ch/asdoc/geant_html3/geantall.html)
+
+An example of reading the KINE bank can be found in appendix B.
+
+#### 4.3.2 The GENZ bank
+
+The GENZ bank is filled with information from the event generator and both unstable and stable particles are stored. The routine GNZGETP can be used to extract information. For normal use the first two arguments should be set to 1. Documentation can be found in the GENZ manual 9.
+
+Figure 1: The tree of the recb banks containing the reconstructed tracks.
+
+### An atlasim session
+
+To run atlasim make sure the atlasim binary and the files described in section 2.5 are in the current directory. Type atlsim at the command line and the program starts in the same way as PAW. Help is available by typing help. The following commands could be a part of an atlasim session where the file **muon_reconstruct.dat** is opened and events read one by one. The analysis routine from appendix B is called for each event to fill some histograms.
+
+*All the following commands can be typed directly at the
+*GEANT? prompt.
+*
+*Open a histogram file  ghist
+*
+*Get help on the gfile command  help gfile
+*
+*Open the file muon_reconstruct.dat as an input file  gfile p muon_reconstruct.dat
+*
+*Link the user code into the program and run the subroutine.
+*This is done by the KUMAC file geom.kumac  exec geom readxkal
+*
+*Get debug information  debug on
+*
+*Read an event  trig
+*
+* Run the analysis program  call readxkal
+*Repeat for 2 more events. In a kumac file it could be a loop  trig  call readxkal  trig  call readxkal
+*
+*Display the recb banks in the HIGZ window. Press with left
+*mouse bottom in Help to get an explanation on how to use
+*the mouse.
+
+disp recb
+*
+*All paw commands are available directly.  hi/li  hi/pl 1001
+*
+*End the atlas session quit To run the analysis on the reconstructed tracks from the muon file go into atlasim and type exec muon_analyse.kumac and all the histograms will be filled. Histograms and N-tuples can be analysed inside atlasim or in a following PAW session reading the histogram file atlas.his.
+
+It is also possible not to run atlasim as an interactive program. In that way it can also be submitted as a batch job. To analyse the reconstructed muons without the interactive interface type echo "exit" | atlasim -w 0 -l muon_analyse.kumac The usual -b option as in PAW will not work. If running in batch mode remember to copy both the files used by atlasim as mentioned in section 2.5 and the AGE files used by the analysis kumac file into a working directory.
+
+## 5 A complete example
+
+Here is put together a complete example on how to reach from the muon file with digitised events to a final file with histograms from the analysis.
+
+Create a directory and copy/link the necessary files. mkdir munontest cd munontest ln -s $LHC_ROOT/96_11/bin/atrecon. ln -s $LHC_ROOT/96_11/bin/atlsim. ln -s $LHC_ROOT/96_11/bin/geant3. ln -s $LHC_ROOT/96_11/bin/geant3.def. ln -s /afs/cern.ch/user/e/egede/www/recmanual/data/muon_digitised.dat ZEBRA.P cp /afs/cern.ch/user/e/egede/www/recmanual/datacard/muon_reconstruct.datacard. cp /afs/cern.ch/user/e/egede/www/recmanual/atlsim/geom.kumac.
+
+cp /afs/cern.ch/user/e/egede/www/recom manual/atlsim/makefile. cp /afs/cern.ch/user/e/egede/www/recom manual/atlsim/muon_analyse.kumac.
+
+Then run the atrecon program to reconstruct the tracks
+
+ln -s /afs/cern.ch/user/e/egede/www/recom manual/data/muon_digitised.dat ZEBRA.P atrecon < muon_reconstruct.datacard > muon_reconstruct.stdout mv ZEBRA.O muon_reconstruct.dat
+
+Finally run atlasim for the analysis
+
+atlsim GEANT> exec muon_analyse.kumac GEANT> quit mv atlas.his muon.hbook
+
+The file muon.hbook will now have the histograms produced during the analysis in atlasim.
+
+## Appendix A Definition of the reconstruction banks
+
+### The xkal bank
+
+The xkal bank is the top bank for reconstruction in the inner detector. If more than one reconstruction package has been used they will each have their own bank at this level. For the IPatRec reconstruction the bank is named ipat.
+
+The structure for the xkal bank is
+
+structure xkal_ {int AllID,int Ecal,int Muon,int HCal,int KINE,  int GENZ,int User_  }
+
+with the variables defines as
+
+* **A**ll**D** Set to 1 if there has been performed pattern recognition in the complete inner detector as one road. If not it is set to -1.
+* **ECal** The number of roads with seeds from the EM calorimeter.
+* **muon** The number of roads with seeds from the muon reconstruction.
+
+* **HCa1** The number of roads with seeds from the reconstructed jets.
+* **KINE** The number of roads with seeds from the KINE tracks.
+* **GENZ** The number of roads with seeds from the GENZ bank.
+* **User** The number of roads with seeds provided by the UXKalRoad user routine.
+
+### The road bank
+
+The road bank is in a linear structure with one bank for each road used for pattern recognition. The structure for the bank is
+
+structure road_  {int NTrack,int Type,int Index,_  R Seed,Phi Seed,ZSeed,DRSeed,DRPhi Seed,DZSeed,WTSeed,WLSeed,_  XVert,YVert,ZVert,DXVert,DYVert,WTVert,WLVert,PTMin_  }
+
+with the definitions
+
+* **Ntrack** Number of tracks found in the road.
+* **Type** Seed type. For codes look in table (1).
+* **Index** Index of seed in appropriate data structure (according to type: calorimeter cluster, muon track, electron seed for e-pair, KINE etc).
+* **R Seed** R-coordinate of the seed.
+* **PhiSeed** \(\varphi\)-coordinate of the seed.
+* **ZSeed** z-coordinate of the seed.
+* **DR Seed** \(\sigma\) of seed-coordinate (r direction) used in track fit. (Unused X Kalman)
+* **DRPhiSeed** \(\sigma\) of seed-coordinate (r-\(\varphi\) direction) used in track fit. (Unused X Kalman)
+* **DZSeed** \(\sigma\) of seed-coordinate (z direction) used in track fit. (Unused X Kalman)
+* **WTSeed** Road half-width in transverse projection at seed.
+
+* **WLSeed** Road half-width in longitudinal projection at seed.
+* **XVert** x-coordinate of mean vertex position (beam spot).
+* **YVert** y-coordinate of mean vertex position (beam spot).
+* **ZVert** z-coordinate of mean vertex position (beam spot).
+* **DXVert**\(\sigma\) of vertex x-coordinate used in track fit (beam spot).
+* **DYVert**\(\sigma\) of vertex y-coordinate used in track fit (beam spot).
+* **WTVert** Road half-width in transverse projection at vertex. (Unused X Kalman)
+* **WLVert** Road half-width in longitudinal projection at vertex. (Unused X Kalman)
+* **PTMin** Minimum \(p_{\mathrm{T}}\) tried to reconstruct.
+
+### The trak bank
+
+Below the road bank there is a trak bank for each reconstructed track with the codes for the attempted fits.
+
+The structure for the trak bank is
+
+structure trak_ {int BaseFit,int VertFit,int SeedFit}
+
+The variables are defined as
+
+* **BaseFit** Fit-code for basic fit (just to HITS).
+* **VertFit** Fit-code for fit with vertex constraint.
+* **SeedFit** Fit-code for special seed-dependent fit.
+
+with the fit codes
+
+* tfit bank exists.
+* tfit bank exists.
+* Fit not attempted.
+
+### The tfit bank
+
+The reconstructed parameters for the track. The first bank in the linear tfit chain is the fit only to the hits. The second bank includes a vertex constraint and the third bank a seed dependent fit (Bremsstrahlung fit etc.).
+
+The structure of the tfit bank is
+
+* structure tfit_ {int NSiHits,int NSiHoles,int Pattern,int NSrawHits,_  int NSrawHole,int NSrawTime,int NTRHits,_  Chi2,A0Vert,ZVert,PhiVert,CotThVert,PTInvVert,CovVert11,_  CovVert21,CovVert22,CovVert31,CovVert32,CovVert33,CovVert41,_  CovVert42,CovVert43,CovVert44,CovVert51,CovVert52,CovVert53,_  CovVert54,CovVert55,REnd,PhiPEnd,ZEnd,DPhiEnd,CotThEnd,_  PTInvEnd,int BarEnd,CovEnd11,CovEnd21,CovEnd22,CovEnd31,CovEnd32,_  CovEnd33,CovEnd41,CovEnd42,CovEnd43,CovEnd44,CovEnd51,_  CovEnd52,CovEnd53,CovEnd54,CovEnd55,BremRadius_ }
+
+The variables are defined as
+
+* **NSiHits** Number of hits associated in the precision layers.
+* **NSiHoles** Number of "holes" on track (hits expected from the precision layers but missing).
+* **Pattern** Hit pattern in detectors for the track. The individual bits in tfit_Pattern corresponds to the detector layers 
+ where the detector layers of a particular type have the lowest numbers closest to the main vertex. If a given bit is 1 the track has a hit in the corresponding layer, if it is 0 there is no hit.
+* **NSrawHits** Number of hits on the track from the TRT.
+* **NSrawHole** Number of empty straws along the track in the TRT.
+* **NSrawTime** Number of straw hits with drift time inside a narrow road around the track.
+* **NTRHits** Number of transition radiation hits in the TRT.
+
+* **Chi2** Fit \(\chi^{2}\)  (per degree of freedom).
+
+The track-fit parameters and covariance matrix are expressed at the tracks closest point of approach to the transverse vertex coordinates of its road (XVert,YVert in the road bank). The definition of the track parameters are.
+
+* **A0Vert** Transverse impact parameter to the closest point of approach to the vertex. Its sign is defined as positive when the \(\varphi\) angle of the point of closest approach is equal to the \(\varphi\) of the track (PhiVert) plus 90 degrees. See fig. 2.
+* **ZVert** z-coordinate of the track at the closest point of approach in R-\(\varphi\).
+* **PhiVert** Fitted \(\varphi\) at closest approach to vertex \([0,2\pi]\). See fig. 2.
+* **CutThVert**\(\cot(\theta)\) of the track at closest approach to vertex.
+* **PTInvVert**\(1/p_{\mathrm{T}}\) at vertex (Negative for tracks with negative charge).
+* **CovVert** Lower triangle of covariance matrix at vertex (15 variables). 1. A0Vert 2. ZVert 3. PhiVert 4. CotThVert 5. PTInvVert
+
+Figure 2: The definition of A0Vert and PhiVert for the track. A0Vert is positive for this track.
+
+As an example CovVert 33 is the covariance in \(\varphi\).
+* **REnd** Fitted radius at intercept with the inner detectors outer boundary.
+* **PhiEnd** Fitted phi of the point at intercept with the inner detectors outer boundary \([0,2\pi]\).
+* **ZEnd** Fitted z-coordinate at intercept with the inner detectors outer boundary.
+* **DPhiEnd** Difference in phi between the fitted phi direction of the track at the intercept with the inner detectors outer boundary and the phi of the point where it leaves the inner detector (PhiPEnd) \([-\pi,\pi]\).
+* **CutThEnd** Cot(theta) of the track at intercept with the inner detectors outer boundary.
+* **PtInvEnd \(1/p_{\mathrm{T}}\)** at the inner detectors outer boundary (Negative for tracks with negative charge).
+* **BarEnd** Variable is 1 if track leaves the inner detector through the side and 2 if it leaves the detector through the end of the cylinder.
+* **CovEnd** Lower triangle of covariance matrix for parameters at the outer surface of the inner detector. 1. REnd*PhiPEnd 2. ZEnd if BarEnd=1, REnd if BarEnd=2 3. DPhiEnd 4. CotThEnd 5. PTInvEnd
+* **BremRadius** The radius of hard bremsstrahlung origin.
+
+### The hiti bank
+
+The hiti bank contains information about the hits on a track. Be aware that this information is dependent on the clustering algorithm and thus can not be directly compared between different pattern algorithm programs.
+
+The structure of the hiti bank is
+
+structure hiti_  {int KINERef, int UniqueHits, int SpoiltHits, int WrongHits }
+
+The variables are defined as
+
+* **KineRef** The reference to the KINE track which contributes the majority of the clusters used to reconstruct the track.
+* **UniqueHits** The number of unique clusters on the track. A unique cluster is defined as a cluster made of hits from the KINE track with KineRef only. The variable is coded as 1000(# of SCT clusters) + 100(# of Pixel clusters) + (# of TRT hits).
+* **SpoilHits** The number of spoilt clusters on the track. A spoilt cluster is one that is a made up of hits from different KINE tracks has noise contributing. 1000(# of SCT clusters) + 100(# of Pixel clusters) + (# of TRT hits).
+* **WrongHits** The number of wrong clusters on the track. A wrong cluster is a cluster having hits entirely from a KINE track with reference different from KineRef. 1000(# of SCT clusters) + 100(# of Pixel clusters) + (# of TRT hits).
+
+## Appendix B An example of a subroutine written in AGE
+
+In this appendix is found a subroutine written in the AGE language. It can be found as the file /afs/cern.ch/user/e/egede/www/recomanual/atlsim/readxkal.g.
+
+***************************************************
+* subroutine ReadXkal *
+* Author : Ulrik Egede Date : 19/8-96 *
+* Loop on the recb banks filled during reconstruction and
+* stores some basic values in histograms. This demonstrates *
+* how'structure' and 'use' works. *
+****************************************************
+* implicit none
+****************************************************
+*
+* Structure declarations for the banks filled during track
+* reconstruction. Note how the continuation line is made with an
+* underscore. structure xkal_ {int AllID,int Ecal,int Muon,int HCal,int KINE,_  int GENZ,int User_ } structure road_ {int NTrack,int Type,int Index,_  RSeed,PhiSeed,ZSeed,DRSeed,DRPhiSeed,DZSeed,WTSeed,WLSeed,_  XVert,YVert,ZVert,DXVert,DYVert,WTVert,WLVert,PTMin_ } structure trak_ {int BaseFit,int VertFit,int SeedFit} structure tfit_ {int NSiHits,int NSiHoles,int Pattern,int NStrawHits,_  int NStrawHole,int NStrawTime,int NTRHits,_  Chi2,A0Vert,ZVert,PhiVert,CotThVert,PTInvVert,CovVert11,_  CovVert21,CovVert22,CovVert31,CovVert32,CovVert41,_  CovVert42,CovVert43,CovVert44,CovVert51,CovVert52,CovVert53,_  CovVert54,CovVert55,REnd,PhiPEnd,ZEnd,DPhiEnd,CotThEnd,_  PTInvEnd,int BarEnd,CovEnd11,CovEnd21,CovEnd22,CovEnd31,CovEnd33,CovEnd41,CovEnd42,CovEnd43,CovEnd44,CovEnd51,_  CovEnd52,CovEnd53,CovEnd54,CovEnd55,BremRadius_ }
+*
+*********************************************************************************************************************************
+* Common blocks from GEANT used to get the number of tracks in
+* the KINE bank and the run/event number. COMMON/GCNUM/NMATE,NVOLUM,NROTM,NTMED,NTMULT,NTRACK,NPART_,NSTMAX,NVERTX,NHEAD,NBIT
+* INTEGER NMATE,NVOLUM,NROTM,NTMED,NTMULT,NTRACK,NPART_,NSTMAX,NVERTX,NHEAD,NBIT COMMON/GCFLAG/IDEBUG,IDEMIN,IDEMAX,ITEST,IDRUN,IDEVT,IEORUN_,IEORTI,IEVENT,ISWIT(10),IFINIT(20),NEVENT,NRNDM(2)
+* INTEGER IDEBUG,IDEMIN,IDEMAX,ITEST,IDRUN,IDEVT,IEORUN_,IEORTI,IEVENT,ISWIT,IFINIT,NEVENT,NRNDM
+
+[MISSING_PAGE_EMPTY:29]
+
+10100 format('ReadXkal runs for event ',14) *
+* Now loop on reconstructed tracks in output banks
+*
+* Get the XKAL bank to find number of seeds of each type. The xkal
+* bank is read with the use operator and the xkal_ variables are
+* filled. use /recb/sect/nine/xkal Nseed = xkal_Ecal + xkal_Muon + xkal_KINE +_ xkal_Hcal + xkal_GENZ + xkal_User if (xkal_AllID.eq.1) Nseed = Nseed + 1
+* Loop on seeds NTrackRec = 0 do iSeed = 1,Nseed
+* Read the next road use /recb/sect/nine/xkal/road(iSeed)
+* Update total number of tracks in event NTrackRec = NTrackRec + road_Ntrack
+* Loop over the individual tracks do iTrack = 1, road_Ntrack
+* Read the track header bank and check basic fit exist. Note
+* how the path in the use operator uses a local path name. Each
+* time an absolute path name (starting with /) is used the
+* default path is changed. use trak(iTrack) if (trak_BaseFit.lt.2) then
+* Read the basic fit use trak(iTrack)/tfit(1)
+* Fill histograms call HF1(1001,real(tfit_NSiHits),1.0) call HF1(1002,real(tfit_NSiHoles),1.0) call HF1(1003,real(tfit_NStrawHits),1.0) call HF1(1004,real(tfit_NStrawHole),1.0) call HF1(1005,real(tfit_NStrawTime),1.0)call HF1(1006,real(tfit_NTRHits),1.0)  call HF1(1007,tfit_Chi2,1.0)  call HF1(1008,tfit_A0Vert,1.0)  call HF1(1009,tfit_ZVert,1.0)  call HF1(1010,tfit_PhiVert,1.0)  call HF1(1011,tfit_CotThVert,1.0)  call HF1(1012,1.0/tfit_PTInvVert,1.0)
+*  endif  enddo
+*
+* As an example on reading the KINE bank, loop on all particles and
+* find the Pt of the electrons.
+* NTRACK = number of tracks in the KINE bank for current event
+* coming from GEANT COMMON/GCNUM/  do itrack =1,NTRACK  call GFKINE(itrack,Vert,PVert,IPart,IVert,UBUF,NU)
+*
+* Check if we have an electron. (Number 3 in GEANT numbering scheme)  if (IPart.eq.3) then  Pt = sqrt(Pvert(1)**2+Pvert(2)**2)  call HF1(1013,Pt,1.0)  endif  enddo
+* write(6,10200) NTrackRec
+10200 format (I4,' tracks reconstructed in event')  end
+
+## Appendix C Trouble shooting
+
+### No output file from atrecon
+
+This is most likely caused by a missing line in the datacard instructing atrecon to open an output file. Look in section 3.3.
+
+### The dynamic linking of atlsim does not work
+
+There can be several reasons for this.
+
+* If one of the files Makefile, geant3, geant3.def or geom.kumac are missing in the directory where atlasmus the AGE file will never be compiled. Look in the sections 2.1 and 2.5.
+* Lack of resident memory on the machine. If there is not enough memory free for the shell process running the compiler, nothing will happen. Close other memory consuming utilities, wait for better times or find another computer.
+* Compilation errors during either the AGE precompilation or the Fortran compilation. A look in section 4.1 might help.
+* The shared library cannot be loaded because of a missing subroutine or function. Atlasmo does not know about the complete cernlib and this can be the cause of the problem. Either include the missing subroutine in your personal AGE (.g) file or avoid the call to the subroutine.
+
+### My analysis N-tuple is always memory resident
+
+To get a disk resident N-tuple it is necessary first to open the file used for histograms and N-tuples. Inside atlasmo can be done with the command
+
+GEANT> ghist which will open the standard file for atlas named atlas.his containing the directory //SLUGRZ.
+
+The file /afs/cern.ch/user/e/egede/www/recomanual/atlsim/testntup.g gives an example on how the N-tuple can be booked and written. Note the HCDIR subroutine call which tells the directory where the N-tuple should be written.
+
+### I get errors trying to read reconstruction banks
+
+Errors of the type
+
+error in USE operator called from READXKAL for bank XKAL/XKAL L = 9  Looking for variable =.000  ***** NO BANK EXISTS FOR THIS PATH *****  The path is /RECB/SECT/INNE/XKAL* with IDN = 1 1 1 0 arises when the bank requested is not existing. Maybe a bank name is misspelled or something has gone wrong during the reconstruction. Remember to store the reconstruction banks when running atrecon by including the line *BKI0'0''RECB' in the datacard file. In section 3.3 the format of the datacards are described in detail.
+
+Another type of error arises if there is a mismatch between the bank read from the file and the structure defined in the subroutine.The following error is caused by a wrong number of variables in the road bank.
+
+error in USE operator called from READKAL for bank XKAL/ROAD L = 23 Looking for variable =960827.188 ******* BANK LENGTH DOES NOT CORRESPOND TO THE STRUCTURE *******  The path is /RECB/SECT/INNE/XKAL/ROAD* with IDN = 1 1 1 1 1 The exact definition of the reconstruction banks can be found in appendix A.
+
+### Odd questions when starting atlsim
+
+If messages like
+
+*** /GEANT/GEOMETRY/OPTI: invalid integer number'stat'
+
+SGORD optimisation level (<CR>=stat) appears at the start-up of atlsim they are caused by errors in a pawlogon.kumac file. Commands like **opt stat** will cause problems since there is a Geant command with the short name **opt**. By using the complete command name like **graphics/option stat** this kind of errors are avoided10.
+
+Footnote 10: Thanks to Jo Pater for explaining this problem.
+
+### The disp recb command in atlsim does not work
+
+The **disp recb** command to browse the structures made during reconstruction is only guaranteed to work only if your HIGZ window is of the default size, namely 600 by 600. This is defined in the file higz_windows.dat in your top-level directory. If you haven't edited this file then you are probably okay. If you **have** edited it to make the HIGZ window some other size, use a 600x600 window for these operations10.
+
+Footnote 10: Thanks to Jo Pater for explaining this problem.
+
+### I try to run the examples but I cannot read the datafiles.
+
+If all instructions are followed as described in the section 5 but either atrecon or atlsim refuses to read the input file, it could be caused by the program not being able to "see" the data files. This situation should only be present if not running on the atlas machines at CERN. The problem comes up because the data files are linked from the atlas stage area and those disks are maybe not accessible from your local computer.
+
+How to move data from CERN to outside institutes is described on the Inner Detector software pages.

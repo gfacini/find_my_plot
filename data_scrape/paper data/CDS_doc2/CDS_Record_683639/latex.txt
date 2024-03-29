@@ -1,0 +1,298 @@
+ATLAS Internal Note
+
+DAQ-NO-091
+
+22 May 1998
+
+The main data flow in the Read-Out Crate of
+
+ATLAS DAQ prototype -1
+
+G.Ambrosini\({}^{\rm b}\), H-P.Beck\({}^{\rm a}\), D.Francis\({}^{\rm b}\), M.Joos\({}^{\rm b}\), GLehmann\({}^{\rm a}\), A.Mailov\({}^{\rm e}\),
+
+L.Mapelli\({}^{\rm b}\), G.Mornacchi\({}^{\rm b}\), M.Niculescu\({}^{\rm e}\), K.Nurdan\({}^{\rm d}\), J.Petersen\({}^{\rm b}\), D.Prigent\({}^{\rm b}\), J.Rochez\({}^{\rm b}\),
+
+R.Spiwoks\({}^{\rm b}\), L.Tremble\({}^{\rm b}\), G.Unef\({}^{\rm d}\), T.Wildish\({}^{\rm b}\)
+
+a. Laboratory for High Energy Physics, University of Bern, Switzerland.
+
+b. CERN, Geneva, Switzerland.
+
+c. Institute of Atomic Physics, Bucharest, Romania.
+
+d. Bogazici University, Istanbul, Turkey.
+
+NoteNumber : 047
+
+Version : 1.00
+
+Date : 22-04-97
+
+Reference : [http://atddoc.cern.ch/Atlas/Notes/047/Note047-1.html](http://atddoc.cern.ch/Atlas/Notes/047/Note047-1.html)
+
+## 1 Introduction
+
+### Purpose
+
+This document is part of a suite of documents which together form the deliverable of the pre-design phase of the Read-Out Crate (ROC) in ATLAS DAQ prototype -1 [1]. In particular this document presents the initial high-level design and implementation of the _I/O Modules_ (IOMs) and the message protocol between them.
+
+The IOMs are defined as the: _Trigger module (TRG), Level three interface (L3IF), Read-Out Buffer (ROB)_ and _Switch to Farm Interface (SFI)_. For the TRG, L3IF and ROB the definition, boundaries and initial high-level design are given. The SFI is an element of the DAQ-unit within the Sub-Farm Crate and was not analysed during the pre-design and is therefore not discussed any further, see [2]. Definitions within this document supersede those given in the summary document of the front-end discussion group [3].
+
+### Document overview
+
+The boundaries and relationship to other components of the ROC is given in section 1.3. In section 2 an initial high-level design of each IOM is given and the exchange of data control message between them. In section 3 the status of the pre-design exploratory prototyping is presented.
+
+### Boundaries
+
+This document only presents an analysis of the IOMs of the Read-Out crate. The IOMs are elements of the DAQ-unit sub-system and ensure the main flow of data into, within and out of the DAQ-unit. Within this sub-system they interface with the Local DAQ (LDAQ) sub-system for reasons of control, error reporting and monitoring. The boundary and interface with this element is defined elsewhere [4].
+
+The IOMs also interface with the detector frontend systems, the event building sub-system and the trigger systems. The boundary with the detector frontend systems is the Read-Out Link (ROL). The boundary with trigger systems is a network interface. The interfaces to the ROL and the network interface are not described here. The boundary with the event-building sub-system is a buffer. This buffer is maintained by an IOM. The relationship between the Read-Out Crate IOMs and other (sub-)systems is shown in Figure 1.
+
+### Acronyms, definitions and abbreviations
+
+See reference [5].
+
+## 2 General description
+
+### Requirements
+
+The IOMs within the ROC crate must fulfil the following requirements. The I/O modules must:
+
+1. perform the dataflow within the logical crate;
+2. be able to accommodate different hardware and technology (Intelligent I/O, data collection);
+3. allow different architectures and protocols;
+4. Interact with the level one and or level two trigger systems;
+5. be modular at both the hardware and software levels;
+6. The I/O modules must be able to function in stand alone mode for testing purposes.
+
+### Function and purpose
+
+The IOMs are those components which ensure the main flow of data into, within and out of the ROC. These components must:
+
+1. Handle the flow of data into the ROC;
+2. Buffer data that has been input into the ROC;
+3. Receive data flow control messages from the trigger systems;
+4. Forward buffered data to the trigger systems;
+5. Forward buffered data to the event building sub-system;
+6. Receive and respond to commands (e.g. run control and monitoring requests commands) originating from the LDAQ;
+7. Report errors to the LDAQ;
+8. Be able to be the source of data flow control messages and ROB or crate fragments for test purposes.
+
+Figure 1: The relationship between the Read-Out Crate IOMs and other (sub-)systemsThe specific implementation of these functionalities defines the IOM as the TRG, L3IF or ROB.
+
+### Design philosophy
+
+The different instances of the IOMs have a common core functionality. During the pre-design, common core functionality was identified and factorised out of the IOMs to form an element in its own right. This component is called the generic I/O Module (generic IOM), it defines the structure of the I/O modules and provides the functionality common to more than one IOM. These functionalities have been initially identified, by the discussion group [3], as are: task scheduling, buffer management, data control message passing, software support for specific hardware, local data base, event sampling (for monitoring purposes) and control. The high-level design of the generic IOM is described elsewhere [6].
+
+An implementation of the IOMs on today's commercially available hardware will limit the achievable performance. So as not to further diminish the obtainable performance, the IOMs should not be multi-process or multi-threaded and should not be interrupt driven. This reduces the dependence on operating system functionality and the overheads in context switching. Subsequently, the IOMs should be based on the sequential execution of tasks. The design and specific implementation of the tasks and their scheduling should not exclude an interrupt driven, multi-process/threaded implementation at a later date.
+
+Each IOM has several tasks which it must perform. These tasks are executed under specific conditions e.g. a particular hardware status or the reception of a particular data control message. These conditions are polled.
+
+### Model description
+
+#### Overview
+
+The main flow of data into, within and out of the ROC is handled by three IOMs: the TRG, the L3IF and the ROB. The TRG receives and buffers data control messages from the level 1 and or the level 2 trigger systems. The L3IF builds crate fragments and makes them available to the event building sub-system. The ROB receives and buffers ROB fragments. To achieve the required ROC functionality these IOMs exchange data control messages and ROB fragments between themselves and with other (sub-)systems.
+
+An initial high-level description of each IOM is given in the following sub-sections and covers the relationship with other (sub-)systems. Here a brief description of the relationship between IOMs is given.
+
+The relationship between the IOMs and the data control messages exchanged between them are shown in Figure 2. The TRG sends data flow control messages to the ROBs and L3IF. In the former case the messages are of two types: those that inform the ROBs to reject one or more ROB fragments and those that inform the ROBs to forward data to the level 2 trigger system. The message sent to the L3IF, the level 2 accept, leads to data collection. On completion of the latter a data control message is sent to the ROBs from the L3IF. This message causes the ROBs to discard the ROB fragment which was subject to data collection.
+
+In the absence of a level 2 trigger system the TRG may directly receive level 1 information. This data control message is then treated in a manner similar to that of the level 2 accept.
+
+#### 2.4.2 The Trigger module
+
+The TRG receives and buffers data control messages from the trigger systems or alternatively, is itself the source of these messages1. According to their type, the messages are sent to the ROBs or L3IF. The TRG also provides a mechanism whereby messages may be stacked according to their type. The flow of data control messages into and out of the TRG is shown in Figure 3.
+
+Footnote 1: Specifically when there is no external trigger system available i.e. during test procedures.
+
+Figure 3.The flow of data control messages with respect to the TRG.
+
+Data control messages from the
+
+level 1 or level 2 trigger system
+
+Figure 2.The relationship between the IOMs
+
+From Level 1
+
+and or level 2
+
+RoB
+
+Figure 3.The relationship between the IOMs
+
+From Level 1
+
+and or level 2
+
+RoB
+
+Figure 2.The flow of data control messages with respect to the TRG.
+
+Data control messages from the
+
+level 1 or level 2 trigger system
+
+The TRG is structured around three tasks:
+
+1. Specifically when there is no external trigger system available i.e. during test procedures.
+
+1. _Input_: This is the task which inputs and buffers the data control messages from the level 1 or level 2 trigger systems. The boundary with the trigger system is an interface which is managed by this task. The polling condition for this task indicates that one or more data messages have been or must be transferred to a buffer from the interface. In the latter case, this task may have to control the transfer of the data control message. Which of these conditions is implemented depends upon the design of the interface.
+2. _Processing_: This task processes the data control messages placed in a buffer by the input task. The data control messages are identified as those which must be sent to the ROBs or those which must be sent to the L3IF. They may be temporarily stacked according to their type or sent directly to the ROBs or L3IF. When stacking is used, the whole stack is sent as a single message on a stack full condition. The maintenance of the data control message buffer and stack is performed by this task.
+3. _Communications with the LDAQ_: This is the task which integrates the TRG with the LDAQ and is discussed elsewhere [4]. At the level of the IOM, functions are required to execute run control and monitoring request commands.
+
+#### 2.4.3 The Level three interface
+
+The L3IF, via the data collection component, builds the crate fragment into an internal buffer. These fragments are subsequently sent to the event building sub-system. The building of a crate fragment is started via the reception of a data control message, e.g. level 2 accept, from the TRG. Alternatively, the TRG input task may be implemented as a component of the L3IF. In this case data collection occurs as a consequence of a message received directly from the level 1 or 2 trigger systems. The flow of data and data control messages into and out of the L3IF is shown in Figure 4.
+
+The L3IF is structured around four tasks:
+
+1. _Input_: This is the task which receives data control messages from the TRG or from the level 1 or 2 trigger systems. In the former case the messages are received using the message passing functionality of the generic IOM. A message indicates that an event has been accepted by the level 2 trigger system (or the level 1 system in the absence of a level 2 system) and the identifier (common to the trigger systems and the DAQ) of the accepted event is conveyed within the message. The event identifier is decoded from the message and stored in a data structure shared with the Data collection task. This data structure is maintained by this task and must therefore be accessible via read or write operations.
+
+Figure 4.The flow of data control messages and data collection with respect to the L3IF.
+
+2. _Data collection_: This is the task which performs the collection of ROB fragments from all ROBs in a ROC, for a specific event identifier, to form a crate fragment. The task appends that information required by subsequent elements to directly access a specific ROB fragment. The event identifier of the ROB fragments to be collected is accessed from a read only data structure shared with the Input task. The task also adds L3IF specific data to the crate fragment. Data collection may proceed based on a shared memory model between the L3IF and the ROBs or via message passing between the L3IF and the ROBs. The event identifier of the crate fragments are stored in a data structure shared between this task and the source task. The data structure is maintained by this task and must therefore be accessible via read or write operations.
+3. _Source_: This task is responsible for the output from the ROC of crate fragments. Alternatively, in the absence of a L3IF this task becomes a ROB task and is responsible for the output of ROB fragments. The output could be to the event building sub-system or to a local data storage system. This element is discussed elsewhere in the context of output to the event building sub-system [7].
+4. _Communications with the LDAQ_: This is the task which integrates the L3IF with the LDAQ and is discussed elsewhere [4]. At the level of the IOM functions are required to execute run control and monitoring request commands.
+
+#### The Read-Out Buffer
+
+The ROB inputs and buffers ROB fragments from the read-out link. In addition, the ROB fragments must be: copied to a high-level trigger system; accessed via the data collection sub-component; removed from the buffering system and sampled by to the LDAQ for monitoring purposes. The buffer management scheme is provided by the generic IOM. The flow of data control messages and data into and out of the ROB is shown in Figure 5.
+
+The ROB is structured around five tasks:
+
+1. _Input_: This task receives and buffers the ROB fragments coming from the ROL. In the absence of a ROL, it must be itself the source of ROB fragments. The boundary with the ROL is an interface card which is initialised by this task. The polling condition for this task indicates that a ROB fragment has or must be transferred to the buffer. Which of these con
+
+Figure 5.The flow of data control messages and ROB fragments with respect to the ROB.
+
+ditions is implemented depends upon the design of the interface card. In the latter case, this task may have to set-up and perform the transfer. Data specific to the ROB may be added to the ROB fragment.
+2. _Communications with the TRG_: This task receives and processes data control messages from the TRG using the message passing functionality of the generic IOM. Two types of messages are received from the TRG: a type indicating that ROB fragments must be forwarded to the level 2 trigger system and a type indicating that ROB fragments must be removed from the buffer. The latter process is performed by this task. A message requesting data to be forward to the level 2 trigger system is decoded and the event identifier of the requested data placed in a data structure shared between this task and the Output task.
+3. _Communications with the L3IF_: This task receives a data control message, from the L3IF, whose type indicates that a ROB fragment must be discarded from the buffer. The data control message is received using the message passing functionality of the generic IOM. The event identifier of the ROB fragment, to be removed, is decoded from the data control message and the fragment is subsequently removed from the buffer by this task.
+4. _Output_: This is the task which is responsible for forwarding of ROB fragments to the level 2 trigger system. This task was not analysed during the pre-design phase.
+5. _Communications with the LDAQ_: This is the task which integrates the ROB with the LDAQ and is discussed elsewhere [4]. At the level of the IOM functions are required to execute run control and monitoring request commands.
+
+## 3 Pre-design prototyping
+
+### General description
+
+#### Overview
+
+During the pre-design phase of DAQ prototype -1 exploratory prototyping was performed which led to an initial implementation of the IOMs. This implementation is based on the initial high-level designs described in the previous section. The implementing hardware is VME-based single board computers with the following features: a single CPU, a single PCI bus for system I/O and the capability to implement two or more PMC slots. More specifically the IOMs are implemented on the RIO 8061 running LynxOS 2.3.1 or 2.4 [8].
+
+As required by the high-level design, the implementation was based on the pre-design implementation of the generic IOM [6]. The instances of the IOM use the following generic IOM functionality:
+
+1. The task scheduler. The tasks associated with each instance of the IOM were implemented using the generic IOM scheduler. The tasks were scheduled according to the round-robin algorithm.
+2. The IOM communication. All instances of the IOM exchange data control messages using the IOM communication element.
+3. The buffer manager. This functionality is used to buffer and manage ROB or crate fragments.
+
+4. Local data base. This functionality is used to store and export configuration parameters of the IOMs at initialisation.
+
+The task to communicate with the LDAQ is common to all IOMs. During the pre-design, this task was implemented as part of the LDAQ functionality.
+
+#### 3.1.2 Data control messages
+
+The format of the data control messages used was not discussed during this phase. Instead the relevant formats were adopted from early versions (30th may 1996) of those presented in [9]. In addition, for this pre-design phase, the packing of information as proposed in [9] was not used. Instead each data field is 32-bits wide. For completeness the format of the data control messages used are listed in Appendix A.
+
+#### 3.1.3 Run Control
+
+Control of the IOMs may be done via the LDAQ (remote) or locally. The choice is made at compile time. The remote control is implemented as described in [10]. In local mode the user is presented with a simple menu which allows all the LDAQ run control commands to be issued locally via a command line.
+
+#### 3.1.4 Monitoring
+
+The current implementation of the IOMs does not provide the LDAQ monitoring functionality with samples of ROB or crate fragments. However, a method allowing this functionality has been partially developed and tested [11].
+
+#### 3.1.5 Initialisation
+
+All IOMs perform the same set of actions at initialisation. These actions are:
+
+1. Install the control-c, exit and VME bus error handlers;
+
+2. Initialise the local data base;
+
+3. Open the I/O module communications;
+
+4. Open the task scheduler;
+
+5. Schedule communications with the LDAQ or local control;
+
+6. Start the scheduler.
+
+#### 3.1.6 Synchronisation
+
+For the pre-design prototyping, there were no external data sources i.e. no Read-Out drivers and trigger systems. In their absence it was necessary to develop a method of maintaining synchronisation between, principally, the TRG and ROBs who are themselves sources of data control messages and ROB fragments. The event identifiers being generated need to be consistent to avoid the TRG generating data control messages which require actions on a ROB fragments which are not known to the ROB (i.e. not buffered).
+
+The synchronisation is ensured using the SRAM of the TRG. At initialisation, each ROB maps into its VME space the SRAM of the TRG. Subsequently, during normal operation, each ROB writes the event identifier of the latest event it has generated into the TRG SRAM. The TRG, during normal operation, only sends data control messages with an event identifier which is less than that of all the ROB event identifiers written to its SRAM.
+
+#### Errors
+
+Error handling was not treated during the pre-design implementation. Where possible errors are handled locally otherwise they cause the exiting of the application.
+
+### The TRG
+
+#### Input action task
+
+In the current implementation, there is no input from the level 1 or 2 trigger systems. To substitute for this, a continuous source of dummy data was implemented using a simple test board occupying a single PMC slot [12]. On execution of this task a 1 KByte block of dummy data is transferred from the test board to a buffer. This simulates the transfer of more than one data control message, from the level 1 or 2 trigger systems to the TRG data control message buffer. This action task does not wait for the end of the dummy transfer.
+
+#### Processing action task
+
+In the current implementation, no data control messages are placed in the data control message buffer by the input task, see section 3.2.1. Instead, this task processes a limited and pre-defined set of data control messages generated and stored in continuous memory (i.e. the data control message buffer) at initialisation. The rest of the task is implemented as described in section 2.4.2 with a stack size of one data control message. The stack size is hardwired by a #define statement.
+
+This task is scheduled after the successful completion of the input task and when the current local event identifier is less than that of all ROB event identifiers, see section 3.1.6. All messages within the buffer are analysed before exiting. On re-execution of this task, the same message buffer is used but the event identifier field is updated incrementally for each message.
+
+### The L3IF
+
+#### Input action task
+
+This task receives data control messages from the TRG and is implemented as described in section 2.4.3.
+
+#### Data collection action task
+
+This task fully implements the initial high-level design described in section 2.4.3 using a shared memory mode between the L3IF and the ROBs. In this model, the implementation of the buffer within the ROBs is known and shared via the VME bus. The ordering of ROB fragments with a crate fragment is fixed and no provision has been made to specify a specific order at run time. No L3IF data is added to the crate fragment. On completion of data collection a data control message is sent to each ROB causing the removal of the ROB fragments which were just collected.
+
+3.3.3 Source action task
+
+This task was not implemented during pre-design prototyping.
+
+3.4 The ROB
+
+3.4.1 Input action task
+
+In the current implementation, there is no read-out link. Therefore, this task is itself the source of ROB fragments. ROB fragments are put into the buffer on the successful scheduling of the task. The condition for scheduling the task is that buffer space can be allocated to a "new" ROB fragment. A ROB fragment has a fixed length (1 KByte) and the format is as specified in [13]. This task prepares the ROB fragment header and fills the data section within an incremental counter. No ROB specific data is added to the event.
+
+In the context of this task, a read-out link implemented with the Fibre Channel S-Link was studied and a prototype S-Link library developed. The read-out link performance, the input of ROB fragments and their placement within the buffer, was also studied.
+
+3.4.2 TRG action task
+
+This task has been implemented as described in the initial high-level design. The task is executed on the arrival of data control messages from the TRG. The messages are of two types, see section 3.1.2. However, both types of messages lead to the removal of a ROB fragment from the buffer. The ROB fragment to be removed is identified by the event identifier within the received message.
+
+3.4.3 L3IF action task
+
+This task has been implemented as described in the initial high-level design. The task is executed on the arrival of data control messages from the L3IF.
+
+3.4.4 Output action task
+
+This task was not implemented during pre-design prototyping.
+
+Appendix A
+
+The level 2 decision (accept or reject) and the region of interest request data control messages as implemented during the pre-design phase are shown in the following figures.
+
+## References
+
+* [1]G. Ambrosini _et. al._, The ATLAS DAQ and Event Filter Prototype -1 Project. [http://atd-doc.cern.ch/Atlas/Conferences/CHEP/ID388/ID388-1.html](http://atd-doc.cern.ch/Atlas/Conferences/CHEP/ID388/ID388-1.html)
+* [2]D. Francis et. al., The Sub-farm DAQ for the ATLAS DAQ prototype -1. In preparation. [http://atddoc.cern.ch/Atlas/Notes/044/Note044-1.html](http://atddoc.cern.ch/Atlas/Notes/044/Note044-1.html)
+* [3]F/E Discussion Group Summary Document and Work Plan. [http://atddoc.cern.ch/Atlas/](http://atddoc.cern.ch/Atlas/) FrontEnd/document/draft.ps
+* [4]G. Ambrosini _et. al._, The LDAQ in ATLAS DAQ prototype -1. [http://atddoc.cern.ch/Atlas/](http://atddoc.cern.ch/Atlas/) Notes/040/Note040-1.html
+* [5]D. Francis. Definitions, acronyms and abbreviations in ATLAS DAQ prototype -1. In preparation. [http://atddoc.cern.ch/Atlas/Notes/XXX/NoteXXX-1.html](http://atddoc.cern.ch/Atlas/Notes/XXX/NoteXXX-1.html), _In preparation_.
+* [6]D. Francis _et. al._, The generic I/O module in ATLAS DAQ prototype -1. [http://atd-doc.cern.ch/Atlas/Notes/041/Note041-1.html](http://atd-doc.cern.ch/Atlas/Notes/041/Note041-1.html)
+* [7]G. Ambrosini _et. al._, A logical model for event building in DAQ -1. [http://atddoc.cern.ch/](http://atddoc.cern.ch/) Atlas/Notes/042/Note042-1.html
+
+Figure 6:The format of the Level 2 decision data control message
+
+Figure 7:The format of the Level 2 region of interest request data control message[8]RIO2 8061 PowerPC based RISC I/O Board. Technical Manual. CES.
+* [9]F. Wickens, Proposed Data Formats for T2 Demonstrator Programme. [http://hep-www.rl.ac.uk/atlas/l2/demonstrator/docs/demons_data_defs.html](http://hep-www.rl.ac.uk/atlas/l2/demonstrator/docs/demons_data_defs.html)
+* [10]D. Francis _et. al._, Integration of the LDAQ and IOM components of the Read-Out crate of the main data flow. [http://attdoc.cern.ch/Atlas/Notes/038/Note038-1.html](http://attdoc.cern.ch/Atlas/Notes/038/Note038-1.html)
+* [11]J. Petersen, Notes on the Monitoring of Events in the I/O module for ATLAS prototype -1. [http://attdoc.cern.ch/Atlas/Notes/035/Note035-1.html](http://attdoc.cern.ch/Atlas/Notes/035/Note035-1.html)
+* [12]This was just the AMCC test board with a little bit of add-on.
+* [13]D. Francis _et. al._, Event format for the ROB module and the L3IF. Interface to the I/O modules for LDAQ monitoring. [http://attdoc.cern.ch/Atlas/Notes/014/Note014-1.html](http://attdoc.cern.ch/Atlas/Notes/014/Note014-1.html)

@@ -1,0 +1,763 @@
+# The ATLAS Track Extrapolation Package
+
+A. Salzburger
+
+Leopold Franzens Universitat Innsbruck, Austria & CERN
+
+E-mail: Andreas.Salzburger@cern.ch
+
+December 11, 2007
+
+###### Abstract
+
+The extrapolation of track parameters and their associated covariances to destination surfaces of different types is a very frequent process in the event reconstruction of high energy physics experiments. This is amongst other reasons due to the fact that most track and vertex fitting techniques are based on the first and second momentum of the underlying probability density distribution. The correct stochastic or deterministic treatment of interactions with the traversed detector material is hereby crucial for high quality track reconstruction throughout the entire momentum range of final state particles that are produced in high energy physics collision experiments. This document presents the main concepts, the algorithms and the implementation of the newly developed, powerful ATLAS track extrapolation engine. It also emphasises on validation procedures, timing measurements and the integration into the ATLAS offline reconstruction software.
+
+Introduction
+
+The transport of track parameters (i.e. the representation of a track with respect to a given surface) and their associated covariances is a very frequent process in track reconstruction. Most progressive fitting techniques such as the Kalman filter formalism [1] rely on the prediction of the gathered track information on the successive measurement surface (a simplified illustration of a track extrapolation in a typical Kalman filter step can be seen in Fig. 1). In global fitting techniques, on the other hand, the prediction of the track depending on the initial parameters (i.e. the fitted parameters) enters the global \(\chi^{2}\) function to be minimized. For both, global and sequential track fitting algorithms, the correct treatment of effects caused by the interaction of the particle with traversed detector material is essential; in the least squares fit the uncertainties due to material interactions regulate the contribution of the fitted scattering angle to the global \(\chi^{2}\) function. In most sequential fitting techniques the uncertainties of the momentum direction and magnitude caused by interactions with the detector material are directly applied as deterministic energy loss and additional contributions to the covariance matrix during the extrapolation process.
+
+Track extrapolation is furthermore necessary in vertex fitting, where the expression of the track with respect to the estimated vertex position has to be evaluated iteratively towards convergence. Moreover, in pattern recognition the seeded prediction of a track may be used for trajectory building and hit finding. Finally, the track parameters representation on a destination surface is needed for combined reconstruction to enhance the matching of tracking information and calorimeter clusters on the one hand, and the combination of tracks and track segments from different tracking devices on the other hand.
+
+The ATLAS experiment puts stringent requirements to the track reconstruction software: for the track parameter propagation, in particular, the highly inhomogeneous magnetic field setup -- a solenoidal field with a central magnitude of 2 Tesla in the _Inner Detector_ (ID) and a toroidal magnetic field with a peak strength higher than 4 Tesla in the _Muon Spectrometer_ (MS) -- and the complex material distribution of the sub-detectors must be dealt with correctly to achieve a satisfactory tracking resolution. Additionally, the expected high track occupancy in the Inner Detector and the resulting high number of track candidates impose combinatorial and timing constraints for track finding and fitting
+
+Figure 1: Simplified illustration of a typical extrapolation process within a Kalman filter step. The track representation on the detector module 1 is propagated onto the next measurement surface, which results in the track prediction on module 2. The traversing of the material layer between the two modules causes an increase of the track direction uncertainties and thus — by correlation — an increased uncertainty of the predicted track parameters. In the Kalman filter formalism, the weighted mean between prediction and associated measurement build the updated measurement which builds the start point for the next filter step; this leads to the illustrated non-continuous track model.
+
+algorithms. Since the CPU time consumption of the track reconstruction chain has to be minimised to fit with the computing budget of the experiment, the algorithmic solution of a powerful but fast track extrapolation engine is a challenging task.
+
+During the redesign of the ATLAS offline reconstruction software that has been invoked by the _Final Report of the Reconstruction Task Force_ (RTF) [2], a new extrapolation package has been designed and developed. First big scale tests of the new extrapolation engine have been performed during event reconstruction of the ATLAS _Combined Test Beam_ 2004 (CTB2004), the first commissioning runs using cosmic rays since 2005 and the reconstruction of Monte Carlo simulated data. The extrapolation package is fully integrated in the object oriented C++ based ATLAS software framework ATHENA [3] and has been developed respecting ATLAS coding standards [4]. A description of the main components of the ATHENA framework, the Service, the Algorithm and the AlgTool interfaces, can be found in [5]. This document is based on the ATLAS software release 13.0.10, while extensions that have been applied after this release are indicated within the context.
+
+### Design Principles and Document Structure
+
+The transportation of a track representation to a destination surface can be divided into three conceptionally different tasks that have been independently realised as single components of the ATLAS extrapolation package. For convenience, they will also build the guideline of this document:
+
+* the **propagation** process describes the mathematical transport of the track parameters and associated covariances to the target surface. The propagation module is defined through a dedicated IPropagator interface, that is implemented through various different propagation AlgTool classes. A more detailed description of the propagation process can be found in Sec. 2.
+* the **navigation** relates the trajectory to the various entities of the reconstruction geometry. This is necessary to find the appropriate material description, to ensure the access to the (configured) magnetic field map, or even to find the detector volume that contains the destination surface. A dedicated INavigator interface defines these navigation methods, see Sec. 3.
+* the **integration of material effects** according to the traversed detector material that is provided by the navigation marks the third column of the extrapolation package. It is enhanced through various different AlgTool classes and further described in Sec. 4.
+
+The complete process including all three tasks will in the following be referred to as _track extrapolation_. It is concentrated in a single AlgTool implementation, the Extrapolator; a schematic illustration of the three column structure that is incorporated by the extrapolation engine -- represented through the various interface definitions -- can be seen in Fig. 2. A further description of the user interface and the successive steering of propagation, navigation and material effects integration will be described in Sec. 5. Section 6 will give performance numbers in both timing and accuracy for typical track reconstruction applications. The Appendix explains used conventions and typesetting formats, and gives an exhaustive list of formulas used within the various track propagation techniques.
+
+### Component Pattern and Data Factory Design
+
+The TrkExtrapolation repository follows a strict component pattern design, i.e. abstract interface classes are concentrated in dedicated interface packages, while concrete implementations of algorithmic code and data classes are separated in different component and installed libraries, respectively. This allows dynamic loading of libraries at job execution level, and is thus the key to the high flexibility. The single components of the track extrapolation package are, in general, realised as factories, i.e. the performed operations lead to newly created objects. In C++ terms this is done by returning pointers to objects that are dynamically created using the new operator, while the return of a pointer with value 0 indicates that the operation could not be performed. The ATLAS tracking data model, briefly presented in the following section, does not foresee invalid objects, such as e.g. a representation of a failed extrapolation process.
+
+### Tracking Event Data Model and TrackingGeometry
+
+The extrapolation package is based on the common tracking event data model (EDM) and the ATLAS reconstruction geometry. In particular, the main EDM classes extending the TrackParameters base class and the geometry classes Surface, TrackingGeometry, TrackingVolume and Layer are essential ingredients of the track extrapolation process. The full description of these classes would go far beyond the scope of this document the interested reader is, however, encouraged to read further in [6] and [7], respectively, for an exhaustive description of these modules.
+
+Track ParameterisationA track can be parameterised with respect to a surface in many different ways. If a particle propagates through magnetic field, however, a minimal set of five parameters is necessary to provide a complete and unambiguous parameterisation with respect to any given detector surface. In the following, such a representation of the trajectory will be referred to as TrackParameters. In ATLAS, dedicated TrackParameters objects exist for every defined surface type and provide the following track parameterisation1
+
+Footnote 1: Many experiments in the past used a — for many analysis aspects — more handy parameterisation of a helix with a curvature-optimised momentum representation \(q/p_{T}\) and the polar direction represented as \(\cot\theta\). Since for ATLAS a general representation had to be chosen that is valid throughout the detector and thus within different magnetic field setups, a helical representation that is bound to one magnetic frame is not optimal, as the transverse momentum does not remain a constant of motion.
+
+\[\mathbf{x}=(l_{1},l_{2},\phi,\theta,q/p)^{T} \tag{1}\]
+
+when \(l_{1}\) and \(l_{2}\) denote the local coordinates on the given surface (and thus depend on the surface type), \(\phi\) and \(\theta\) are the azimuth and polar angle, respectively, and \(q/p\) is the inverse momentum multiplied by the charge \(q\). For the widely used perigee representation that is often used to express the track with respect to the nominal beam axis the local parameters \(l_{1}\) and \(l_{2}\) correspond to the transverse and longitudinal impact parameter \(d_{0}\) and \(z_{0}\), respectively. Figure 3 shows an illustration of the perigee representation using ATLAS conventions.
+
+Figure 2: The ATLAS extrapolation engine illustrated as a task diagram. The various modules of propagation, navigation and material effects integration are identified through dedicated interfaces. The main concrete implementations are also shown in this diagram, brighter colored boxes framed by a dashed line represent hereby the exchanged modules for the use of the extrapolation engine in the fast track simulation application.
+
+Neutral ParametersRecently, the ATLAS tracking EDM has been extended to deploy a dedicated schema for neutral particle representations [8]. The fifth parameter of the representation as given in Eq. (1) is hereby modified to represent \(1/q\), omitting the charge definition. Charged and neutral trajectory representations are realised through the same templated class objects to avoid code duplication, while keeping the type diversity to prevent misinterpretations to happen during the reconstruction flow. The extrapolation package and propagation tools have been adapted to cope with both charged and neutral types, but the ATLAS Track class remains restricted to charged trajectories2. Neutral parameters are only transported along a straight line to the provided target surface. Material effects are not taken into account and thus the navigation process is not necessary in this context. This documents concentrates therefore on the extrapolation process of charged track representations and will only briefly mention the particularities for neutral parameterisation in the various different modules.
+
+Footnote 2: This is because neutral particles are not subject of tracking in the classical terms of track finding and track fitting.
+
+## 2 Propagation
+
+The mathematical propagation of track parameters to a destination surface is -- when omitting energy loss and multiple scattering effects -- determined by the starting parameters and the traversed magnetic field. A homogenous magnetic field setup (no field or constant field value and direction) allows to use an underlying parametric track model for the propagation. Many propagation processes can then be solved purely analytically to find the intersection of the track with the destination surface and even for the transported covariances. However, the highly inhomogeneous magnetic field of the ATLAS detector setup requires tracking of particles by numerical methods. Figure 4 shows the magnetic field of the ATLAS detector in an \(r-z\) projection for both, the Inner Detector in detail, and the Muon Spectrometer.
+
+The variety of the different propagation techniques is enhanced by different implementations of a common abstract AlgTool interface, the IPropagator. The interface for propagator AlgTool classes is kept very simple; it reflects the pure principle of the task: an input TrackParameters object, a destination surface, magnetic field properties and a boolean for the surface bound handling is passed through the method signature, while on the other hand the propagated parameters are returned as the method value. Returning a pointer to a new object puts the responsibility of memory cleanup onto the client algorithm, but complies fully with the factory pattern design described in Sec. 1.2.
+
+The following main interface methods are defined for the IPropagator interface:
+
+* The propagate() method shall be used in cases when the track parameters to be transported are likely to carry a covariance matrix and the client algorithm relies on the transported error description as well. If the input parameters do not have associated errors, only the parameters are transported to the destination surface.
+* To save CPU time, the propagateParameters() that only performs the transport of the pa
+
+Figure 3: The perigee representation expressed in the ATLAS track parameterisation. The local expression of the point of closest approach is given by the signed transverse impact parameter \(d_{0}\) and the longitudinal impact parameter \(z_{0}\). The momentum direction is expressed in global coordinates using the azimuthal angle \(\phi\) that is defined in the projected \(x-y\) plane and the polar angle \(\theta\), which is measured with respect to the global \(z\) axis.
+
+rameters and omits the transport of the associated covariances can be chosen. This is optimised for situations where the transported error represented at the destination surface is not needed.
+* The globalPositions() method is designed to fill a list with 3D points along the track in intervals of a given step length and confined within a given volume. It is mainly performed during the road building process of the pattern recognition stage.
+* The validationAction() enables to call event- or track-based validation directives from outside (e.g. such as parameter resetting or the filling of validation information into appropriate output
+
+Figure 4: The realistic magnetic field in the \(r-z\) plane for the entire ATLAS detector. The upper plot shows the magnetic field strength in the \(r-z\) plane at an azimuthal angle of \(\phi=\pi/8\) which lies within one Muon System toroid structure. The plots at the bottom focusses on the magnetic field of the Inner Detector as described by the ATLAS-CSC-01-02-00 layout. The first plot at the bottom shows the \(\phi\)-dependency of the magnetic field at different radii in steps of 100 millimeter at \(z=0\): the homogeneity of the field in the ID is broken in radial and azimuthal direction even in the very central part of the solenoid. The second plot shows the magnitude of the magnetic field shown within a quarter of the Inner Detector.
+
+containers). This interface method is not particular to the IPpropagator interface. In fact, most of the used AlgTool classes in the TrkExtrapolation realm implement a method of this type and purpose.
+
+Four different propagators have been implemented and are located in different packages of the ATLAS software repository, the StraightLinePropagator and HelixPropagator incorporate a straight line and respectively helical track model, whereas the RungeKuttaPropagator and STEP_Propagator are based on the numerical Runge-Kutta-Nystrom [9] integration technique to evaluate the field integral.
+
+### Intersection with Surfaces and Direction Instructions
+
+The intersection of a track with a surface can be expressed in both global and local coordinates. In terms of track parameters propagation also the direction of the track at the destination surface is needed for a complete track parameterisation: the two local coordinates of the surface intersection and the momentum of the track at the destination surface build the five parameters of the propagated TrackParameters expression. The local intersection point -- together with the surface constraint -- establish the global representation of the trajectory intersection with the target surface; a detailed discussion of the TrackParameters object and the used local frame definitions can be found in [6].
+
+The propagation can be performed with a direction instruction, steered by an enumeration object; propagations alongMomentum, oppositeMomentum and anyDirection can be performed. The direction does not only determine the intersection solution to be chosen -- in case that multiple solutions exist -- but also handles the material effects integration during the extrapolation process. For planar surfaces, i.e. the PlaneSurface and DiscSurface in the ATLAS reconstruction geometry model, there is, in general, one unique solution3 for the intersection. The _intersection_ with a straight line (in the ATLAS reconstruction geometry described by either the StraightLineSurface or the PerigeeSurface) is defined as the transverse closest approach to the line. The local expression of this point of closest approach is done by a signed transverse impact parameter and the longitudinal impact parameter with respect to the line frame. For surfaces of type CylinderSurface typically one or two intersections exist for a given start parameter set. If the propagation direction excludes one of the solutions, obviously the other solution is taken, if both intersections are compatible with the provided directive (or the directive has been chosen to be anyDirection), the closer intersection is taken by convention.
+
+Footnote 3: In the ATLAS experiment, the geometrical dimensions of the destination surfaces are in general small compared to the curvature of the track due to the bending of the magnetic field. Hence, multiple intersections with planar surfaces are very rare.
+
+#### 2.1.1 The Measurement Frame
+
+The transport of the covariance matrix to a given surface requires the definition of the so-called measurement frame, i.e. the coordinate system attached to the destination surface in which the error on the local parameters is properly defined. For planar surfaces this definition is trivial: the measurement frame is hereby identical with the local surface frame, a cartesian frame for the PlaneSurface and a polar frame for the DiscSurface. For cylindrical surfaces, the measurement frame is defined -- by convention -- as the tangential plane to the intersection point with the cylinder. Since in ATLAS no measurement is given on a cylindrical surface (these are mostly needed for the navigation through the volumes of the reconstruction geometry), this choice saves unnecessary conversions from cartesian to cylindrical coordinates (and _vice versa_).
+
+For track expressions with respect to a line (Perigee or AtaStraightLine definitions) the measurement frame can only be constructed once the point of closest approach is found: it is characterised by the transverse _drift_ direction \(\mathbf{d}_{D}\) as the first local axis and the line direction \(\mathbf{d}_{L}\) as the second, perpendicular axis. Figure 5 shows an illustration of the measurement frame for a closest approach to a straight line.
+
+### Analytical Track Models: StraightLinePropagator and HelixPropagator
+
+Propagations along a straight line can be solved analytically for all surface types. This transport type is applied for particles of zero charge or in absence of a magnetic field. Furthermore, they may be used for crude estimates, in particular in the non-bending plane. The StraightLinePropagator, located in the TrkExSIPropagator package, provides this functionality. It has been extensively used during the reconstruction of events taken during the ATLAS CTB2004 and data taken from the first commissioning runs using cosmic rays, where several periods of data taking without magnetic field have taken place.
+
+The HelixPropagator is suitable for propagations of parameters in a homogeneous magnetic field, a very rare or even non existing situation in the ATLAS reconstruction. However, for the CTB2004 Monte Carlo simulation has been done assuming a constant magnetic field and for the new _Fast ATLAS Track Simulation_ (FATRAS) [10], the constant magnetic field together with the HelixPropagator may be a sufficient simplification for various applications. When using a helical track model the analytical solution for track intersections with many surfaces can only be performed if the surfaces are _aligned_ with the guiding center of the helix. Assuming perfect alignment of the ATLAS detector, many surfaces fulfill this requirement. For arbitrarily oriented surfaces, a numerical method to solve the equation has to be used, which is solved through a standard Newton-Rhapson approach. Due to its rare usage in the reconstruction this method has been, however, poorly validated and clearly lacks both accuracy and stability for production usage.
+
+The formulas used for the calculations of the surface intersections for both the StraightLinePropagator and the HelixPropagator can be found in the Appendix, Sec. A.3 and Sec. A.4.
+
+#### 2.2.1 Analytical Error Propagation along the curvilinear Frame
+
+Since both, the straight line and the helical propagation incorporate an underlying analytical track model, the transport of the covariance matrix can be performed analytically as well. This is done using the so-called _curvilinear_ frame that can be defined at every point of the track and has been widely used in the past in high energy physics experiments [11]. The intersection solution with a target surface is, in general, a non-linear function of the starting parameters and it is thus not obvious how to propagate the associated error. A solution to this is to linearise the problem by taking the first order of a Taylor series expansion for the error propagation. The derivatives of the transported parameters with respect to the start parameters build hereby the Jacobian matrix that yield the transformation of the covariance matrix. Within the curvilinear frame, the transport Jacobian matrix \(\mathbf{J}_{\mu,\nu}\) becomes an analytical expression with the single parameter \(s\), which denotes the propagation length along the line or helix. Given a global point \(\mathbf{m}\) and the momentum \(\mathbf{p}\) (defined at \(\mathbf{m}\)), the right handed curvilinear frame \(\mathbf{u}_{i}=(\mathbf{e}_{u}\,,\mathbf{e}_{v}\,,\mathbf{e}_{t}\,)\) is defined by
+
+\[\mathbf{e}_{t}\,=\frac{\mathbf{p}}{|\mathbf{p}|}\]
+
+Figure 5: The measurement frame for the closest approach of a track to a nominal line surface. The error on the local coordinates is given in a two-dimensional cartesian system, defined through the drift direction \(\mathbf{d}_{D}\) and the line direction \(\mathbf{d}_{L}\), respectively.
+
+\[\mathbf{e}_{u} = \frac{\mathbf{e}_{z}\,\times\mathbf{e}_{t}}{|\mathbf{e}_{z}\,\times \mathbf{e}_{t}\,|}\] \[\mathbf{e}_{v} = \mathbf{e}_{t}\,\times\mathbf{e}_{u}\,, \tag{2}\]
+
+where \(\mathbf{e}_{z}\,\) denotes the global \(z\) axis4. Figure 6 shows the curvilinear frame construction for a measurement along a straight line.
+
+Footnote 4: In principle, any unique global reference axis can be chosen instead of \(\mathbf{e}_{z}\,\). The choice of the global \(z\) axis in this scope is not arbitrary though, but reflects the detector geometry. It guarantees numerical stability since track directions along \(\mathbf{e}_{z}\,\) are not expected.
+
+Let \(\mathbf{C}_{li}\) denote the covariance matrix of the initial parameters in the local coordinates of the starting frame, and \(\mathbf{J}_{li,ci}\) the Jacobian matrix describing the parameter transformation from the initial local frame \(li\) to the initial curvilinear frame \(ci\). The initial covariance matrix expressed in the curvilinear frame \(\mathbf{C}_{ci}\) of the starting parameters can then be written as
+
+\[\mathbf{C}_{ci}=\mathbf{J}^{ci,li}\cdot\mathbf{C}_{li}\cdot\mathbf{J}_{li,ci}, \tag{3}\]
+
+with \(\mathbf{J}^{ci,li}=\mathbf{J}_{li,ci}^{T}\) being the transposed Jacobian of the _local-to-curvilinear_ transformation.
+
+The transport Jacobian matrix \(\mathbf{J}_{ci,cf}\) between the curvilinear frame at start point \(i\) and destination point \(f\) (i.e. track intersection with the target surface) becomes only dependent on the rotations of the initial and final curvilinear frames with respect to the global frame and the propagation length \(s\). The calculation of this Jacobian such as the coefficients for local to curvilinear frame transformations (and _vice versa_) can be found in the Appendix, Sec. A.5, of this document. The transported covariance matrix at the destination surface after back transformation to the local frame using an appropriate Jacobian \(\mathbf{J}_{cf,lf}\) is then given by
+
+\[\mathbf{C}_{lf}=\mathbf{J}^{lf,cf}\cdot(\mathbf{J}^{cf,ci}\cdot\mathbf{C}_{ ci}\cdot\mathbf{J}_{ci,cf})\cdot\mathbf{J}_{cf,lf}, \tag{4}\]
+
+with \(\mathbf{J}^{cf,ci}\cdot\mathbf{C}_{ci}\cdot\mathbf{J}_{ci,cf}\) describing the transport along the track and within the curvilinear frame.
+
+Neutral Track RepresentationsThe adaption of the StraightLinePropagator to neutral parameters was only challenging from a technical point of view, where the same mathematical steps have to be performed on different input classes that share only a high level common base class. This is
+
+Figure 6: The curvilinear frame \(U=(\mathbf{e}_{u}\,,\mathbf{e}_{v}\,,\mathbf{e}_{t}\,)\) for a measurement along a straight line. The normalised momentum vector \(\mathbf{e}_{t}=\frac{\mathbf{p}}{|\mathbf{p}|}\) builds the \(z\) direction of the curvilinear frame. Its vector product with the nominal global \(z\) axis creates the second base of the frame, which lies in the global \(x-y\) plane. Finally, the third base vector is chosen in such a way that a right handed coordinate system is well defined.
+
+solved by templating the private propagation methods to the different surfaces by the actual charged or neutral parameters type. The HelixPropagator simply uses the StraightLinePropagator for any parameters transport of neutral parameters or in case of a no-field environment. The transport of the neutral parameters classes is fully supported with ATLAS release 13.1.0.
+
+### Numerical propagation: the RungeKuttaPropagator and STEP_Propagator
+
+Most of the track parameter propagations to be performed in the ATLAS event reconstruction are within a highly inhomogeneous magnetic field where a global track model can not be used for solving the transport equations. Hence, a fast numerical solution for calculating the intersection of the trajectory with the destination surface is needed. In ATLAS this is realised by two implementations of the IPropagator interface, the RungeKuttaPropagator and STEP_Propagator. Both rely on a fourth order Runge-Kutta-Nystrom formalism with an integrated adaptive step estimation. The main difference between the two realisations is that the STEP_Propagator includes energy loss in the equation of motion and applies corrections to the covariance matrices continuously during the parameter transport along the track. It is designed for the description of a particle that traverses a dense block of material, while the RungeKuttaPropagator complies with the classical model of point-like material update on detector layers that is carried out by dedicated AlgTool classes in the ATLAS track extrapolation engine. Both IPropagator implementations perform the propagation in global coordinates and use common Jacobian matrices for the transformations between the global frame and local surface-attached coordinate systems5. The equation of motion of a charged particle with momentum \(p\) and mass \(m\) through a magnetic field \(\mathbf{B}(\mathbf{r})\) can be expressed in many different ways that mostly differ through the parameterisation and choice of the free parameter. For collider experiments a helix-based parameterisation along the arc length \(s\) is a good choice since it is not restricting nor favoring any specific particle direction6. The equation of motion of a particle with charge \(q\), defined by the Lorentz force, can then -- when omitting multiple scattering and energy loss effects -- be written as the second order differential equation
+
+Footnote 5: The common data classes are located in the shared TrkExUtils package.
+
+Footnote 6: In fix target experiments, however, a different choice representing the main particle direction may be taken.
+
+\[\frac{d^{2}\mathbf{r}}{ds^{2}}=\frac{q}{p}\left[\frac{d\mathbf{r}}{ds}\times \mathbf{B}(\mathbf{r})\right], \tag{5}\]
+
+and, when including an energy loss function \(g(p,\mathbf{r})\), as
+
+\[\frac{d^{2}\mathbf{r}}{ds^{2}}=\frac{q}{p}\left[\frac{d\mathbf{r}}{ds}\times \mathbf{B}(\mathbf{r})\right]+g(p,\mathbf{r})\frac{d\mathbf{r}}{ds}. \tag{6}\]
+
+Equation (5) and Eq. (6) are the fundamental transport equation used by the RungeKuttaPropagator and STEP_Propagator, respectively. The calculations are in both cases performed using the Runge-Kutta-Nystrom method, which is well suited to solve second order differential equations. The basic principle of the Runge-Kutta method can be found in may textbooks [9], an exhaustive review of the used Runge-Kutta-Nystrom method and the description of error matrix transport (carried out by the Bugge-Myrheim method) for both propagators of the ATLAS track reconstruction is in addition presented in [12].
+
+Both the RungeKuttaPropagator and the STEP_Propagator stop the numerical iteration when the distance to the surface drops below a certain cut value. For the last step starting at the position \(\mathbf{r}_{f-1}\), a simple Taylor expansion to second order is used:
+
+\[\mathbf{r}_{final}=\mathbf{r}_{f-1}+h\frac{d\mathbf{r}}{ds}\left|\mathbf{r}_ {f-1}\right.+\frac{1}{2}h^{2}\frac{d^{2}\mathbf{r}}{ds^{2}}|\mathbf{r}_{f-1}, \tag{7}\]
+
+with \(h\) denoting the distance to the destination surface at the approach point \(f-1\).
+
+Straight and Helical Track ModelThe RungeKuttaPropagator and STEP_Propagator are clearly the most flexible propagation techniques in the ATLAS track reconstruction software. It is inert to the Runge-Kutta formalism that in case of a homogenous magnetic field setup, the propagation is carried out in one single step, complying a helical model for constant field or a straight line propagation when no magnetic field is present, respectively. This eases the support of neutral track parameters that is completely integrated with ATLAS software release 13.1.0.
+
+## 3 Navigation
+
+The navigation builds the binding link between propagation and material effects integration in the realisation of the ATLAS track extrapolation engine. During a single extrapolation process, the navigation gathers the information about the traversed material from the reconstruction geometry, the so-called TrackingGeometry. The internal connectivity of the TrackingGeometry is hereby used to save CPU time expensive global search operations.
+
+Based on the morphology of the ATLAS reconstruction geometry, three different navigation streams can be followed throughout the extrapolation process: navigation within a full static and connective setup, navigation within a dynamic setup and navigation within a detached or unordered setup. The concepts and realisation of the different navigation strategies will be described in the following sections.
+
+Initialisation of the NavigationThe first step of the navigation procedure is to determine the starting and destination volume for the track extrapolation. This is done following a three-step procedure that optimises the time spent in the search of the start and end configuration:
+
+* **recall:** in many fitting applications it is necessary to extrapolate from one measurement surface to the successive one along a track. The destination configuration of the previous step is hereby often identical to the start configuration of the next extrapolation process. The Extrapolator AlgTool_remembers_ therefore the end configuration of the extrapolation process in dedicated private member variables and compares as a first step the starting parameters with the solution of the previous extrapolation call.
+* **association:** the ATLAS TrackingGeometry provides associations between the objects in the different levels of the geometry hierarchy, i.e. Surface objects often point to embedding Layer objects that in turn may point to enclosing volumes. This hierarchy model can not be established for all detector structures, but is realised e.g. for a big part of the Inner Detector TrackingGeometry.
+* **global search:** the global search is the most CPU time intensive navigation step, since it involves the stepping down in the object hierarchy tree of the TrackingGeometry. However, it is a backup system for the recall and association attempts and is the only possibility to find the associated start and destination configuration for arbitrary surfaces that are not _a priori_ known to the TrackingGeometry.
+
+### Navigation between Volumes
+
+The underlying TrackingGeometry, characterised at first means by a fully connective set of so called TrackingVolume objects, is the key to the navigation process. The TrackingVolume class, which is in principle a container of confining boundary surfaces, combines the access to the magnetic field with the information about the traversed material (represented as Layer objects or through a dense volume description). The boundary surfaces that build the confinement of the volume extend the common ATLAS Surface class and can therefore be coherently used with the propagation AlgTool. Since they incorporate information about the attached volumes, the intersection with the boundary surface leads automatically to the next TrackingVolume that is crossed by the trajectory. This process is repeated until the destination volume is reached.
+
+The Navigator AlgTool, a concrete implementation of the abstract INavigator base class, is called by the Extrapolator to perform the search for the next TrackingVolume. It therefore uses the provided propagator to intersect the appropriate boundary surface of the current TrackingVolume and find information about the attached volumes. Each TrackingVolume is for this purpose capable of providing an ordered list of boundary surfaces to be intersected, starting from the _best guess_ that originates from a straight line approximation of the starting parameters in the non bending plane. The provided list of boundary surfaces to be be intersected is processed until the right exit point of the surface is found, for performance reasons only the track parameters and never the associated covariance matrix is transported onto the boundary surface. Performance statistics of the navigation are discussed in further detail in Sec. 6.1.1. Figure 7 summarises the different navigation steps for a full static setup in a sample illustration.
+
+### Navigation between Layers within a TrackingVolume
+
+A TrackingVolume can contain a static, dynamic or unordered set of Layer objects that are suitable for a point-like material update description. Inside a TrackingVolume, the navigation has to find the contained layers that are intersected by the trajectory to account for their material budget and apply material effects corrections at the correct point along the trajectory. The intersection with the layer is also needed to be able to use refined local material maps on a single layer.
+
+#### 3.2.1 Static Layer Setup
+
+A static layer setup is realised when the entire description of the material within a TrackingVolume is available at the initialisation of the reconstruction geometry and can be ordered uniquely with a given reference direction. The entire default ATLAS ID and calorimeter geometry is described by a static layer setup. Layer objects in a static setup are inter-linked by C++ pointers and the navigation from one to the other can be simply done by a nextLayer() call, which only requires the track direction in the method signature.
+
+Figure 7: Illustration of the main navigation actions in the static geometry setup: volumes that are via the boundary surface mechanism attached to the currently traversed volume are found by the projection of the track with the according normal vector, layers within a given TrackingVolume are inter-linked by pointers and symmetric structures such as sub-surfaces on a Layer structure are found by binning methods.
+
+#### 3.2.2 Dynamic Layer Setup
+
+In many configurations the material seen by a track depends very strongly on the track trajectory or a static setup is simply not possible due to the complex geometry structure. In such cases or if the material description is gathered from an outside source (e.g. a material map or material database), dynamically created layers along the trajectory can be taken. A dedicated IDynamicLayerCreator interface has been created for this purpose. The IDynamicLayerCreator mechanism is also used for global fitting techniques, where the material layers along an entire track have to be known and enter as a whole collection into the global \(\chi^{2}\) function. While the IDynamicLayerCreator is defined to provide a material description and still leaves the calculation of the resulting effects on the parameters to the client algorithm, the extrapolation package has been recently expanded with an additional, even more user-open dynamic schema that is designed to provide material effects for the track directly in terms of an energy loss to be applied and a parameter that determines the scattering correction. This second way, realised through the IMaterialEffectsOnTrackProvider interface, is mainly targeted at allowing custom integrations of material effects, such as energy measurements provided by the calorimeter.
+
+#### 3.2.3 Unordered layer setup
+
+The TrackingVolume also enhances more complex layer structures that can not be easily ordered along reference directions. In this case the navigation has to follow a _trial and error_ principle. Hence, the numbers of unordered layers contained by one TrackingVolume have to be kept low.
+
+#### 3.2.4 Sub-surfaces on Layers
+
+Layer objects can contain ordered sub-sets of surfaces that represent active detector elements. The search for detector elements completes the full predictive navigation provided by the TrkExtrapolation engine and is useful for track predictions and holes-on-track search: the Surface class points back to an associated sensitive detector element and since the track trajectory is very precisely known after the track fit a list of geometrically intersected modules can be provided by following the layer and sub-surface navigation (see also Fig. 7). The comparison of the list of surfaces (and thus detector elements) stored on the track with the ones that are geometrically intersected by the given trajectory can be used as a hole definition for tracking. Additionally, the full access to intersected sensitive modules led to the development of the new FATRAS simulation. In both applications, the holes search and the fast track simulation, the local parameters of the trajectory intersection with the layer surface are hereby used for a fast look-up in the binned arrays that hold the sensitive detector surfaces.
+
+### Detached Volumes
+
+The ATLAS reconstruction geometry also describes entities that can not be conveniently integrated into the model of a fully connective TrackingVolume set. This is mainly the case for complex structures such as the toroid magnet system in the Muon Spectrometer. A DetachedTrackingVolume class which fulfills many requirements of a standard TrackingVolume, but is not connected to neighboring volumes via the boundary surface schema, has therefore been created such that they can be contained by a higher level TrackingVolume. As a direct consequence, detached volumes require a more CPU time expensive search in the navigation stream. The entry point into a DetachedTrackingVolume has to be found first by propagations to the associated boundary surfaces. If a TrackingVolume contains more than one detached sub-volume, the sequence of traversing one after the other has to be evaluated first. The DetachedTrackingVolume itself contains a complete static setup, such that the fast navigation schema that relies on pre-ordering and boundary surface sharing can be used internally, once a detached object has been entered by the navigation stream.
+
+### Navigation Breaks
+
+The navigation can break in very rare cases mainly due to the reason that provided start and destination information is not compatible, i.e. the trajectory defined by the starting parameters does notintersect the destination surface at all or at least not in the volume that contains the destination surface. The following sources of navigation breaks have been identified and are recorded in case the AlgTool is configured to run in a dedicated validation mode:
+
+* **distance increase**: the geometrical distance to the destination surface is checked progressively during the full navigation chain and a navigation break is triggered if this distance increases rapidly at one step, while small fluctuations are allowed. This usually happens if -- given a set of starting parameters -- it is geometrically impossible to intersect the provided destination surface.
+* **oscillation**: the navigation is caught in an oscillation loop, which mostly indicates a geometry setup problem or a curling particle trajectory due to low momentum.
+* **loop**: the navigation is caught in a straight loop, i.e. the next assigned volume is identical with the current volume; this indicates usually a geometry setup problem or a wrong propagation solution (i.e. wrong sided cylinder intersection in all recorded cases).
+* **no next volume**: the navigation hits the end of the described TrackingGeometry; in general, this is also due to incompatible input parameters.
+
+Once a navigation break is triggered, the extrapolation is reset and carried out again without navigation and hence without material effects integration. This behavior can be switched off for validation reasons, such that navigation breaks can be triggered and investigated, see Sec. 6.1.1.
+
+## 4 Material Effects Integration
+
+A particle that traverses material is subject to both energy loss and directional scattering. While for all stable particles (that are subject of track reconstruction in high energy physics experiments) multiple coulomb scattering is the by far dominant contribution to the directional deflection and thus no distinction between the different particles has to be done, energy loss has to be treated differently for electrons than for all other particles that are in the following also referred to as _heavy particles_. This is, because electrons lose a substantial part of their energy due to _bremsstrahlung_, while for heavy particles ionisation loss remains the dominant effect. As a consequence, a particle definition has to be present in the extrapolation realm to distinguish between the different energy loss mechanism. This is steered by a dedicated enumeration type: the so-called ParticleHypothesis7.
+
+Footnote 7: The name _hypothesis_ is chosen deliberately in this context. In most track fitting applications, the particle identification is not done yet, since it relies on additional information from calorimetry, combined reconstruction or specific interaction signatures with the detector material.
+
+Since multiple scattering is a stochastic process with a zero mean deflection it is, in general, not regarded during the transport of the track parameters, but applied as Gaussian or multi-Gaussian process noise addition to the track covariances. Section 4.1.3 will show in the following that the assumption of a Gaussian-distributed multiple scattering noise is valid to a large extent. It will also cover the integration of multiple scattering into the track extrapolation software structure.
+
+Energy loss effects, on the other hand, introduce changes to both the trajectory of the particle and the track uncertainties: the loss of momentum clearly changes the particle trajectory in presence of magnetic field, but since energy loss is a stochastic process it can not be corrected for in a purely deterministic way. In practice, energy loss is taken into account by a deterministic mean (or most probable) value and a relatively small variance to this value. Again, the variance is applied as Gaussian process noise addition to comply with the linear least squares methods predominately used in track fitting. Nevertheless, the Gaussian model is far from optimal for electron energy loss description: Section 4.1.4 will concentrate on both the energy loss treatment for heavy particles and electrons and will discuss the validity range of the given applications.
+
+Since both processes, multiple scattering and energy loss, rely evidently on a correct description of the traversed detector material, providing this material distribution within the reconstruction geometry is an _a priori_ requirement, fulfilled by the ATLAS TrackingGeometry. The navigation, as described in Sec. 3 is responsible for finding and forwarding the appropriate material information to the extrapolation and material integration algorithms. A generic updater AlgTool, the MaterialEffectsUpdator performs the actual correction of the TrackParameters objects.
+
+Point-like and continuous Material Effects IntegrationThe ATLAS extrapolation package enhances two different methods for the integration of material effects during tracking the particle through the reconstruction geometry. A classical point-like material update mechanism is the main material interaction philosophy, carried out through a dedicated AlgTool, the MaterialEffectsUpdator. It requires a purely Layer-based (and thus Surface-based) description of the ATLAS detector through a simplified reconstruction geometry. The transport of the track parameters and their associated covariances is hereby fully decoupled from the actual correction of the track representation due to interaction with the detector material. An example for the Surface-based modeling of the pixel barrel detector can be seen in Fig. 8.
+
+A second, modern model of continuous material effects integration that embeds the correction as additional terms into the equation of motion can be chosen alternatively, see Sec. 2.3. The continuos material effects integration relies on a Volume-based description of the detector through the TrackingGeometry. This requires, in general, a more detailed description close to the realistic detector setup or is limited to large structures that can be modeled as one homogeneous block of material8. In ATLAS, the continuous integration of material effects is mainly planned to be used for the track extrapolation through the calorimeter and for traversing the large inert material structures in the Muon Spectrometer.
+
+Footnote 8: It is of little sense to describe detector parts with a discrete material distribution such as the silicon detector through such a model. The material taken into account would hereby be only valid for traversing the entire volume and is therefore not suitable for track reconstruction, where correct knowledge of the spatial information of the material is essential for a satisfactory description of both multiple scattering and energy loss effects.
+
+### The MaterialEffectsUpdator AlgTool
+
+Although both, multiple scattering and energy loss depend on the particle momentum \(p\), they can be treated as two independent (stochastic) processes, since -- in general -- the energy loss \(\Delta\) is small compared to the momentum \(p\) of the particle. It can therefore be assumed that \(p\) is constant during the multiple scattering process, which disentangles the energy loss from the multiple scattering integration. In the realisation of the ATLAS extrapolation package, this relation is respected by two dedicated AlgTool implementations that perform the tasks of energy loss respectively multiple scattering calculations separately. The Extrapolator, however, only refers to a single AlgTool, the MaterialEffectsUpdator that uses the other AlgTool instances.
+
+#### 4.1.1 Pre-, post- and full update
+
+The material effects integration in the ATLAS extrapolation engine enhances the concept of _pre-_, _post-_ and _full_ update directives, to account for an optimal spatial position of the material distribution. This is necessary since the reconstruction geometry is a simplified version of the real detector geometry and consists of only several idealised layers that carry a projected material distribution. For the ATLAS silicon detector, for example, the layers of the reconstruction geometry correspond to the actually build barrel cylinders and endcap discs. The largest contribution to the material budget per layer in the silicon detector is the sensor material itself and, furthermore, most of the additional support and cooling structures are located on the back-side of the detector sensor. Deflections and energy loss caused by traversing these modules contribute in a Kalman forward filter consequently only on the successive measurement module -- and are applied therefore as _post-update_ with respect to the measurement update on the given surface; however, they have to be taken into account before the measurement update in the smoothing or backward filtering process (_pre-update_). The _Transition Radiation Tracker_ (TRT) in the ID, on the other hand, can be regarded to have an almost continuous material distribution and is in the reconstruction geometry represented by condensed layers. This description is anyhow only valid in a global picture and the _pre/post_ update mechanism is superfluous: a full update is applied when crossing a layer of such a type or any other layer that is not associated to sensitive (tracking) detector elements. Figure 8 shows the necessary simplifications for the pixelbarrel reconstruction geometry and the consequences for the material integration in an extrapolation process.
+
+#### 4.1.2 Correction for the Incident Angle and for Track Bending
+
+The structure of the ATLAS reconstruction geometry and in particular the projective mapping of the simulation material onto the simplified frame of cylinder and disc layers requires two additional corrections to the material distribution that depend on the trajectory properties of the particle and can therefore be only accounted for while performing the actual extrapolation:
+
+* **Correction for the incident angle:** the amount of material seen by a particle when traversing a layer-like structure depends on the relative incident angle of the track with the layer. In the ATLAS reconstruction geometry, particular emphasis has been put on creating a description
+
+Figure 8: The ATLAS pixel barrel detector as an example for the simplifications done in the reconstruction geometry and their effect on the material integration of the extrapolation package. A photograph of one fully deployed barrel cylinder can be seen in (a), while (b) shows an illustration of the chip and sensor parts which are mounted on staves that include a thermal management tile and a cooling system. In the reconstruction geometry — as illustrated in (c) — the barrels are modeled as cylinder layers and only the detector surfaces are known to full detail. The design of the ATLAS pixel barrel requires that when crossing the layer from the interaction point region, the material of one barrel layer has almost no influence on the measurement of the current, but of the successive layer. In the ATLAS extrapolation package this is taken care of with the _post-_, _pre-_ and _full-_update mechanism. Material descriptions exist hereby on both levels, an overall map for the entire cylinder layer and a detailed description of the average material per module. The latter is realised through the _reference material_ schema of the ATLAS reconstruction geometry. The reference material map for the pixel module in comparison to the simulation material can be seen in (d).
+
+that is not only valid for particles originating from the nominal interaction point (or center of the coordinate system). That is why -- when creating the material maps from the simulation geometry -- the material projection of the material seen by a particle coming from the nominal interaction region is recalculated to the fixed frame of cylinders and discs. During the track extrapolation process, the angle of the trajectory with the crossed layer is calculated and the relative correction to the track length in the material applied: \(\mathbf{n}\) and \(\mathbf{t}\) denote in the following the normal vector of the layer and the momentum direction of the trajectory at the intersection point, respectively -- both vectors at unit length. The actual crossed path length \(s\) through any arbitrarily positioned and oriented layer of thickness \(d\) can then be generically expressed as
+
+\[s=\frac{d}{\mathbf{n}\cdot\mathbf{t}}. \tag{8}\]
+* **Bending correction:** in a dense volume (e.g. the TRT or calorimeter volumes) that is described through condensed layers in the TrackingGeometry a second effect has to be accounted for. Since the mapping of the material distribution is done following a straight line projection, the material budget seen by strongly bent tracks is in general underestimated. This effect can be simply cancelled by introducing a correction factor that is dependent on the transverse particle momentum \(p_{T}\). \(\Delta R\) denotes in the following the traversed radial distance in the detector, and \(B_{z}\) the longitudinal component of the magnetic field. The bending radius \(r\) of a track can then be written as \(r=\frac{p_{T}}{0.3\cdot B_{z}}\). The angle \(\alpha\) then describes the opening angle of a transverse track segment and can be expressed as \(\alpha=2\arcsin(\frac{\Delta R}{2\cdot r})\). Performing some simple manipulations, the correction factor \(c_{b}\) introduced due to bending can be expressed as9 Footnote 9: It is assumed in this formalism that the track enters a volume along a radial direction, which is certainly not true for strongly bent tracks that originate from the nominal interaction point. The resulting correction to \(\Delta R\) is, however, already taken into account through the incident angle correction when traversing a layer. \[c_{b}=\frac{s}{\Delta R}=\frac{p_{T}}{0.15\cdot B_{z}}\cdot\arcsin\frac{0.15 \cdot B_{z}\Delta R}{p_{T}}\approx 1+\frac{(\Delta R)^{2}\cdot B_{T}^{2}}{266.7 \cdot p_{T}^{2}},\] (9) when the magnetic field is given in Tesla  and the momentum is expressed in GeV. Equation (9) shows the dependency of correction the factor to be \(1+1/p_{T}^{2}\), which approaches rapidly towards 1 for transverse momenta bigger than 1 GeV  while remaining an about 5% effect at a transverse momentum of 500 MeV, which marks the transverse momentum threshold of many ATLAS reconstruction applications. Figure 9 illustrates the relevant track information that is necessary to calculate the bending correction and shows the correction factor \(c_{b}\) as a function of the transverse momentum \(p_{T}\).
+
+Both the incident angle and the bending correction are matter of the reconstruction geometry, but have to be applied within the material integration during the track extrapolation process. The extrapolation
+
+Figure 9: The correction to the material seen by a track crossing condensed layers due to track bending in the magnetic field in an schematic illustration to the left and to the right the dependency of the correction factor on the transverse momentum for a concrete example of traversing a sample distance of 1 m which corresponds roughly to the Inner Detector dimension.
+
+engine, however, has been designed to stick to a generic detector model such that no information about the underlying detector specifications can be accessed, while still keeping the maximum performance level. This requirement has been met by defining the corrections as actions known to the Layer and TrackingVolume that are able to return a pathCorrection() or bendingCorrection(), respectively, depending on the actual input parameters of the track.
+
+#### 4.1.3 Multiple Scattering: the MultipleScatteringUpdator AlgTool
+
+A particle that traverses detector material undergoes successive small angle deflections, caused by multiple (Coulomb) scattering. Given the central limit theorem it can be assumed that the sum of these small variations is Gaussian distributed and symmetrically centered around zero. However, large angle single scattering processes disturb the purely Gaussian probability density function (PDF) and add large non-Gaussian tails. As a rule of thumb, the assumption of the Gaussian character of the underlying PDF is valid to about 98%, being limited to the core region of the distribution.
+
+The integration of multiple scattering effects is handled by a dedicated AlgTool, the so-called MultipleScatteringUpdator. The calculation is done using the well known _Highland formula_[13], which is an empirical adoption of Moliere's solution of the transport equation starting from the classical Rutherford cross section of a single scattering process [14].
+
+Highland expanded the original expression given by Moliere for the root mean square \(\sigma_{ms}^{proj}\) of the projected scattering angle \(\theta^{proj}\) with an empirical logarithmic correction term to adopt for the slightly underestimated screening of the nucleus Coulomb potential in materials with lower \(Z\). Furthermore, he transformed -- for convenience -- the result into a function of the pathlength \(t\) in terms of the radiation length \(\mathrm{X}_{0}\)  which leads to the well-known expression10
+
+Footnote 10: The multiple scattering process itself has little to do with the radiation length \(\mathrm{X}_{0}\)  other that both show the same dependency on the atomic number \(Z\) and the molecular weight \(A\) of the material.
+
+\[\sigma_{ms}^{proj}=\frac{13.6\ \mathrm{MeV}}{\beta cp}Z\sqrt{t/\mathrm{X}_{0}} \,[1+0.038\ln{(t/\mathrm{X}_{0})}], \tag{10}\]
+
+when \(Z\) and \(p\) describe the charge and momentum of the incident particle, respectively.
+
+Projection Correction and lateral DisplacementIn the ATLAS track parameterisation the momentum direction is expressed through the globally defined polar angle \(\theta\) and the azimuthal angle \(\phi\), see Eq. 1. Since \(\theta\) already represents a projected angle with respect to the \(z\) axis, \(\sigma_{ms}^{proj}\) can be directly applied to the corresponding covariance term, while for the azimuthal angle a correction term of \(\frac{1}{\sin\theta}\) has to be applied to the root mean square to account for the out of plane projection.
+
+Another aspect of multiple scattering is that, in general, there exists a correlation between the actual deflection in space \(\theta^{space}\) and the local coordinates after the scattering process. The local displacement due to scattering is hereby depending on the two projected scattering angles and the thickness of the traversed material. In a Layer-based description of the reconstruction geometry, the layer thickness is, however, only a model parameter and has little to do with the actual thickness traversed during the multiple scattering process (in the following referred to as _scattering thickness_). In addition, the Layer-based description intrinsically assumes that the material free regions in the according detector volumes are big in comparison to a typical scattering thickness, and the local error on the successive measurement surface is therefore mainly dominated by the directional uncertainties in \(\phi\) and \(\theta\). The displacement on the scattering surface caused by the multiple scattering process is therefore omitted in this application. For the continuous integration of material effects, on the other hand, the actual path length \(s\) corresponds to the scattering thickness and it is included in the treatment of multiple scattering [12].
+
+Moliere's theory of multiple scattering is -- when being applied in the small angle assumption -- not restricted to a specific particle type nor spin. It is based on the assumption that the deflection of the scattered particle does not change the magnitude of the particle's momentum, or, in other words, it is a pure _elastic_ single scattering theory. Rossi and Greisen [15], however, showed that for electrons that traverse a significant amount of material this assumption is not valid anymore since the electron momentum changes substantially due to radiation loss, which is described in more detail in Sec. 4.1.4. This leads to a modification of the momentum dependency from \(\ 1/p^{2}\) to \(1/(p_{i}p_{f})\), when \(p_{i}\) and \(p_{f}\) denote the initial and final momentum of the multiple scattering process, respectively, and a constant loss assumption is applied11. Electron track reconstruction is, on the other hand, mainly determined by the highly non-Gaussian character of the energy loss distribution due to bremsstrahlung that shadows the multiple scattering effects. Identified electron tracks are therefore best fitted with dedicated track fitting techniques. The momentum dependency of the multiple scattering process plays hereby a negligible role.
+
+Footnote 11: More sophisticated models can also be considered where the energy loss function enters directly to the multiple scattering calculation and an integration of the energy loss distribution has to be performed during the scattering process.
+
+The integration of such a modified multiple scattering theory for electrons would require the knowledge of the momentum transfer and is not compatible with disentanglement of multiple scattering and energy loss effects. A simplified version of the Rossi-Greisen results, using the \(~{}1/p^{2}\) dependency but sticking to the parameters obtained for electrons can be chosen though for electron multiple scattering in the ATLAS extrapolation package.
+
+Gaussian Mixture ModelThe Gaussian PDF of stochastic multiple scattering is disturbed by single large angle scattering processes that add significant tails to the distribution of the projected scattering angle. For track reconstruction this effect is negligible since it is small in comparison to loss of accuracy introduced by the necessary simplification of the detector geometry12. The ATLAS extrapolation engine that has been initially developed for track reconstruction is also used as the trajectory creation module in the FATRAS simulation and incorporates therefore an additional model for multiple scattering, capable of reproducing parts of the tail distribution. A mixture of two Gaussians with zero mean value, one for the core contribution, one for the tail approximation is used to describe the projected scattering angle distribution
+
+Footnote 12: It is of second priority to account for a few percent tail effect in the description of the scattering process, when the material distribution is locally not known to such an accuracy.
+
+\[f(\theta_{ms})=(1-\epsilon)\cdot g_{0}(\theta_{ms};\sigma_{core})+\epsilon \cdot g_{0}(\theta_{ms};\sigma_{tail}), \tag{11}\]
+
+where
+
+\[g_{0}(x;\sigma)=g(x;\mu=0,\sigma)=\frac{1}{\sigma\sqrt{2\pi}}\exp(-\frac{x^{2} }{2\sigma^{2}}). \tag{12}\]
+
+Figure 10: The projected scattering angle distribution \(\theta^{proj}\) (left) of a muon with \(5\) GeV that traverses a silicon detector with a thickness \(t\) that corresponds to \(1\%\) of radiation length X\({}_{0}\). The distribution (illustrated at standard measure) has been created by Monte Carlo simulation of \(25000\) muon events using the Geant4 simulation toolkit. It shows the Gaussian distribution originating from the Highland formula (dashed) and the a Monte Carlo Gaussian Mixture model (solid). The shaded area represents a \(98\%\) core fraction of the Geant4 distribution. The illustration (right) shows the definitions of the space angle \(\theta^{space}\) and one projected angle \(\theta^{proj}\) for an example multiple scattering process.
+
+The model parameters \(\epsilon,\sigma_{core}\) and \(\sigma_{tail}\) are hereby depending on the traversed material thickness in terms of the radiation length X\({}_{0}\)  and are taken from [16]. Recently [17] even more precise models of the multiple scattering descriptions have been developed that expand the double Gaussian mixture model with a non-Gaussian tail description. The current ATLAS extrapolation engine has stuck to the Gaussian mixture since it shows satisfactory agreement with the full Geant4 simulation while being lightweight and convenient. A future inclusion of more sophisticated models will however be easily possible by yet another implementation of the IMaterialEffectsUpdator interface13.
+
+Footnote 13: It is worth mentioning that this is one of the biggest benefits of the component software model that has been deployed in the ATLAS track reconstruction.
+
+Figure 10 shows both the Highland formula application and the Gaussian mixture model as implemented in the MaterialEffectsUpdator in comparison with data from a Monte Carlo simulation using the well known and validated Geant4 [18] simulation toolkit. It also illustrates the main definitions used in the calculation of the projected scattering angle.
+
+#### 4.1.4 Energy Loss: the EnergyLossUpdator AlgTool
+
+Energy loss of particles traversing detector material occurs due to electromagnetic effects - mainly ionisation (in the order of \(\alpha^{2}\)), bremsstrahlung (order of \(\alpha^{3}\)), direct pair production (order of \(\alpha^{4}\)) and photonuclear interactions; \(\alpha\) denotes the fine-structure constant with \(\alpha\simeq 1/137\). The PDF \(\rho(\Delta)\) (often referred to as _straggling function_) of the energy loss \(\Delta\) is highly non-Gaussian, but for the use in most track fitting applications an approximation to a Gaussian distribution has to be done.
+
+For heavy particles with masses above 100 MeV peripheric collisions with the detector material -- also called _ionisation loss_ -- dominate the overall energy loss process. The probability for hard collisions with the nuclei of the detector material is suppressed by the factor \(\frac{1}{m^{2}}\) and can therefore be neglected for heavy particles. The electron mass, however, is about 200 times smaller than the mass of the next heavier stable particle and hence interactions with the strong electromagnetic field of the nuclei that cause bremsstrahlung have to be considered. Above a certain energy threshold, bremsstrahlung starts to dominate the energy loss distribution for electrons.
+
+The ATLAS EnergyLossUpdator AlgTool performs the energy loss calculation during the track extrapolation process, which depends on the provided ParticleHypothesis, the material properties and the kinematic parameters of the particle. The applied corrections are described in the following paragraphs.
+
+Energy Loss of heavy ParticlesThe energy loss \(\Delta\) of heavy particles in the energy range of final state particles originating from high energy collision experiments is dominated almost entirely by ionisation loss. Although this is a stochastic process that follows a PDF \(\rho(\Delta)\), it is justified to treat it as a deterministic mean or averaged energy loss and a relatively small variance. This is, because \(\Delta\) is usually small in comparison to the particle momentum.
+
+The mean energy loss of a heavy particle per unit length \(x\) due to ionisation loss is described by the well known Bethe-Bloch formula [19]
+
+\[\frac{dE}{dx}=\alpha^{2}2\pi N_{a}\lambda_{e}^{2}\frac{Zm_{e}}{A\beta^{2}} \left[\ln\frac{2m_{e}\beta^{2}\gamma^{2}E_{m}^{\prime}}{I^{2}(Z)}-2\beta^{2} +1/4\frac{E_{m}^{\prime 2}}{E^{2}}-\delta\right], \tag{13}\]
+
+where
+
+\begin{tabular}{r|l} \hline \(N_{a}\) & = \\ \(Z\), \(A\) & \(6.023\cdot 10^{23}\), Avogadro's number \\ \(m\), \(m_{e}\) & atomic number and weight of the traversed medium \\ \(\beta\) & = \\ \(\gamma\) & = \\ \(\lambda_{e}\) & = \\ \(I(Z)\) & \\ \(E_{m}^{\prime}\) & the maximum energy transferable to the electrons of the medium with \\  & \(E_{m}^{\prime}=2m_{e}\frac{p^{2}}{m_{e}^{2}+m^{2}+2m_{e}\sqrt{p^{2}+m^{2}}}\) \\ \(\delta\) & density correction. \\ \hline \end{tabular}
+
+A parameterisation for the density correction \(\delta\) and calculated values for various materials can be found in [20].
+
+The Bethe-Bloch formula shows that the mean value of the energy loss depends on the ratio of the particle mass to the particle momentum. The ionisation loss plays therefore often an important role in particle identification, whereas for track reconstruction in the momentum range of interest it is of minor importance. Figure 11 illustrates the defined validity range of the pure ionisation loss assumption given by the Bethe-Bloch formula and shows a comparison of the mean energy loss calculation done within the EnergyLossUpdator to values found in literature for various different materials [21].
+
+Landau Distribution and most probable Energy LossThe Bethe-Bloch formula only describes the expected mean energy loss of charged particles due to ionisation. In reality, ionisation loss is a
+
+Figure 11: The upper plot shows the mean energy loss per unit length of a muon in copper and is based on [22]. The grey area shows the momentum range where the Bethe-Bloch formula is valid to satisfactory accuracy. The second plot shows a comparison of the mean energy loss of muons in silicon, liquid argon and iron with data taken from [21] and calculated using the EnergyLossUpdator. Good agreement can be observed up a particle momentum of about \(150\) GeV, where radiative effects start to dominate the energy loss distribution. Radiative Effects are not yet implemented in the standard ATLAS EnergyLossUpdator.
+
+stochastic process that leads to asymmetric fluctuations around a most probable value (MPV). Landau [23] described this distribution14 and showed that the most probable energy loss \({}_{L}\Delta_{p}\) can be expressed as
+
+Footnote 14: Nowadays only known as _Landau distribution_.
+
+\[{}_{L}\Delta_{p}=\xi\left[\ln\frac{2mc^{2}\beta^{2}\gamma^{2}}{I}+\ln\frac{\xi}{ I}+0.2-\beta^{2}-\delta\right], \tag{14}\]
+
+with \(\xi=ZN_{a}\frac{k}{\beta^{2}}t\), when \(t\) denotes the thickness of the traversed material. It can be shown that in the asymptotic behavior of \(\gamma>>1\) (i.e. \(\beta\approx 1\) ) the density correction \(\delta\) can be modeled as
+
+\[\delta\approx 4.447-\ln\gamma^{2}, \tag{15}\]
+
+which simplifies Eq. (14) to
+
+\[{}_{L}\Delta_{p}=\xi\left[\ln\frac{2mc^{2}\gamma^{2}}{I}+\ln\frac{\xi}{I}-0.8+4.447\right]. \tag{16}\]
+
+Equation (16) is used in the standard EnergyLossUpdator AlgTool for the calculation of the most probable energy loss of heavy particles. Figure 12 illustrates the energy loss distribution for a heavy particle in a silicon layer and includes possible Gaussian approximations that are enhanced by the ATLAS EnergyLossUpdator.
+
+Energy Loss of ElectronsElectrons lose a substantial part of their energy due to bremsstrahlung, but ionisation loss still remains a contribution to the total effect. The ATLAS extrapolation package is capable of correcting for both, mean ionisation loss and bremsstrahlung even if the ionisation loss can be neglected in many cases. The description of the ionisation loss is slightly modified in the form factors in comparison with the heavy particle case. Energy loss by bremsstrahlung is well described by the theory of Bethe and Heitler [24]. Following a standard notation where \(z\) denotes the ratio of the final energy \(E_{f}\) to the initial energy \(E_{i}\) and denoting the amount of material traversed by the particle in terms of radiation length X\({}_{0}\)  as \(t\), the PDF of \(z\) is given by
+
+\[\rho(z)=\frac{[-\ln z]^{c-1}}{\Gamma(c)}, \tag{17}\]
+
+Figure 12: The energy loss distribution at standard measure for single muons with 5 GeV traversing 4.68 mm (i.e. 5\(\%\) X\({}_{0}\) ) of Silicon. The distribution has been created with the Geant4 toolkit and fitted with a landau distribution. Different possible Gaussian approximations around the theoretical mean (\(\mu_{L}\), dashed curves) or respectively most probable value (MPV\({}_{L}\), solid curves) that can be chosen for modeling the landau distribution are shown. The shaded areas illustrate additional \(10\%\) of entries starting from \(50\%\) (non-filled area).
+
+where \(c=t/\ln 2\) and \(z\) is evidently restricted to \(z\in(0,1)\).
+
+The average mean (radiative) energy loss per unit length is then given as15
+
+Footnote 15: Note that Eq. (18) led to the definition of \(\mathrm{X_{0}}\) through \(\mathrm{X_{0}}^{-1}\approx 4\alpha r_{e}^{2}Z(Z+1)N\cdot E_{i}(\ln 183Z^{-1/3}+1/18)\), when \(N=\rho N_{a}/A\) is the number of atoms per unit area and \(r_{e}\) the classical radius of the electron.
+
+\[(dE/dx)_{rad}=-E_{i}/X_{0} \tag{18}\]
+
+From Eq. (18) one can learn that the expectation value for \(z\) is \(<z>=e^{-t}\) and the variance can be approximated by \(\mathbf{var}<z>=e^{-t\ln 3/\ln 2}-e^{-2t}\), which propagates a noise addition of \(\sigma_{q/p}^{2}\) to the covariance matrix of the ATLAS track parameter \(q/p\) as
+
+\[\sigma_{q/p}^{2}=\frac{1}{<z>^{2}p^{2}}\cdot\mathbf{var}<z>, \tag{19}\]
+
+when this kind of update is applied.
+
+The standard track parameterisation used in the ATLAS tracking EDM is defined such that the uncertainties of the track are implicitly assumed to be Gaussian distributed, and it can be shown that the application of the average energy loss described by the Bethe-Heitler formula (including the Gaussian noise addition to the track uncertainties) introduces a strong bias towards too low momentum reconstruction [25]. Figure 13 shows a comparison of the energy loss distributions of a heavy particle (\(\mu\)) to an electron when traversing the same detector layer.
+
+### Summary of the Material Effects Integration
+
+The ATLAS extrapolation engine enhances different material update mechanisms that have been described within this section. Some of the described options are dedicated to the fast track simulation FATRAS. Table 1 gives -- for the convenience of the reader -- a summary of the implemented techniques and indicates the configuration flags to be chosen for the various applications. The property flags refer to the MultipleScatteringUpdator and EnergyLossUpdator, respectively.
+
+The width of the Gaussian approximations to the energy loss functions can be adjusted by specifying one additional property of EnergyLossUpdator.
+
+Figure 13: Comparison of muon energy loss to electron energy loss in a silicon layer of \(10\%\)\(\mathrm{X_{0}}\) thickness. The particles have been generated using Geant4 and where propagated with a initial momentum of \(2\)\(\mathrm{Ge\kern-1.0ptV}\). The muon energy loss distribution follows hereby the Landau distribution, while the electron energy loss distribution is disturbed by the long tail due to radiation loss. This results in a theoretical mean value up to 10 times bigger than for pure ionisation loss.
+
+## 5 Extrapolation
+
+Propagation, navigation and material effects integration are steered by one AlgTool, the Extrapolator. It establishes the simple user front-end and exists in a two-folded way: as a _fully configured_ AlgTool whose entire setup is done at job configuration via python setup, or as a _strategy pattern_ interface where the executing propagation AlgTool is part of the method signature.
+
+The following four different extrapolation methods can be performed either in the fully configured or component pattern setup:
+
+* extrapolate(...) this is the main extrapolation interface; a starting track representation, a destination surface, a particle hypothesis that determines the type of material interactions, a propagation direction and a boundary directive for the destination surface can be provided. The extrapolate(...) interface exists in a two-folded signature: starting from a single track representation, given by the TrackParameters class, or from an entire Track object. In the latter case, the closest position on the given trajectory is chosen as a starting point of the extrapolation process. This guarantees an optimal accuracy depending on the given track information16. Footnote 16: In the ATLAS computing model, the track representation loses the hit information when being transformed from the _Event Summary Data_ (ESD) the the _Analysis Object Data_ (AOD). Consequently, many operations performed on ESD level lead to higher accuracy compared to the similar operation on AOD data.
+* extrapolateDirectly(...) this is the direct forward call to the propagation AlgTool, it allows to do a simple propagation without navigation and material effects through the IExtrapolator interface.
+* extrapolateStepwise(...) the method signature is identical to the main extrapolate(...) method, but the interface method differs by the return type. A step-wise navigation to the destination surface is performed, stepping down to sub-surface level on intersected layers as described in further detail in Sec. 3.2.4. The extrapolateStepwise(...) returns the track representations on all crossed active detector surfaces in a std::vector. The last element of the vector is the track extrapolation at the destination surface. This method builds the core of the _a posteriori_ holes-on-track search.
+* extrapolateBlindly(...) this method is identical with the step-wise extrapolation, but does not require a provided destination surface. It stops with the last boundary surface of the known TrackingGeometry and is used for trajectory creation within FATRAS.
+
+Recently, the extrapolation package has been extended to support neutral track parameterisations and the new track particle base class. This is aimed at extending the current use of the extrapolation package (that is mainly restricted to track reconstruction) and providing the powerful extrapolation methods to hight level event reconstruction algorithms and physics analysis applications.
+
+### Internal Extrapolation Flow
+
+Encapsulated from the user interface, every extrapolation process is performed as a sequence of actions that are realised as private method of the Extrapolator AlgTool. The first step is the initialisation
+
+\begin{table}
+\begin{tabular}{|l|l|l|l|} \hline
+**Mechanism** & **Equation** & **Particle** & **Property flag** \\ \hline \hline MS, single Gaussian & Eq. (10) & all & default \\ \hline MS, double Gaussian & Eq. (11) & all & GaussianMixtureModel=true \\ \hline \hline mean ionisation loss & Eq. (13) & all & default \\ \hline most probable ionisation loss & Eq. (16) & all & bool in method signature \\ \hline mean radiation loss & Eq. (18) & \(e^{+/-}\) & UseBetheBlochForElectrons=false \\ \hline \end{tabular}
+\end{table}
+Table 1: Possible material effects mechanisms that are accessible through the ATLAS extrapolation package, the description is given for multiple scattering (MS) and energy loss effects.
+
+of the the navigation, performed by the initializeNavigation() method: the starting volume and associated layer to the starting parameters are determined as well as the according destination volume. From this point on, the entire extrapolation flow is driven automatically through the volumes that are crossed by the trajectory: the extrapolation is carried out to the boundary of the current volume, until the destination volume is reached. The mechanism of the BoundarySurface objects together with the Navigator AlgTool are described in Sec. 3, Fig. 14 shows an UML sequence diagram of a sample extrapolation process.
+
+Volume driven Extrapolation MethodsThe ATLAS TrackingGeometry is put together from volumes of different internal structure; each type triggers a different navigation strategy in the extrapolation process. The most commonly used setup is a fully static description of the detector using layers
+
+Figure 14: Simplified UML sequence diagram of an extrapolation process; for convenience, the method signatures are mostly omitted and the process is only illustrated for a fully static setup. The only method signatures indicated in the diagram are the different surface types that occur: the destination surface **sf**, various surfaces that represent material layers **layerSurface** and several boundary surfaces labelled as **boundSurface**. Since all surface types extend the same surface base class they can be used with the underlying propagation AlgTool. The initial extrapolate() call to the destination surface **sf** invokes repetitive private extrapolateToBoundary() calls until the destination volume is found and the extrapolateInsideVolume() succeeds. Inside the volume a sequential extrapolation from one Layer class to the next is done.
+
+that are pre-ordered with a given reference direction. The track parameters are hereby propagated from layer to layer and updated according to the material description of the intersected layer. An adjustable and volume dependent maximum number of failed attempts to intersect the successive layer triggers the search for the next volume through intersecting the appropriate boundary surface of the volume. Other parts of the detector may refer to an external material description (e.g. a database, parameterisation) or, when regarding the traverse of the calorimeter, the integration of an actual energy loss measurement could be taken instead of a parametric description through the reconstruction geometry. A dynamic approach has been developed for these cases that allows to create layers for a point-like material integration once the path through a volume is roughly known. It is realised by a dedicated Algfool, the IDynamicLayerCreator that can be registered to a volume of the reconstruction geometry and implemented in various different ways. Currently, a wrapper for the material description used in the Muonboy reconstruction algorithm [26] that is restricted to the MS exists in a prototype setup.
+
+Additionally, volumes in the reconstruction geometry can be modeled as dense material which allows the usage of the STEP_Propagator, see Sec. 2.3. Moreover, detached structures exist in the reconstruction geometry that need specific navigation. All these cases are determined by the structure of the current volume to be crossed.
+
+## 6 Performance Tests
+
+Track extrapolation processes are very frequently performed by many different modules of the event reconstruction. These client algorithms are immediately affected by the performance and reliability of the track extrapolation engine. Thus, dedicated focus has been drawn on (partly automated) validation and error triggering mechanisms during the design phase of the TrkExtrapolation realm. One major part of the overall track extrapolation quality is the correct description of the underlying detector material by the reconstruction geometry, which is not in particular subject of the extrapolation process itself and will not be covered in this section. A detailed consideration and reflection of this topic can be found in [7].
+
+Both the reliability and the accuracy (or quality) of the track parameter extrapolation have to be investigated. Whereas the first part is somewhat trivial since it simply includes consistency checks and the monitoring of a high number of extrapolation processes, the second task appears to be less trivial as it first occurs. The quality of the extrapolation solution is determined by the correct handling of material interactions and the precision of the mathematical transport of both parameters and covariances through the magnetic field. Latter can be done by comparing the calculated transport Jacobian matrices with numerically evaluated ones, which will be shown in Sec. 6.2. The numerical estimation of the transport Jacobian relies on the correct propagation of the track representation, which can not easily be validated, since the true solution of the intersection is not known. One is thus restricted to compare different modules and propagation techniques amongst each other and to perform self-consistency checks with forward-backward extrapolations.
+
+### Stand-alone Extrapolation Tests
+
+The resulting track parameters resolution is evidently the ultimate validation of the the track extrapolation. However, it accumulates all different aspects of track reconstruction and thus complicates the monitoring of single effects. It is sometimes useful to factorise the various parts of the track reconstruction into smaller modules that can be investigated in a controlled environment. The ATLAS extrapolation package offers dedicated algorithms to monitor special aspects of the extrapolation process. Most of the Algorithm classes designed to perform sample extrapolations are located in the TrkExAlgs package of the Tracking repository.
+
+#### 6.1.1 Self-consistency and Navigation Performance
+
+A stable and reliable navigation process through the TrackingGeometry is necessary to assure the correct material integration during the transport of the track parameters. While in the track reconstruction the Extrapolator is configured to switch to a direct extrapolation without navigation in case that a navigation break has been triggered (see Sec. 3.4), a dedicated Algorithm exists for validation purpose that stops the navigation process in such a case and records the specifications of the input parameters and the break condition. This algorithm also allows the monitoring of the boundary surface mechanism, since it records the necessary switches to the second or third boundary hypothesis when exiting a TrackingVolume of the reconstruction geometry. It can be shown that the navigation is reliable at highest level, starting from compatible input parameters (i.e. after testing that a geometrical intersection of the trajectory with the given destination surface exists) only one in about 40000 test extrapolations fails due to a navigation break17. The extrapolation tests have been carried out incorporating full material effects integration in a momentum range between 500 MeV and 150 GeV. For each randomly generated destination surface within the Inner Detector volume, the transport of the track parameters has been performed before the parameters on the destination surface have been back extrapolated to the starting position. Energy loss is applied in the forward direction, while the deposed energy is again added to the \(\frac{3}{p}\) parameter during backward extrapolation. By this, the self-consistency of the material effects integration can be checked accordingly. Figure 15 shows absolute or relative errors for track parameters after the extrapolation to the destination surface and back extrapolation to the initial starting frame. One other aspect can be monitored during theses tests: if the Navigator Algfool is configured to run in validation mode, it records the performance of the entry, respectively exit surface estimation of the various volumes. It can hereby be shown that within typical extrapolation processes, the straight line approximation that is used to estimate the hit volume surface is to more than 99.8 % correct.
+
+Footnote 17: In a typical reconstruction job this number is evidently larger, since the compatibility test can not be _a priori_ done. During the track reconstruction the assignment of a hit to a given trajectory is, in general, based on a cruder assumption that is given through the pattern recognition.
+
+### Validation of the Covariance Propagation
+
+The correct transport of the track parameters errors is essential for a good tracking resolution, in particular when the extrapolation is used with progressive fitting techniques that rely on the transported covariances18. The validation of the covariance transport through the propagator implementations is therefore inevitable. A dedicated validation algorithm has been established that is capable of comparing the transport Jacobian matrix as calculated by the IPropagator implementations with numerically evaluated ones. The numerical derivatives are hereby calculated by using the method of Ridders [27] that is based on a symmetric derivative
+
+Footnote 18: In least squares fitters, a crude prediction of the covariance matrix is, in general, sufficient, since it is mainly used to evaluate the compatibility of the hit with the given track hypothesis but does not enter the fit _per se_. However, the transport Jacobian matrix that relates the fitted parameters with the track parameters on the various measurement surfaces is indeed needed for the least squares fit.
+
+\[f^{\prime}(x)\approx\frac{f(x+h)-f(x-h)}{2h}, \tag{20}\]
+
+and aims to calculate \(f^{\prime}(x)\) in the limit \(h\to 0\). Evidently, Eq. (20) can not be evaluated for this limit, some approaching procedure to the limit value has therefore to be taken. The basic idea of Ridders method is to decrease the parameter \(h\) successively and to evaluate the derivative for each case. The limit value is then calculated by a polynomial extrapolation towards \(h=0\). Figure 16 shows the relative residuals of the Jacobian matrix entries
+
+\[r_{jk}=\left(\frac{\mathbf{J}_{if}^{calc}-\mathbf{J}_{if}^{num}}{\mathbf{J}_ {if}^{num}}\right)_{jk} \tag{21}\]
+
+between the numerically evaluated and the provided Jacobian matrices, but is probably not very intuitive for representing the quality of the covariance transport, since it does not reflect the different relevance of the various coefficients. Naturally, some components of the covariance matrix play a more important role than others in the track fit, since some track parameters pairs are stronger correlated then others (this is mainly determined by the detector and magnetic field setup). The pure comparison of all Jacobian coefficients, however, does not distinguish between _relevant_ and _non-relevant_ components. A second, more striking way of showing the quality of the covariance transport is to check the parameter pull distributions
+
+\[f(x_{i})=\frac{(x^{rec}-x^{true})_{i}}{\sigma_{i}} \tag{22}\]
+
+for the five parameters after the track fit. Unfortunately -- when using full detector simulation -- the pull distributions are mainly dominated by the quality of the material description used in the track fit and the error estimation based on clusterisation. The pure parameter transport is thus, in general, shadowed by these more significant effects. The fast track simulation FATRAS, however, allows to create tracks with fully controlled input in both material description and hit errors. Figure 17 shows the pull distributions of the track parameters after refitting of 50000 single tracks simulated without material effects and purely gaussian cluster errors in the ID barrel (\(|\eta|<2.5\)) using FATRAS.
+
+Figure 15: The absolute respectively relative error of about for sample extrapolations within the Inner Detector including full navigation and material effects integration. About \(40000\) extrapolations for the interaction region (smeared start parameters) to randomly distributed planar surfaces in the Inner Detector and back to the start surface are performed. The two upper plots show the absolute difference of the local coordinates of the start parameters with the back propagated ones. The latter plots show the relative error on the initial \(\phi\) respectively \(\frac{a}{\eta}\) values, the start parameters have been generated equally distributed over the entire azimuthal range and in the momentum interval between \(500\) MeV and \(150\) GeV.
+
+### Timing Performance
+
+Since the extrapolation of track parameters is a very frequent process in the event reconstruction, it is of particular interest to be keep the CPU time contribution at minimal cost. The highest relative frequency of extrapolation calls in the event reconstruction is within the track fit, where every hit causes -- depending on the fitting technique -- usually at least two extrapolation steps. The optimisation of the timing performance of the track extrapolation package can therefore be best evaluated in the minimisation of the contribution to the track fitting applications.
+
+In the standard ID event reconstruction of 10 \(t\bar{t}\) events using the _New Tracking_ (NEWT) [29] reconstruction chain, the Extrapolator is called about 80 000 times, predominately in the track fit;
+
+Figure 16: Relative errors of the entries in the transport Jacobian matrices for different magnetic field setups and the various propagation techniques. Fifty thousand test propagations have been performed within a test volume of similar size as the ATLAS Inner Detector. The calculated Jacobian matrices as provided by the propagator instances are hereby compared to numerically evaluated ones that have been calculated using the robust Ridders algorithm. In case of homogenous magnetic field, the surfaces have been restricted to be aligned with the magnetic field, such that the missing tuning of the HelixPropagator does not affect the numerical calculation.
+
+the Propagator AlgTool is called additionally ten times more often in the pattern recognition. Table 2 presents an overview of the number of method calls and relative timing contributions of the extrapolation package per event.
+
+The contribution of the extrapolation process to the track fit is obviously dependent on the used implementation of the ATLAS ITrackFitter interface. For the standard ATLAS Kalman filter, the extrapolation accounts to about two thirds of the overall time spent in track fitting during the entire event reconstruction. This number, however, includes the large number of track fits in the ambiguity solving process where many track candidates describe fake tracks and hence the navigation between the given measurement surfaces is not always straight-forward. It can be shown that for the refit of already found and resolved tracks the contribution of the extrapolation drops below 40 %. When using the global \(\chi^{2}\) implementation of the standard ATLAS track fitter interface, the relative contribution to the track fit is in general higher, since for each measurement the extrapolation is at least done three times to calculate the track derivatives numerically stable on the measurement surface. Recently, the propagator interface has been expanded to provide the used transport Jacobian to the client algorithms and thus the number of performed extrapolations in the least squares fit could be reduced to a single one per track. Additionally, this led to an increased stability of the track fit.
+
+Internal timing statisticsTwo main contributions to the total time spent during a extrapolation process exist: the transport of the track parameters (and in particular their errors), such as the navigation that is responsible for finding the next volume to traverse. The modification of track parameters due to material effects is a negligible factor in the overall timing of the extrapolation engine. In the current realisation of the ATLAS Extrapolator AlgTool both steps are performed with the underlying propagation engine. The relative time contribution of the navigation (including the transport of the navigation parameters to the boundary surface) to the time spent while traversing a volume is about 25 %, but since the fast straight line test performed by the boundary surface mechanism fails only in less than 0.1 % this number can be clearly reduced in a future evolution of the extrapolation engine. Figure 18 shows a caller-diagram of the main extrapolation method in a
+
+\begin{table}
+\begin{tabular}{|l|r|l|r|} \hline
+**Method** & **Calls** & **Caller** & **Time/Evt [\%]** \\ \hline \hline RungeKuttaPropagator::propagate() & 789 238 & pattern recognition & 8.39 \\ \hline \hline Extrapolator::extrapolate() & 53 714 & track/vertex fitting & 2.77 \\ Extrapolator::extrapolateStepwise() & 26 549 & _holes-on-track_ search & 1.56 \\ RungeKuttaPropagator::propagate() & 118 189 & Extrapolator & 1.63\(\star\) \\ \hline \end{tabular}
+\end{table}
+Table 2: Relative timing contribution to the event reconstruction measured for \(10\)\(t\bar{t}\) events in the Inner Detector New Tracking reconstruction for the extrapolation components in the pattern recognition and track fitting process. The number marked with (\(\bigstar\)) are contained in the caller contribution.
+
+Figure 17: Perigee parameter pull distributions of \(50000\) tracks that have been simulated and refitted without material interactions and assuming Gaussian distributed cluster errors. All five track parameters are shown, as an example the pull distribution of transverse impact parameter \(d_{0}\) is fitted with a Gaussian curve. The RungeKuttaPropagator has been used for these test.
+
+static volume setup.
+
+## 7 Conclusion and Outlook
+
+During the last three years a powerful and well performing new extrapolation package has been developed in full coherence to the new ATLAS reconstruction geometry and integrated in the new modular software structure of the ATLAS track reconstruction. It serves as a central part of many applications in the event reconstruction including pattern recognition, track and vertex fitting and combined reconstruction. Several different propagation techniques have been integrated and the modular design facilitates future adaption and extension.
+
+The new extrapolation engine extends the pure functionality needed for track and vertex fitting with a predictive navigation that can be used -- together with the underlying tracking geometry -- for holes-on-track search or for the fast track simulation FATRAS.
+
+Large scale event reconstruction using the new extrapolation package has been carried out using Monto Carlo simulated data and taken data from the CTB 2004 and the commissioning runs using cosmic rays [28].
+
+### Outlook
+
+An improvement in terms of a lower CPU time consumption of the extrapolation process can be achieved by simplifying the navigation process to directly use a straight line approximation for most of the cases, while including a fallback solution to full propagation if the straight line case fails to determine the correct exit surface, as shown in Sec. 6.3. An alternative approach could be to evaluate the usage of the recently integrated less complex IIntersector implementations, that exist as prototype versions in the ATLAS software release 13.1.0.
+
+Recently, the propagation interface has been expanded to provide the transport Jacobian matrices to the client algorithms. This is in particular important for global track fitting techniques, but has not been fully propagated through the extrapolation interface. A future adaption foresees the access to the full transport information (including the noise terms due to material effects integration) through a modified IExtrapolator interface.
+
+The ATLAS extrapolation engine has become a widely used tool for many different applications and is currently being used with various different geometry setups and navigation philosophies. This resulted in a rather extensive interface that concentrates these various different tasks. Current work is ongoing to split these different tasks that can be associated to with the different geometry setups of static,
+
+Figure 18: Simplified caller diagram for \(500\) sample extrapolations within the Inner Detector volume. The graph shows the contribution of navigation and actual extrapolation to the total time spend in the extrapolation to a volume boundary. In the current realisation of the ATLAS extrapolation package, the navigation is also performed using the underlying propagation engine. Encouraging results of stand alone navigation tests — see Sec. 6.1.1 — indicate however that a satisfactory performance can be also achieved by the simple straight line assumption of the boundary surface mechanism. It can be seen that when using the default RungeKuttaPropagator about \(75\%\) of the extrapolation time is spent in the propagation of track parameters and their errors, while the main contribution to the Runge-Kutta integration is the multiple lookup of the magnetic field value.
+
+dynamic and detached volumes structures in the extrapolation process into separate AlgTool classes that comply with the same interface definition.
+
+## Appendix A Appendix
+
+### Conventions and Typesetting
+
+The following type setting conventions are followed throughout this document: Software packages within the ATLAS offline software repository [30] are written in Sans-sarif face, C++ or python class names are written in Courier face. Namespace definitions as used in the software repository are omitted in this document for readability. An exhaustive list of software packages and their location within the ATLAS software repository can be found in Tab. 3.
+
+Typesetting of mathematical Formulas and geometrical ConventionsThree different types of three-dimensional frames are used within this document or are referred to by the TrkDetDescr container:
+
+* a coordinate system corresponding to the description of the magnetic field and the detector geometry, referred to as _global frame_.
+* a cartesian frame moving along the track, the so-called _curvilinear frame_; the tangential momentum vector of the track builds the \(z\)-axis of this frame, \(x\)-axis and \(y\)-axis are then constructed with an additional global constraint.
+* three-dimensional cartesian frames, different from the global frame, mainly attached to surfaces and volumes.
+
+The standard cartesian set \(\mathbf{e}_{i}\) of unit vectors describing the tracking frame are indicated as
+
+\[E=(\mathbf{e}_{x}\,,\mathbf{e}_{y}\,,\mathbf{e}_{z}\,). \tag{23}\]
+
+The standard base of the cartesian curvilinear frame is, for convenience, indicated as
+
+\[U=(\mathbf{e}_{u}\,,\mathbf{e}_{v}\,,\mathbf{e}_{t}\,). \tag{24}\]
+
+Finally, the standard base \(\mathbf{h}_{i}\) of a three-dimensional cartesian frame different different from the tracking frame is noticed as
+
+\[H=(\mathbf{h}_{x}\,,\mathbf{h}_{y}\,,\mathbf{h}_{z}\,). \tag{25}\]
+
+\begin{table}
+\begin{tabular}{|l|l|} \hline
+**Leaf package** & **Brief description** \\ \hline TrkExAlgs & test and validation algorithms \\ \hline TrkExExample & test steering package \\ \hline TrkExSlPropagator & propagation AlgTool with a straight track model \\ \hline TrkExHelixPropagator & propagation AlgTool with a helical track model \\ \hline TrkExSTEP\_Propagator & propagation AlgTool with material interactions \\ \hline TrkExRungeKuttaPropagator & propagation AlgTool for inhomogeneous magnetic field \\ \hline TrkExInterfaces & concentration of interfaces \\ \hline TrkExDynamicLayerCreator & AlgTool to provide layer information to global fitters \\ \hline TrkExTools & extrapolation AlgTool \\ \hline TrkExUtils & shared utility classes \\ \hline \end{tabular}
+\end{table}
+Table 3: Software leaf packages to be found in the Tracking/TrkExtrapolation CVS repository that are described or referred to within this document.
+
+In conjunction with a Surface object, this frame is sometimes referred to as _helper frame_, since it builds the carrier of the two-dimensional intrinsic surface frame (also called _local_ frame).
+
+A three-dimensional vector in either of the two frames is indicated by bold. Its expression with respect to the different frames is done using the standard base sets:
+
+\[\mathbf{a}=a_{x}^{e}\mathbf{e}_{x}\,+a_{y}^{e}\mathbf{e}_{y}\,+a_{z}^{e} \mathbf{e}_{z}\,=a_{u}^{e}\mathbf{e}_{u}\,+a_{v}^{e}\mathbf{e}_{v}\,+a_{t}^{e} \mathbf{e}_{t}\,=a_{x}^{h}\mathbf{h}_{x}\,+a_{y}^{h}\mathbf{h}_{y}\,+a_{z}^{h} \mathbf{h}_{z}\,. \tag{26}\]
+
+### Extrapolation to Distorted Surfaces
+
+In reality, many surfaces in the ATLAS detector that are modeled in event simulation and reconstruction as ideal geometrical objects will be deformed or distorted with respect to their mathematical description. Detector straws or wires in drift tube detectors (such as the TRT in the ID or the _Monitored Drift Tubes_ (MDT) in the MS) will be deformed due to gravitational wire sagging; planar surface may be bent due to gravitation for extensive objects or simply due to mounting tension. Some of these effects will be dealt with at the stage of hit calibration when a parametric or projective approach is of satisfactory accuracy, but in particular for large objects, such as the long MDT tube wires, the geometrical distortion has to be taken into account during the extrapolation process. The ATLAS TrackingGeometry provides hereby a dedicated DistortedSurface base class; concrete surface types extend this base class and the appropriate surface class from the TrkSurfaces repository. The extrapolation process to a distorted surface is then realised by a two step propagation to the final destination surface. Since the DistortedSurface types extend the common surface class it can be naturally used with the propagator to find an intersection with the nominal or non-distorted surface. In the following, a corrected surface in position and rotation of same type is created dynamically depending on the intersection solution of the first propagation. The final propagation is then performed to the corrected and more realistic surface position. Figure 19 shows an illustration of an example propagation to a wire surface with gravitational sagging correction (SaggedLineSurface).
+
+Figure 19: Illustration of a propagation to a wire surface with gravitational sagging correction: a first propagation to the nominal StraightLineSurface is performed which yields to the local coordinates \(\tilde{d}_{0}\) and \(\tilde{z}_{0}\). Depending on the longitudinal position on the line and the line orientation, the corrected StraightLineSurface is created and the final propagation performed.
+
+### Intersection formulas for straight line propagation
+
+The following sections summarise the formulas used for the calculation of trajectory intersections with destination surfaces of different types in the StraightLinePropagator.
+
+#### a.3.1 Line-Line Approach
+
+The problem of finding the closest approach between two lines in three-dimensional space -- one line describing the particle trajectory, the other one a straw measurement or the \(z\) axis for a perigee representation, respectively -- can be easily solved when both lines are given in parametric form
+
+\[\mathbf{l}_{a}(s)=\mathbf{m}_{a}+s\cdot\mathbf{d}_{a},\]
+
+\[\mathbf{l}_{b}(t)=\mathbf{m}_{b}+t\cdot\mathbf{d}_{b}. \tag{27}\]
+
+The vector between any two points on the two lines can then be expressed by
+
+\[\mathbf{k}(s,t)=\mathbf{l}_{b}(t)-\mathbf{l}_{a}(s)=\mathbf{m}_{ab}+t\cdot \mathbf{d}_{b}-s\cdot\mathbf{d}_{a}, \tag{28}\]
+
+where \(\mathbf{m}_{ab}=\mathbf{m}_{b}-\mathbf{m}_{a}\). The vector \(\mathbf{k}(s_{0},t_{0})\) denotes the vector between the two closest points \(\mathbf{l}_{a,0}=\mathbf{l}_{a}(s_{0})\) and \(\mathbf{l}_{b,0}=\mathbf{l}_{b}(t_{0})\) and is perpendicular to both, \(\mathbf{d}_{a}\) and \(\mathbf{d}_{b}\).
+
+This defines a system of two linear equations:
+
+\[\mathbf{k}(s_{0},t_{0})\cdot\mathbf{d}_{a}=\mathbf{m}_{ab}\cdot\mathbf{d}_{a }+t_{0}\cdot\mathbf{d}_{a}\cdot\mathbf{d}_{b}-s_{0}=0 \tag{29}\]
+
+\[\mathbf{k}(s_{0},t_{0})\cdot\mathbf{d}_{b}=\mathbf{m}_{ab}\cdot\mathbf{d}_{b }+t_{0}-s_{0}\cdot\mathbf{d}_{a}\cdot\mathbf{d}_{b}=0 \tag{30}\]
+
+Solving (29) and (30) for \(s_{0}\) and \(t_{0}\) yields
+
+\[s_{0}=\frac{(\mathbf{m}_{ab}\cdot\mathbf{d}_{a})-(\mathbf{m}_{ab}\cdot \mathbf{d}_{b})(\mathbf{d}_{a}\cdot\mathbf{d}_{b})}{1-(\mathbf{d}_{a}\cdot \mathbf{d}_{b})^{2}}, \tag{31}\]
+
+and, respectively,
+
+\[t_{0}=-\frac{(\mathbf{m}_{ab}\cdot\mathbf{d}_{b})-(\mathbf{m}_{ab}\cdot \mathbf{d}_{a})(\mathbf{d}_{a}\cdot\mathbf{d}_{b})}{1-(\mathbf{d}_{a}\cdot \mathbf{d}_{b})^{2}}. \tag{32}\]
+
+#### a.3.2 Line-Plane Intersection
+
+An arbitrary plane is defined as the set of points \(\mathbf{x}\) that comply with
+
+\[\mathbf{n}(\mathbf{x}-\mathbf{p})=0, \tag{33}\]
+
+where \(\mathbf{n}=(n_{x},n_{y},n_{z})\) describes the normal vector of the plane and \(\mathbf{p}\) a freely chosen reference point that lies within the plane. Given a line with \(\mathbf{l}(u)=\mathbf{m}+u\cdot\mathbf{d}\), the solution for the intersection can be found by inserting this into Eq. (33) and solving for \(u\). This results in
+
+\[u=\frac{\mathbf{n}(\mathbf{p}-\mathbf{m})}{\mathbf{n}\cdot\mathbf{d}}. \tag{34}\]
+
+#### a.3.3 Line-Cylinder Intersection
+
+The calculation of the intersection of a line with an arbitrarily oriented cylinder is shown here after transforming the line into the cartesian frame of the cylinder, i.e. the coordinate system where the symmetry axis of the cylinder builds the \(z\)-axis; In this frame the cylinder is centered around the origin and can be projected to a circle in the \(x-y\) plane.
+
+Let \(\mathbf{p}_{1}=(p_{1x},p_{1y},p_{1z})\) and \(\mathbf{p}_{2}=(p_{2x},p_{2y},p_{2z})\) be two points of the line in the cylinder frame. The solution can then be found in the projective \(x-y\) plane where the lines can be described as \(y=kx+d\), with
+
+\[k=\frac{p_{2y}-p_{1y}}{p_{2x}-p_{1x}}, \tag{35}\]and respectively
+
+\[d=\frac{p_{2x}p_{1y}-p_{1x}p_{2y}}{p_{2x}-p_{1x}}. \tag{36}\]
+
+It intersects the corresponding circle \(x^{2}+y^{2}=R^{2}\), which can then be found by a simple quadratic equation and reinsertion into the line equation.
+
+### Intersection Formulas for helical Propagation
+
+All calculations performed to find the intersection of the helix with a given Surface object are performed in the so-called _helix frame_ in which the helix progresses along the \(z\) axis and has an initial starting position of \(\mathbf{h}_{0}=(R,0,0)\). The helix parameterisation in this frame is done in the azimuthal angle \(\phi\) and can be expressed as
+
+\[\mathbf{h}(\phi)=\left(\begin{array}{c}R\cdot\cos\phi\\ R\cdot\sin\phi\\ \hat{o}\cdot R\cdot\phi\cot\theta\end{array}\right), \tag{37}\]
+
+when \(\hat{o}=\pm 1\) defining the orientation of the helix. The solution for the intersections with different surface types are found by determining the parameter \(\phi_{i}\) at the intersection point. The momentum vector at the intersection is then expressed as
+
+\[\mathbf{p}(\phi_{i}\,)=p\cdot\frac{\mathbf{h}^{\prime}(\phi_{i})}{||\mathbf{ h}^{\prime}(\phi_{i})||}, \tag{38}\]
+
+when \(\mathbf{h}^{\prime}(\phi)=\frac{\partial\mathbf{h}(\phi)}{\partial\phi}\).
+
+In general, more than one solution exists for the intersection of a helix with different surfaces. In the ATLAS track reconstruction, however, the helix radius given by the momentum range of particles that are subject of track reconstruction is big in comparison to the detector component to be intersected, thus the solution is in most cases unambiguous.
+
+#### a.4.1 Helix-Plane Intersection
+
+The intersection of a helix with an plane that is expressed in the helix frame can be found by inserting the helix parameterisation given in Eq. (37) into to the normal vector form of a plane given by Eq. (33). After some manipulations, the intersection solution is given by the root of the function
+
+\[\begin{array}{ll}f(\phi)&=n_{x}\cos\phi+n_{y}\sin\phi+\hat{o}\cdot n_{z} \cdot\phi\cot\theta-\frac{\hat{\delta}}{R}\\ &=a_{1}\cos\phi+a_{2}\sin\phi+a_{3}\cdot\phi+a_{4}\end{array}\ =0\ \, \tag{39}\]
+
+when \(\delta=\mathbf{n}\cdot\mathbf{p}\). Equation (39) is characterised by a linear part in \(\phi\) overlaid by an oscillating part with the coefficients \(a_{1}\) and \(a_{2}\). Two special cases exist for which the intersection can be calculated analytically: for surfaces parallel to the \(x-y\) plane of the helix frame \(n_{x}=n_{y}=0\) and the solution is given by the linear equation in \(\phi\). On the other hand, if the the normal vector of the plane is perpendicular to the \(z\) axis of the helix frame, the problem can be solved in the \(x-y\) coordinate plane and reduces to the same case as described in Sec. A.3.3. In the general case, however, the solution can not be found analytically it has to be calculated numerically using an iterative approach. In the implementation of the ATLAS HelixPropagator a standard Newton-Rhapson method is used for finding the root of Eq. (39). First a starting point for the iterative procedure is found by solving the linear part, which yields
+
+\[\phi_{0}=-\frac{a_{4}}{a_{3}}. \tag{40}\]
+
+The solution of the azimuthal angle \(\phi_{i}\) at the intersection point is then found by iterating
+
+\[\phi_{i}\,=\phi_{i-1}-\frac{f(\phi_{i-1})}{f^{\prime}(\phi_{i-1})} \tag{41}\]
+
+when \(f^{\prime}(\phi)=\frac{\partial f(\phi)}{\partial\phi}\). The iteration is stopped once the function value \(f(\phi)\) drops below a certain numerical cut value.
+
+#### a.4.2 Helix-Cylinder Intersection
+
+The intersection of a helix with a cylinder is trivial in the case when the symmetry axis of the cylinder is parallel to the helix guiding center (\(z\) axis in the helix frame). It reduces to finding the intersection of two circles in the projected \(x-y\) plane and can be solved accordingly. This is the most common case for the HelixPropagator since the solenoidal magnetic field in the ATLAS Inner Detector points along the global \(z\) axis (and one could assume it to be constant in an defined inner volume) and most cylinders that represent layers or volume boundaries are aligned in the same way.
+
+For completeness, the HelixPropagator does also include the calculation with arbitrarily oriented cylinders, which is similar to the intersection of a helix with a plane solved in an iterative Newton-Rhapson approach. In the helix frame, the set of point \(\mathbf{x}\) that define a cylinder surface of radius \(r\) are given by satisfying the equation
+
+\[|[\mathbf{x}-\mathbf{c}]\times\mathbf{l}_{z}|^{2}=r^{2}, \tag{42}\]
+
+when \(\mathbf{c}\) denotes the center position and \(\mathbf{l}_{z}\) the symmetry axis of the cylinder. Inserting the helix parameterisation \(\mathbf{h}(\phi)\) given in Eq. (37) and defining \(\mathbf{d}=\mathbf{c}\times\mathbf{l}_{z}\) follows
+
+\[[\mathbf{h}(\phi)\times\mathbf{l}_{z}]^{2}-2\cdot(\gamma(\phi)\times\mathbf{ l}_{z})\cdot\mathbf{d}+\mathbf{d}^{2}-r^{2}=0. \tag{43}\]
+
+Solving Eq. (43) in components yields
+
+\[\begin{array}{ll}f(\phi)&=a_{0}+a_{1}\cdot\phi+a_{2}\cdot\phi^{2}\\ &+a_{3}\cos\phi+a_{4}\sin\phi+a_{5}\sin(2\phi)\\ &+a_{6}\phi\cos\phi+a_{7}\phi\sin\phi\\ &+a_{8}\cos^{2}\phi+a_{9}\sin^{2}\phi\\ \end{array}\qquad\qquad=0 \tag{44}\]
+
+The solution for this equation is again performed in an iterative way using the solution of the quadratic equation in the coefficients \(a_{0}\), \(a_{1}\) and \(a_{2}\) as seed for the iterative solution of the entire expression.
+
+#### a.4.3 Helix-Line Approach
+
+The calculation of the closest approach of a helix to a line that is parallel to the \(z\) axis is trivial, since it is positioned on the plane that is defined through the two parallel lines. For calculating the closest approach of a helix to an arbitrary straight line it is convenient to transform the line into the helix frame representation. The line parameterisation as given in Eq. (27) and the helix expression -- Eq. (37) -- are used in this frame, respectively. The two points of closest approach \(\mathbf{l}_{c}=\mathbf{l}(t_{c})\) on the line, and respectively \(\mathbf{h}_{c}=\mathbf{h}(\phi_{c})\) on the helix are then represented by a parameter set \((t_{c},\phi_{c})\).
+
+The vector joining these two points \(\mathbf{j}=(\mathbf{h}_{c}-\mathbf{l}_{c})\) is orthogonal to both, the line direction and the track direction at \(\mathbf{h}_{c}\) which is expressed through
+
+\[\begin{array}{rcl}\mathbf{j}\cdot\mathbf{d}&=&0\\ \mathbf{j}\cdot\frac{\partial\mathbf{h}_{c}}{\partial\phi}&=&0\end{array} \tag{45}\]
+
+Solving the first equation for \(t_{c}\) and inserting the solution into latter, yields, after doing some manipulation,
+
+\[\begin{array}{ll}f(\phi)&=a_{0}+a_{1}\phi\\ &+a_{2}\cdot sin(\phi)+a_{3}\cdot cos(\phi)+a_{4}\cdot sin(2\phi)+a_{5}\cdot cos (2\phi)\\ &+a_{6}\cdot\phi\cdot sin(\phi)+a_{7}\cdot\phi\cdot cos(\phi)\\ \end{array} \tag{46}\]
+
+The solution is then carried out in the same way as for finding the intersection of a line with a cylinder.
+
+### Analytic Transport of the Covariance Matrix using the curvilinear Frame
+
+The analytic transport of the covariance matrix along the the curvilinear frame is shown for a helical track model and follows the path laid out in [11], but is adapted for the ATLAS track parameterisation. Since the straight line propagation is just one specific type of a helix propagation it can be evidently applied to this case as well. The initial problem of transporting a local covariance matrix \(\mathbf{C}_{li}\) from an initial surface to a target surface is hereby split into the transformations carried out between the localand curvilinear frame on the starting surface, the transport of the covariance along the curvilinear track frame and the final transformation between the curvilinear frame at the destination surface and its attached measurement frame, see Eq. (4). The curvilinear frame is hereby defined as given in Eq. (2).
+
+A helical trajectory of a particle with charge \(q\) and momentum magnitude \(p\) in a constant magnetic field \(\mathbf{B}\) can be parameterised as the global position \(\mathbf{m}(\psi)\) and direction \(\mathbf{t}(\psi)\) in a three dimensional space
+
+\[\mathbf{m}(\psi)=\mathbf{m}_{0}+\frac{\gamma}{Q}(\psi-\sin\psi)\mathbf{h}+ \frac{\sin\psi}{Q}\mathbf{t}_{0}+\frac{\alpha}{Q}(1-\cos\psi)\mathbf{n}_{0}\]
+
+\[\mathbf{t}(\psi)=\frac{\partial\mathbf{m}(\psi)}{\partial s}=\frac{\partial \mathbf{m}(\psi)}{\partial\psi}\cdot\frac{\partial\psi}{\partial s}=\gamma(1- \cos\psi)\mathbf{h}+\cos\psi\cdot\mathbf{t}_{0}+\alpha\sin\psi\cdot\mathbf{n} _{0} \tag{47}\]
+
+when \(\psi=Q\cdot s\) denotes the momentum scaled run parameter \(s\), \(Q=-|\mathbf{B}|\frac{q}{p}\), and the initial vectors at \(s=0\) are written as \(\mathbf{m}_{0}\) and \(\mathbf{t}_{0}\), respectively. The vector \(\mathbf{h}\) describes the direction of the magnetic field, \(\mathbf{n}=\frac{\mathbf{h}\times\mathbf{t}}{\alpha}\) the normalised _trihedron_ vector, \(\alpha\) evidently the length of \(\mathbf{h}\times\mathbf{t}\) and \(\gamma\) the projection of \(\mathbf{h}\) onto \(\mathbf{t}\).
+
+We now investigate the influence of small variations on the start parameters \(\mathbf{m}_{0}\), \(\mathbf{t}_{0}\) and \(\frac{1}{p_{0}}\) on the transported parameters \(\mathbf{m}\), \(\mathbf{t}\). The variations are applied through a displacement by \(d\mathbf{m}_{0}\) that is restricted to the curvilinear \(u-v\) plane, a deflection \(d\mathbf{t}_{0}\) to the direction and a modification of the curvature given by \(\delta(q/p_{0})\). The variations result not only in modified target parameters but also in a variation of propagation length \(s\) to comply with the orthogonality relation
+
+\[d\mathbf{m}\cdot\mathbf{t}=0. \tag{48}\]
+
+The total differentials \(d\mathbf{m}\) and \(d\mathbf{t}\) that incorporate the resulting variations on the the target surface with respect to modified starting parameters are build as
+
+\[d\mathbf{m}=\frac{\partial\mathbf{m}}{\partial\mathbf{m}_{0}}d\mathbf{m}_{0}{}^ {(a)}+\frac{\partial\mathbf{m}}{\partial\mathbf{t}_{0}}d\mathbf{t}_{0}{}^{(b) }+\frac{\partial\mathbf{m}}{\partial(1/p_{0})}\delta(1/p_{0})^{(c)}+\frac{ \partial\mathbf{m}}{\partial s}\delta s^{(d)} \tag{49}\]
+
+and, respectively,
+
+\[d\mathbf{t}=\frac{\partial\mathbf{t}}{\partial\mathbf{t}_{0}}d\mathbf{t}_{0}{} ^{(e)}+\frac{\partial\mathbf{t}}{\partial(1/p_{0})}\delta(1/p_{0})^{(f)}+ \frac{\partial\mathbf{t}}{\partial s}\delta s^{(g)}. \tag{50}\]
+
+Figure 20 shows the fundamental relations between the applied variations and their effects on the target surface.
+
+Curvilinear to Curvilinear TransformationsIn the following, the transport of the covariance matrix between to curvilinear frames is shown to illustrate the principle of the further calculations.
+
+We can, by inserting the partial derivatives of Eq. (47) identify the components of Eq. (49) and Eq. (50) as
+
+\[\frac{\partial\mathbf{m}}{\partial\mathbf{m}_{0}}d\mathbf{m}_{0}= d\mathbf{m}_{0} \tag{51a}\] \[\frac{\partial\mathbf{m}}{\partial\mathbf{t}_{0}}d\mathbf{t}_{0}= \frac{\psi-\sin\psi}{Q}\mathbf{h}(\mathbf{h}\cdot d\mathbf{t}_{0})+\frac{\sin \psi}{Q}d\mathbf{t}_{0}+\frac{1-\cos\psi}{Q}(\mathbf{h}\times d\mathbf{t}_{0})\] (51b) \[\frac{\partial\mathbf{m}}{\partial(1/p_{0})}\delta(1/p_{0})=p[s \cdot\mathbf{t}+\mathbf{m}_{0}-\mathbf{m}]\cdot\delta(1/p_{0})\] (51c) \[\frac{\partial\mathbf{m}}{\partial s}\delta s=\mathbf{t}\cdot\delta s\] (51d) \[\frac{\partial\mathbf{t}}{\partial\mathbf{t}_{0}}d\mathbf{t}_{0}=(1-\cos\psi) \mathbf{h}(\mathbf{h}\cdot d\mathbf{t}_{0})+\cos\psi+\sin\psi(\mathbf{h}\times d \mathbf{t}_{0})\] (51e) \[\frac{\partial\mathbf{t}}{\partial(1/p_{0})}\delta(1/p_{0})=\alpha\cdot Q\cdot s \cdot p\cdot\mathbf{n}\cdot\delta(1/p_{0}) \tag{51f}\]\[\frac{\partial\mathbf{t}}{\partial s}\delta s=\alpha\cdot Q\cdot\mathbf{n}\cdot \delta s \tag{51g}\]
+
+We used that \(\gamma=\mathbf{h}\cdot\mathbf{t}=\mathbf{h}\cdot\mathbf{t}_{0}\) remains constant along \(s\) and so does \(\alpha\). Let us in addition mention that Eq. (51f) follows directly from Eq. (51c) and that Eq. (51g) represents the centripetal acceleration caused by the Lorentz force.
+
+We search for transport jacobian matrix for the errors on the initial curvilinear parameters \(\mathbf{c}_{i}=(u_{i},v_{i},\phi_{i},\theta_{i},1/p_{i})^{T}\) and the final curvilinear parameters \(\mathbf{c}_{f}=(u_{f},v_{f},\phi_{f}\,,\theta,1/p_{f})^{T}\). In other words, we look for the coefficients \(C_{if}\) that transform a variation of the initial parameter parameter set \(c_{i}\) to the final parameters set \(\mathbf{c}_{f}\). As an example we will specify these components for the variations on \(\delta u_{f}\):
+
+\[\delta u_{f}=\frac{\partial u_{f}}{\partial u_{i}}\delta u_{i}+\frac{\partial u _{f}}{\partial v_{i}}\delta v_{i}+\frac{\partial u_{f}}{\partial\phi_{i}} \delta\phi_{i}\,+\frac{\partial u_{f}}{\partial\theta_{i}}\delta\theta_{i}\, +\frac{\partial u_{f}}{\partial(1/p_{0})}\delta(1/p_{0}). \tag{52}\]
+
+The track parameters \(q/p\) as defined through the ATALS tracking EDM is hereby replaced by the \(1/p\) since the variations on the signed momentum representation is restricted to change the momentum magnitude only, while leaving the charge parameter untouched. In any curvilinear frame, the total differentials \(d\mathbf{m}\) and \(d\mathbf{t}\) can be expressed with respect to the curvilinear coordinates and are then given by19
+
+Footnote 19: Note that the orthogonality relation as required by Eq. (48) is hereby met by restricting the total differential to a variation in \(\mathbf{e}_{u}\) and \(\mathbf{e}_{v}\), respectively.
+
+\[d\mathbf{m}=\mathbf{e}_{u}\,\delta u+\mathbf{e}_{v}\,\delta v \tag{53}\]
+
+\[d\mathbf{t}=\frac{\partial\mathbf{t}}{\partial\phi}\delta\phi+\frac{\partial \mathbf{t}}{\partial\theta}\delta\theta=\sin\theta\mathbf{e}_{u}\,\delta\phi -\mathbf{e}_{v}\,\delta\theta \tag{54}\]
+
+Equation (54) can be shown when differentiating \(\mathbf{t}\) with respect to \(\phi\) and \(\theta\) and using the fact that the curvilinear frame is constructed by using the global \(z\) axis.
+
+Without losing generality, we will in the following use Eqs. (47) to (51) assuming that the initial frame is given at \(s=0\), i.e. \(\mathbf{m}_{i}\,=\mathbf{m}_{0}\) and denote \(\psi_{if}=\psi_{f}-\psi_{i}\equiv\psi\) and \(s_{if}\equiv s\) for convenience.
+
+Figure 20: The initial variations on the track state and the directly resulting variations at the target position of the extrapolation process. The illustration decouples the possible start parameter variations: **(a)** illustrates the effect of an initial variation \(d\mathbf{m}_{0}\) at the starting position, while **(b)** shows the effect of a slightly modified momentum direction; **(c)** displays the changed trajectory for a modified curvature while keeping the same initial direction.
+
+After inserting Eqs. (53) and (54) into Eq. (49) and using the partial derivatives found in Eq. (51) we gain an expression that correlates the variations on the local coordinates in the final curvilinear frame with the variations of the start parameters
+
+\[\begin{array}{lcl}{\bf e}_{u}^{f}\,\cdot\delta u_{f}+{\bf e}_{v}^{f}\,\cdot \delta v_{f}&=&{\bf e}_{u}^{i}\,\cdot\delta u_{i}\\ &+&{\bf e}_{v}^{i}\,\cdot\delta v_{i}\\ &+&\frac{\sin\theta_{i}}{Q}\left[(\psi-\sin\psi)({\bf h}\cdot{\bf e}_{u}^{i} )\,{\bf h}+\sin\psi{\bf e}_{u}^{i}\,+(1-\cos\psi)({\bf h}\times{\bf e}_{u}^{i} )\right]\cdot\delta\phi_{i}\\ &-&\frac{1}{Q}\left[\psi-\sin\psi)({\bf h}\cdot{\bf e}_{v}^{i})\,{\bf h}++\sin \psi{\bf e}_{v}^{i}\,+(1-\cos\psi)({\bf h}\times{\bf e}_{v}^{i})\right]\cdot \delta\theta_{i}\\ &+&p\,\cdot[s\cdot{\bf t}_{f}\,+{\bf m}_{i}\,-{\bf m}_{f}\,]\cdot\delta(1/p_{ i})\\ &+&{\bf t}\,\cdot\delta s.\end{array} \tag{55}\]
+
+This equation is multiplied by \({\bf e}_{u}^{f}\,\) to isolate the terms given in Eq. (52), since it cancels the contributions in the orthogonal component \({\bf t}_{f}\,\equiv{\bf e}_{t}^{f}\,\). This yields
+
+\[\begin{array}{lcl}\delta u_{f}&=&{\bf e}_{u}^{i}\,\cdot\,{\bf e}_{f}^{f}\, \delta u_{i}\\ &+&{\bf e}_{v}^{i}\,\cdot\,{\bf e}_{f}^{f}\,\delta v_{i}\\ &+&\frac{\sin\theta_{i}}{Q}\left[(\psi-\sin\psi)({\bf h}\cdot{\bf e}_{u}^{i} )\,({\bf h}\cdot{\bf e}_{u}^{f})+\sin\psi({\bf e}_{u}^{i}\,\cdot\,{\bf e}_{u}^ {f})+(1-\cos\psi)({\bf h}\times{\bf e}_{u}^{i})\right]\cdot\delta\phi_{i}\\ &-&\frac{1}{Q}\left[\psi-\sin\psi)({\bf h}\cdot{\bf e}_{v}^{i})\,({\bf h} \cdot{\bf e}_{u}^{f})\,++\sin\psi({\bf e}_{v}^{i}\,\cdot\,{\bf e}_{u}^{f})+( 1-\cos\psi)({\bf h}\times{\bf e}_{v}^{i}){\bf e}_{u}^{f}\right]\cdot\delta \theta_{i}\\ &+&p\,\cdot\left[({\bf m}_{i}\,\cdot{\bf e}_{u}^{f})\,-({\bf m}_{f}\,\cdot{ \bf e}_{u}^{f})\right]\cdot\delta(1/p_{i}).\end{array} \tag{56}\]
+
+By comparing the coefficients of Eq. (56) with those defined in Eq. (52), the first row of the Jacobian matrix is found and since Eq. (55) is on the left hand side symmetrical in \({\bf e}_{u}\,\) and \({\bf e}_{v}\,\), a similar equation for \(\delta v_{f}\) can be obtained. For evaluating the covariance entries that regulate the transport of the directional uncertainties we take Eq. (50) and insert again both, the partial derivatives as given in Eq. (51) and the expression of the total differential in the curvilinear frame coordinates. This yields the expression
+
+\[\begin{array}{lcl}\sin\theta_{f}\,{\bf e}_{u}^{f}\,\delta\phi_{f}\,-{\bf e}_ {v}^{f}\,\delta\theta_{f}&=&\\ &+&\sin\theta_{i}\,\left[(1-\cos\psi)({\bf h}\cdot{\bf e}_{u}^{i})\,{\bf h}+ \cos\psi{\bf e}_{u}^{i}\,+\sin\psi({\bf h}\times{\bf e}_{u}^{i})\right]\delta \phi_{i}\\ &-&\left[(1-\cos\psi)({\bf h}\cdot{\bf e}_{v}^{i})\,{\bf h}+\cos\psi{\bf e}_{v }^{i}\,+\sin\psi({\bf h}\times{\bf e}_{v}^{i})\right]\delta\theta_{i}\\ &+&\alpha\cdot Q\cdot p\cdot s\delta(1/p_{i})\\ &+&\alpha\cdot Q\cdot{\bf n}\cdot\delta s\end{array} \tag{57}\]
+
+We first try to eliminate the explicit variation on the propagation length \(\delta s\) from Eq. (57) before we can proceed identically as for the local coordinates. Taking Eq. (49) and multiply \(d{\bf m}_{f}\,\) with the perpendicular direction \({\bf t}_{f}\,\) gives an expression for \(\delta s\) as
+
+\[\delta s=-d{\bf m}_{i}\,\cdot\,{\bf t}_{f}\,-\left[\frac{\partial{\bf m}_{f}} {\partial{\bf t}_{i}}d{\bf t}_{i}\right]\cdot{\bf t}_{f}\,-\left[\frac{ \partial{\bf m}_{f}}{\partial(1/p_{i})}\cdot{\bf t}_{f}\,\right]\cdot\delta(1 /p_{i}), \tag{58}\]
+
+which we insert in Eq. (57). When multiplying Eq. (58) again with \({\bf e}_{u}^{f}\,\) and \({\bf e}_{v}^{f}\,\) and and isolating the components, the third and fourth row -- describing the propagation of the directional uncertainties -- of the transport Jacobian is determined. The missing terms of the Jacobian matrix can be found without additional calculations; they are
+
+\[\frac{\partial(1/p_{f})}{\partial(1/p_{i})}=1 \tag{59}\]
+
+and, respectively,
+
+\[\frac{\partial(1/p_{f})}{\partial(u_{i},v_{i},\phi_{i}\,,\theta_{i}\,)}=0 \tag{60}\]
+
+and correspond to momentum conservation and an interaction-free transport.
+
+The fully deployed Jacobian matrix describing the transport from one curvilinear frame to another can be found in Fig. 21.
+
+Curvilinear to Local Transformations and vice versaFor a full transport of the covariance matrix between to arbitrary track representations it is also necessary to determine the Jacobian matrices that transform the local parameter expressions \(\mathbf{x}=(l_{1},l_{2},\phi,\theta,q/p)^{T}\) to the curvilinear parameters \(\mathbf{c}=(u,v,\phi,\theta,1/p)\) and the reverse way. In ATLAS, all track representations can be expressed on a planar surface, and including an additional transformation, even in a two-dimensional cartesian coordinate system, which thus remains the only case to be investigated in this scope (this is guaranteed through the _measurement frame_ mechanism, see [6]).
+
+We use the definition of a lateral variation in the curvilinear frame -- Eq. (53) -- and express it through a variation in the local coordinates and along the momentum
+
+\[d\mathbf{m}=\mathbf{e}_{u}\,\delta u+\mathbf{e}_{v}\,\delta v=\mathbf{e}_{1} \delta l_{1}+\mathbf{e}_{2}\delta l_{2}+\mathbf{t}\cdot\delta s, \tag{61}\]
+
+and redo the same for the variation on the momentum
+
+\[d\mathbf{t}=\sin\theta\mathbf{e}_{u}\,\delta\phi-\mathbf{e}_{v}\,\delta\theta =\sin\theta\mathbf{e}_{u}\,\delta\phi-\mathbf{e}_{v}\,\delta\theta+\frac{ \partial\mathbf{t}}{\partial s}\delta s. \tag{62}\]
+
+It is worth mentioning that although the directional expression is identical in both local and curvilinear frame, the angular parameters \(\phi,\theta\) have to be first treated independently since we want to investigate both sides individually.
+
+Multiplying Eq. (61) with the orthogonal vector \(\mathbf{t}\) (which eliminates components in \(\mathbf{e}_{u}\,\) and \(\mathbf{e}_{v}\,\)) and solving for \(\delta s\) establishes an expression of the necessary20 variation in the propagation length caused by a local variation on the starting surface
+
+Footnote 20: To comply with the orthogonality \(d\mathbf{m}\cdot\mathbf{t}=0\).
+
+\[\delta s=-(\mathbf{t}\cdot\mathbf{e}_{1})\delta l_{1}-(\mathbf{t}\cdot \mathbf{e}_{2})\delta l_{2}, \tag{63}\]
+
+while the multiplication with \(\mathbf{e}_{u}\,\) and \(\mathbf{e}_{v}\,\), respectively, yields the expression of the variations in \(\delta u\) and \(\delta v\)
+
+\[\delta u=(\mathbf{e}_{u}\,\cdot\mathbf{e}_{1})\delta l_{1}+(\mathbf{e}_{u}\, \cdot\mathbf{e}_{2})\delta l_{2}\]
+
+\[\delta v=(\mathbf{e}_{v}\,\cdot\mathbf{e}_{1})\delta l_{1}+(\mathbf{e}_{v}\, \cdot\mathbf{e}_{2})\delta l_{2}. \tag{64}\]
+
+The coefficients of the Jacobian matrix that relate the local surface parameters with the curvilinear parameters \(u\) and \(v\) can be directly gained from Eq. (64). In a second step, Eq. (62), is multiplied by \(\mathbf{e}_{u}\,\) and \(\mathbf{e}_{v}\,\) and Eq. (63) is inserted to eliminate \(\delta s\). This yields the additional components that relate the angular variables with the local surface parameters.
+
+The reverse transformation from the (transported) curvilinear frame to the local frame of the target surface can be found in a similar way, starting from Eq. (61). We clearly want to evaluate the variations hereby in the target frame, i.e. we demand that \(d\mathbf{m}\) is orthogonal to \(\mathbf{e}_{3}\) in this case, which builds the normal vector of the target surface. Under this assumption, the multiplication of Eq. (61) with \(\mathbf{e}_{3}\) yields
+
+\[\delta s=\frac{\mathbf{e}_{u}\,\cdot\mathbf{e}_{3}}{\mathbf{t}\cdot\mathbf{ e}_{3}}\delta u+\frac{\mathbf{e}_{v}\,\cdot\mathbf{e}_{3}}{\mathbf{t}\cdot \mathbf{e}_{3}}\delta v. \tag{65}\]
+
+Introducing Eq. (65) to Eq. (61) now enhances the same procedure to find the components for the inverse Jacobian matrix. The fully deployed matrices can be found in the code documentation of the TrkExUtils CVS package [30].
+
+## References
+
+* [1] R. Fruhwirth et al., _Application of Kalman Filtering to Track and Vertex Fitting_, Nucl. Inst. Meth., **A 262**, 1987.
+* [2] V. Boisvert et al, _Final Report of the ATLAS Reconstruction Task Force (RTF)_, ATLAS Note, ATL-SOFT-2003-01, 2003.
+* [3] Athena homepage, _[http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/_](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/_).

@@ -1,0 +1,110 @@
+May 14,2002
+
+**About SEEs in the**
+
+**HV Distributor System of the TileCal**
+
+**R.Chadelas, Ph.Gris, D.Lambert**
+
+Laboratoire de Physique Corpusculaire
+
+Clermont-Ferrand
+
+SEE tests performed in october 2001 (27-28) on the HV distributor system of the Tile calorimeter gave us estimated numbers concerning soft and latch-up events. Even if the rates seen will not prevent the device from running, it is important to try to reduce them and to predict how the system will react in particular to latch-ups. This note describes the efforts developped to reduce SEE rates and to secure the behaviour of the system with respect to latch-ups.
+
+[MISSING_PAGE_EMPTY:2]
+
+Introduction
+
+Recent radiation tests (27-28 october 2001) [1] on the HV distributor system of the Tile calorimeter gave us valuable and quantitative information on the behaviour of the device with respect to SEE occurences. One could roughly distinguish two types of errors: bit flips and latch-ups. Even if rates seen for both errors were not dramatic and if all upsets disappeared when reseting the system (soft SEEs), it is important to detect as early as possible running failures so as to prevent further damages: latch-ups can for instance trigger destructive effects if systems are not reset by power cycles.
+
+This note describes how we think the HV distributor system (in a large sense: HVmicro+HVopto cards+ low voltages+Tilecal DCS) should react to SEEs: after reminding more precisely the radiation results, modifications to reduce bit flips are given. A view of what will happen (in particular with respect to low voltages) in case of latch-up is given.
+
+## 2 Radiation Results
+
+Let us summarize extrapolated SEE rates from tests performed in october 2001 (PSI-Zurich) with 300 MeV protons on HVmicro and HVopto cards [1]:
+
+* HVmicro: 424 soft SEEs are expected per year for the whole detector. Most of them (95%) are related to RAM errors and the remaining (5%) software resets. 19 latch-ups are expected in addition per year of ATLAS running (for the whole system) and can have two visible effects: a +5V current increase (typically from 160 to 370 mA) or a +5V current increase (from 160 to 560 mA) associated to a +15V current increase(from 20 to 50 mA). They must be cured by power cycling the low voltage supply.
+* HVopto: in addition to a component highly sensitive to SEEs (optocoupler MCT2 that will be replaced by MOC8204), SEU were observed on the HVopto cards (81 per year for the whole system). They correspond to a bit flip in a given component (HCT273) and the result is a loss of HV on half of a board (ie up to 24 TileCal channels).
+
+## 3 Reducing soft SEEs
+
+### HVmicro card
+
+Most of the soft SEEs are related to bit errors on RAM containing program and calibration parameters. During the running of a HVmicro card, a lot of information will go through the RAM and effect of soft SEEs depend on the corrupted data. Let us go through the main steps of running of the HVmicro card: at the boot of the microcontroler, the following information are stored in the RAM: program parameters, calibration parameters (temperature and regulation loops taken from the EEPROMs of the HVmicro and HVopto cards), HV to be applied on the PMTs, identification of cards inside the superdrawer and tolerances. The HV value to be applied are loaded in the DACs (Max 536) (taking into account calibration parameters loaded in the RAM) which are not sensitive to SEEs. Every other seconds (if no traffic on the CANbus), the actual output voltage of a given channel is digitised (ADS7820) (if there is no CANbus traffic, it takes about sixty milliseconds to get the digitised value - it is an average of ten measurements). The information are then converted in volts by taking into account calibration parameters stored in the RAM. The effect of a SEE in the RAM can thus be:
+
+* corrupted programming parameters: a watch dog should appear.
+* corrupted calibration parameters: a bad order can be sent to the DACs or a wrong HV value is seen.
+* corrupted orders: same as previously
+* corrupted identification: communication problems with the corresponding drawer can occur.
+
+A first way to reduce RAM errors is to reduce the amount of information that will be copied in it : with this the number of expected soft SEEs decreased from 634 to 424 [1] per year for the whole system. Another way is to have more than one instance of a given data inside the RAM. The total available memory is of 256 kbytes and "only" 3801 bytes are used at the moment. The idea is then to have a quintuplet of all the data in the RAM and to periodically (every 2 seconds for a given channel if there is no CANbus traffic) compare the five copies (the comparison is done just before getting the digitised value of the corresponding channel): if (at least) three out of five are the same, the last two are corrected according to the others. This procedure is now implemented. The memory used is now of 11960 bytes. This will certainly increase the RAM error rate to 1272 per year (ie about ten per day) for the entire system. But the rate seen "outside" the cards will be negligible due to the 3/5 correction. Indeed ten events per day would correspond to a flat probability of \(10^{-4}\) per second. Our 3/5 procedure fails if at least three SEE occur on the same area in two seconds: the probability for such a case is thus less than \(2.10^{-12}\). This is negligible and this procedure will reduce the number of RAM errors by 1084 leading to a total number of RAM errors of 188 per year for the whole system (ie one to two per day).
+
+One must add that this procedure will not solve all the possible problems and help of the TileCal DCS may be mandatory in some cases. Imagine for instance that when comparing the five copies three similar instances can not be found. This would mean that more than two were corrupted. In that case no automatic procedure is foreseen: the microcontroller will set up a flag (corresponding to an alarm message) that can be catched through the CANbus. This message should be seen by the TileCal DCS in such a way that experts should be called. A reset of the corresponding drawer can then be decided and should cure the problem : since SEE events were not seen on the EEPROM during the tests, the probability to see data corrupted must be very small. Even if by bad luck (which would look like a curse!) EEPROM data are also corrupted, one must envisage the possibility to load calibration parameters from a file (located outside the drawer).
+
+After investigation it appears that out of 188 RAM errors per year, only 85 may trigger unusual behaviour of the HV distributor system: all others will have no impact on its running. These 85 errors are essentially wrong read HV values (98%). Nonetheless, because of our reading frequency of ADC conversions, these wrong values will not be present more than 2 seconds in the RAM: depending on the DCS reading frequency, it may be possible that these type of errors will not be seen "outside" the drawer. Itis important to stress that the actual HV value (ie the one applied on the PMTs) is independent on these errors which just affect read values.
+
+The remaining SEU seen on HVMICRO concerns software resets (20 per year for the system). We believe that they are essentially due to jump in the stack of the program consecutive to bit flips. Except by redesigning the cards, there is no way to avoid them in ATLAS. This will thus give an effective number of SEU of 105 per year for the whole HV distributor system, that is less than one per day.
+
+### HVopto card
+
+Consequences of soft SEEs on HVopto cards are the loss of HV on up to 24 PMTs. There is no way to lower SEE rates in that case since the problems come from a given component (HCT273). A way to minimise SEU effects is thus to correct for possible changes of the corresponding word and to force it to the desired value: it is foreseen to do this every 100 ms. This implies that a quarter of super-drawer will not remain off more than 100 ms. This will decrease SEU rates (as seen "outside" the drawer) to value close to zero. One should also not forget the double readout structure of TileCal cells[4]: even if half of a HVopto board goes off, the corresponding cells are still read by PMTs of the other side of the scintillating tiles.
+
+## 4 Reaction to Latch-ups
+
+Latch-ups seen during SEE tests completely broke communications with HVmicro cards (through the CANbus). If the system is not quickly reset, permanent damages can be produced. Let us see what will happen from the currents point of view.
+
+### Current consumptions
+
+Currents were measured on ten superdrawers to estimate the consumptions with production elements in four configurations: HVmicro card only and a full drawer in three states: with 48 optocouplers (full drawer), with 45 optocouplers (Barrel super-drawer) and with 32 optocouplers (Extended Barrel super-drawer). The results are given in table 1.
+
+One observes that most of the +5V current is driven by HVmicro cards. On the other hand, HVopto cards are the main consumers of +15 and -15 V. The corresponding currents depend on the working of the cards that is on the currents driven by the LEDs of the optocouplers of the regulation loops (see figure 1).
+
+These results just confirm measurements performed on pre-production cards leading to the following specifications for the low voltages supplies (no safety factors):
+
+* +5V : 400 mA
+* +15V : 400 mA
+* -15V : 2000 mA
+
+These numbers were confirmed in october 2001 to responsible people [2].
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|} \hline Configuration & \(+\)5V(mA) & \multicolumn{2}{|c|}{\(+\)15V(mA)} & \multicolumn{2}{|c|}{-15V (mA)} \\  & & HV\({}_{\it out}\)=0 & HV\({}_{\it out}\neq\)0 & HV\({}_{\it out}\)=0 & HV\({}_{\it out}\neq\)0 \\ \hline HVmicro & 167\(\pm\)13 & \multicolumn{2}{|c|}{few mA} & \multicolumn{2}{|c|}{\(\leq\) 1 mA} \\ \hline
+48 optocouplers & 212\(\pm\)21 & 292\(\pm\)10 & 297\(\pm\)9 & 1659\(\pm\)8 & 309\(\pm\)12 \\ \hline
+45 optocouplers & 200\(\pm\)12 & 292\(\pm\)8 & 297\(\pm\)9 & 1573\(\pm\)9 & 307\(\pm\)12 \\ \hline
+32 optocouplers & 200\(\pm\)12 & 295\(\pm\)10 & 297\(\pm\)10 & 1201\(\pm\)10 & 302\(\pm\)11 \\ \hline \end{tabular}
+\end{table}
+Table 1: \(+\)5V, \(+\)15V and -15V currents for various configurations.
+
+Figure 1: Currents as a function of the output voltages.
+
+### What will happen in case of latch-up
+
+Latch-ups were observed only on HVmicro boards and were corresponding either to a +5V current increase only (from 160 to 370 mA) or to increases of +5V (from 160 to 570 mA) and +15V (from 20 to 50 mA) currents. In order to have a safe and reliable system, a power cycling of the low voltage supply must occur simultaneously to these current increases. This thus requires limits on current consumption and these limits must be programmable to take component ageing into account. The upper limit must be of 250 mA for the +5V current at the beginning of ATLAS but may change with component ageing.
+
+The status of a given low voltage supply must be known by the DCS of the HV distributor system. According to the foreseen structure [3], this will be done through PVSSII. When the information of a trip will be known by the HV system, HV will have to be switched off before switching on the low voltages so as to avoid tripping the HV voltage supply. It is furthermore mandatory to switch on and off the three low voltages at the same time to avoid imbalance on the components. This means that a consultation between the HV distributor system, the HV supply and the low voltage supply will be necessary before any action.
+
+In summary the needs with respect to SEEs are the following:
+
+* if a trip occurs at the low voltage supply level, the three low voltages must be cycled simultaneously to avoid imbalance on components.
+* the fact that the low voltage supply has power cycled must be known by the VME (either through PVSSII or other ways) where the monitoring program (hv_act) of the HV distributor system is running.
+* the high voltage supply must be switched off before switching on the low voltages.
+* the three low voltages must be switched on at the same time (same reasons as first bullet)
+* the limits on the low voltage current consumption must be programmable so as to take component ageing into account. At the beginning of ATLAS, the acceptable values on the +5V, +15V currents must be below 250 mA and 350 mA respectively. The situation is different for the -15V current since the consumption depends on the state of the regulation loops. With no output HV, it must be below 2100 mA. When output HVs are different from zero, the current must be lower than 350 mA. It is clear that HV outputs must be known from the low voltage system to change the limits when necessary. An interaction between the HV distributor system and the low voltage one is thus mandatory in the DCS structure.
+
+One must add that trips due to latch-ups were estimated to be of 19 per year for the whole system. This would correspond to about two every ten days, a rate fully acceptable in ATLAS conditions.
+
+## Conclusions
+
+In this note were developped our efforts to reduce effect of soft SEEs (mainly RAM errors) and our picture of the behaviour of the HV system in case of latch-up. It is clear that reaction to latch-up events involves not only the HV distributor system but also low voltage and high voltage supplies as well as DCS. We hope that each system will take into account requirements from others to have a complete and reliable scheme.
+
+## Acknowledgements
+
+Thanks to Martin Dentan for fruitful discussions and for the reading of the manuscript.
+
+## References
+
+* [1] R.Chadelas, Ph.Gris, D.Lambert HV Distributor Radiation Qualification Part One: SEE Tests to appear soon.
+* [2] Mail of R.Chadelas to G.Blanchot October 9, 2001
+* [3][http://atlasinfo.cern.ch/ATLAS/GROUPS/DAQTRIG/DCS/dcshome.html](http://atlasinfo.cern.ch/ATLAS/GROUPS/DAQTRIG/DCS/dcshome.html)
+* [4] Tile Calorimeter TDR CERN/LHCC/96-42 December 1996

@@ -1,0 +1,148 @@
+[MISSING_PAGE_EMPTY:1]
+
+## 2 EFD validation tests
+
+### EFD principles
+
+The design of the Event Filter Event Handler is presented in [1]. A single process, the EF Dataflow (EFD) is in charge of making the interface with the DAQ Data Flow sub-system (SFI and SFO) and to distribute the events to the processing tasks (PT) in which selection is performed. PT are implemented as independent processes running on the same processing host. Events are passed via a shared memory based mechanism. EFD maps received events in a _SharedHeap_ memory segment, which is itself projected on a file on the local disk. When a PT requests a new event, it receives a pointer to this segment and the size of it. This synchronisation communication is performed via UNIX sockets.
+
+dynamical configuration
+
+The validation tests for this design consist of :
+
+* checking the robustness of the communication mechanism by having it working during long periods
+* measuring the throughput with different hardware configurations
+
+### EFD bench
+
+#### EFD validation test
+
+The MAGNI cluster [2] is installed at CERN near the testbed developed for the LVL2 and Data Flow sub-systems. It consists in 21 Dual Pentium III 600 MHz systems with 256 MB RAM, and in 1 Quad Pentium III Xeon 550 MHz system with 512 MB RAM. Machines are linked by Fast Ethernet (100 Mbit/s). All machines have two network interface cards, one connected to a private network, the other one to the CERN public network. 5 (?) machines were dedicated to the EFD tests.
+
+This cluster will be the "reference" environment for the future validation of EF related software.
+
+#### EFD validation test
+
+Software from the EFD release 00-00-10 has been used during the test. The main features are :
+
+* a standalone version of the **efd** executable instantiating the EFD process. This version does not require the standard supervision system to be operated. The internal dataflow can be modified in order to include or exclude the ExtPT task that implements the event server for the processing tasks (pt). If the ExtPT task is not present the efd acts as a shortcut between sfi and sfo.
+* The **sfi** and **sfo** emulators: the sfi creates dummy events (compliant to the latest version of the EFL) of a given size (the actual size is not fixed by varies randomly between size/2 and size+size/2)
+* A **dummyPT**: which receives from the efd the event offsets in the shared memory, maps the events, unmapsthem and sends the processing answer to the efd. No EF-subdetector fragment is created and therefore no event extension is performed in the efd. The acceptance probability can be set via command line parameter.
+
+## 2.3 Results
+
+### 2.3.1 Robustness
+
+A robustness test has been made on the Pavia Cluster with the following configuration :
+
+* sfi, sfo and efd on 3 different machines
+* dummy event with size of 5 KB (with small events the situation is more critical)
+* 4 PTs connected to an efd
+
+This setup run without problems for 10 days processing 2.8*10\({}^{9}\)events.
+
+From time to time, some PTs were started and stopped randomly but the efd handled the situation correctly, stopping and resuming delivery of events to the corresponding PT.
+
+### 2.3.2 Throughput
+
+#### 2.3.2.1 "Standard" setup
+
+Standard setup means that sfi, sfo and efd are hosted on 3 different machines. The efd serves a single pt; as showed later the throughput is independent from the number of pts (because no actual processing is performed).
+
+Figure 1 shows the EFD throughput for two different values of the acceptance probability (in the first case the efd sfo traffic will be 10% of the sfi efd one, while in case of no rejection the total bandwidth will be equally divided by the two communication links). On both clusters the global throughput is limited (for event size big enough) by the available network bandwidth: \(\sim\)1000 Gbit/s for the Pavia cluster, \(\sim\)100 Mbit/s for Magni. A throughput of 80 MB/s in case of 10% of acceptance means a global traffic of \(\sim\)90 MB/s (\(\sim\)80 for sfi efd + \(\sim\)8 cfs), while the maximum gigabit bandwidth (as a rule of thumb) is about 100 MB/s. On Magni the throughput difference between different acceptance probabilities is lower than on Grid because the worse processing power.
+
+The throughput decrease at low event size is due to increasing of the sfi efd communication traffic and to the TCP/IP protocol characteristics. MB/sec MB/sec
+
+Figure 1 : Throughput for the standard data flow setup
+
+#### 2.3.2 Single host setup
+
+Running all components (efd, sfi, sfo) on a single host we can avoid the network limitations (the communications are in memory) and have an indication of the maximum chievable performance. In this case the limitations are mainly due to the available processing power and to the software architecture. Figure 2 shows the throughputs for 3 different values of the acceptance probability (0%, 10%, 100%).
+
+#### 2.3.2.3 efd \(\rightarrow\) pts communication
+
+All the previous performance is not limited by the efd pts communication mechanism. Indeed the time spent by a pt to: request an event to the EFD, receive it, map it in memory, unmap it and send the answer to the EFD is only 80 us (Dual Xeon @ 2200 MHz). In the standard configuration, the throughput remains the same removing the ExtPT server from the internal efd dataflow: there is only a difference (1%) for very small event sizes.
+
+The efd \(\rightarrow\) pts communication mechanism is highly scalable. Figure 3 shows (Dual Xeon @ 2200 MHz) that the throughput remains stable varying the number of concurrent pts from 0 (i.e.: no pts) to 64. For event size of 10 KB is possible to see the small rate increment for number of pt equal zero (ExtPT task removed from the internal efd dataflow).
+
+Figure 3: efd \(\rightarrow\) pts communication performances
+
+Figure 2: Throughput for the single host setup
+
+#### 2.3.3 Observed weak points
+
+Event throughput measurements of the EFD in the context of very fast event transfer rate between the SFI and EFD have shown significant oscillations even though a back-pressure mechanism has been implemented and verified to be operational. After careful study, we understood that these oscillations were caused by a delayed back-pressure. In our case the delay was due to the thread execution time slice. However, any cause of delay could result in event input rate oscillations.
+
+The conclusion is that the back-pressure mechanism is inappropriate in our context. This means that the thread collecting the events from the SFI must control by itself the input rate. A possible solution is the following : the thread collecting events monitors the event content of the EFD in byte units. Between each event the thread will wait an amount of time that depends on the content of the EFD. The waiting time is 0 when the content is equal or below a lower content limit. It increases up to 2 seconds when it reaches a maximum content limit. In that case the thread stops collecting events. It will resume collecting events once the content drops below the limit.
+
+The content is estimated from the space allocated by the _SharedHeap_. The EFD can thus support multiple event dataflow with independent flow control by using a specific _SharedHeap_ for each flow.
+
+This solution has not been tested yet. Possible adjustments are in the waiting time computation. It may be computed by a non linear function of the content using for instance a moving average of the content, etc...
+
+## 3 Supervision validation tests
+
+### Supervision principles
+
+Supervision mandates are described in [3]. The implementation is based on the Online Software (OnlSW) packages and the interface is described in [4]. The implementation used in the following tests was built on the OnlSW release 00-18-01. It uses a tree-like structure with a top level control for the whole EF farm and independent controls for every sub-farm. Control consists in a Run Controller in charge of all transitions of the finite state machines describing the set-up and in the process management operations provided by a so-called DSA Supervisor. The two systems are completely separated.
+
+The validation tests consist of controlling configurations as large as possible, of the same order of magnitude as the final system (of the order of thousand processors).
+
+### Test bed
+
+We have used a subset of the IT LXPLUS cluster [5] to perform the scalability tests. 250 Quad processor machines connected by Fast Ethernet were available. They have been logically grouped in sub-farms, the size of which was varied from 10 to 230 machines. A dedicated interface, written in Tcl/Tk, has been used to easily generate the different XML configuration files. The _play_daq_ script, provided by the Online SW group, allowed to launch the configuration, perform automatically the Run Control transitions and measure the timing of these operations.
+
+### Results
+
+A detailed discussion of the results of the scalability test has been given in [6]. We shall recall here only the main points.
+
+Different configurations have been tested. We have first varied the number of controlled sub-farms, from 3 to 21, keeping constant the total number of processing nodes (230). In an other series of tests, we have kept constant the number of sub-farms (10) and changed the number of processing nodes (from 5 to 20 per sub-farm). We have therefore studied the effect of the number of controlled processes and the effect of the degree of parallelism used while controlling these processes. Results are satisfactory in terms of execution time, although some reservations have been made on the process management aspects.
+
+### Other tests
+
+An other implementation of the Supervision, based on the technology of JAVA mobile agents, had been developed and tested on the ASGARD cluster (256 dual processor machines) at ETH Zurich. Details can be found in [7]. Results were rather promising. Unfortunately, the Voyager package used for this implementation, which was formerly freeware, is now licensed and has therefore been abandoned by us.
+
+One should also quote exploratory tests performed during the scalability test on the LXPLUS cluster applying web service techniques to the supervision. of 212 nodes. We have used the Axis implementation of the SOAP 1.0 protocol by Apache to perform process management operations. Time to launch a process in a distributed environment is less that 0.1 s. Up to 17000 processes have been successfully launched without any failure. No saturation effect has been observed when the number of launched processes was increased.
+
+## 4 Selection Software validation tests
+
+As described in section 2.1 the processing tasks are independent processes running on every node. The processing tasks use the offline framework Athena to run the event Selection Software which will take its algorithms from the offline suite. They only interact with the dataflow to request and receive an event, and then provide the result of the selection (an "answer" in form of a string). They also send the additional data produced by the selection software that need to be sent to persistency together with the original event.
+
+In the Athena architecture, algorithms access the data as objects available in a data store (the Transient Event Store). Persistency services are components that allow to get data from persistency and convert them from their persistent representation to their transient representation and vice-versa. In this case, the relevant service is the _ByteStreamCnvSvc_, the conversion service in charge of reading the raw data in Byte Stream format and convert them into their transient representation (Raw Data Objects) recorded in the Transient Event Store. There is an interface class, the _ByteStreamInputSvc_, which defines the methods used by the conversion service for reading ByteStream data from a persistency source (for example a file or the EFD,...). The converse process is handled by the _ByteStreamOutputSvc_.
+
+The concrete implementation of the service to be used for a specific persistency source is specified in the _jobOptions_ file of Athena and is selected at initialisation time. The concrete classes that implement the exchange of event data with the Event Filter dataflow are the _EFHandlerInputSvc_ and _EFHandlerOutputSvc_. They make use of the Shared Heap mechanism and the PTClient class (see fig... take fig 9,11 from TDR). The conversion services uses the _EventFormatLibrary_. The _EFHandlerInputSvc_ issues a request for the next event by calling the _PTClient_ getEvent method and receives a pointer to the Event in the SharedHeap. When the processing is completed, the _EFHandlerOutputSvc_ returns the answer via the _PTClient_ answer method passing a string. If the event is accepted, the "EF pseudo detector" fragment is serialized and copied to the SharedHeap in a location previously requested to the EFD. More details about the implementation can be found in ref. [1]. A series of validation tests were carried out. They are described in the next sections.
+
+### Validation of the exchange of data between EFD and the Athena PT hosting the Selection Software
+
+Tests were performed by running the Event Filter with simulated events in _ByteStream_ Format. Samples of events with electrons and QCD dijets events were preloaded in an SFI emulator. These files were generatedoffline and included the result of the LVL2 selection in the form of a LVL2 sub-detector fragment (SO FAR TAKEN FROM LvL1). The Event Filter was configured to run the HLT suite of electron identification programs. At the time the test were done, only LvL2 algorithms were available and the LvL2 electron selection algorithm suite was used. It included calorimeter reconstruction and tracking in the Inner Detector. Validating the the implementation of _ByteStreamInputSvc_ was simply done by checking that the Trigger Selection Software produces the same results as when running in offline mode. The _ByteStreamOutputSvc_ was also implemented. In the prototype, the Selection Software produces an _EFResult_ object recorded in the Transient Event Store. The _EFresult_ object contains a set of bits matched to the decision of the selection process: "Accept", "Reject", or "Error". A converter was written for that object and used by the _ByteStreamCnvSvc_ to convert the _EFResult_ from its object form to the serialised _ByteStream_ format: The data are saved in the payload of a ROD fragment wrapped successively in a ROB, ROS, and "EF Pseudo detector" fragment. No additional reconstructed objects were serialised in the prototype, although the same mechanism will be used in the future. The _ByteStreamOutputSvc_ is then in charge of communicating the "Answer" to the EFD and if accepted write the "EF Pseudo detector" fragment in the Shared Heap. It is the EFD that appends the fragment to the original event and sends it to the SFO. For testing purpose, events were written by the SFO to a local file. The integrity of these data has been verified by reading, unpacking and processing the event offline.
+
+## 4.2 Latency and throughput measurements.
+
+There is in principle a complete decoupling between the latency due to the EFdataflow and the latency of the ATHENA and HLTSSW selection process. Once the pointer to the event in the SharedHeap is passed to Athena there is no difference between that case and the offline case where the ByteStream has been read from a file and copied in the local memory. Comparing the two modes, and running with equivalent processors, allows to measure the additional overhead that could arise when running, in the offline case, in an uncontrolled farm environment, or conversely, in the EF case, from an excessive load on the host resources if various processing tasks are running. The complete decoupling of the Athena Task will not be true any more when database access at run time will be enabled. This aspect, though, is not included in the current test.
+
+A series of measurements have been performed. [
+
+in a Single Host in Barcelona or in MAGNI (see section 2.2)]
+
+[ maybe the characteristics of the BCN machine can be added to section 2. a single processor Pentium 4 CPU 2.00 GHz with 900000K RAM]
+
+### 4.2.1 running a single Athena PT per host and compare to offline measurement for similar hardware
+
+The global (at the event level) timing measurement is either infered simply from the overall throughput measured at the SFO, or by histogramming the time lapsed between the moment when the EFD passes a pointer to the processing task and when the answer comes back. For more fine grained measurements, at the granularity of algorithms, the TrigTimeAlgs package is used. This allows to compare directly timing measurement done offline with the ones made in the test bed.
+
+TABLE OR FIGURE GIVEN Result OF ABOVE TEST
+
+### 4.2.2 Performances as a function of the number of PT per host.
+
+The number of AthenaPTs per processing task is gradually increased and the performances are measured. The throughput increases until the processor starts swapping and there is no more gain in adding additional PTs (EXPECTED BEHAVIOUR, NOT YET MEASUURED!). This depends on the memory consumed by the PT. Athena, running only T2Calo uses about 170 K, while running tracking and other algorithms increases the memory size to about 350 K. The resources needed by the PT running the Selection Software will have to be realistically estimated such as to understand the parameters of the hosts and the optimal PT configuration.
+
+## 5 Integrated tests
+
+### 6 References
+
+* [1] C. Bee et al., Event Handler Design, [https://edms.cern.ch/document/367089/1.1](https://edms.cern.ch/document/367089/1.1)
+* [2] B. Caron et al., MAGNI, a commodity component computer cluster for the ATLAS High Level Trigger, http: //agenda.cern.ch/askArchive.php?base=agenda&categ=a01110&id=a01110s1t3/transparencies
+* [3] C. Bee et al., Supervision requirements, [https://edms.cern.ch/document/361792/1.1](https://edms.cern.ch/document/361792/1.1)
+* Online software interface, [https://edms.cern.ch/363702/1.0](https://edms.cern.ch/363702/1.0)
+* [5] CERN-IT, LXPLUS web page, [http://plus.web.cern.ch/plus/](http://plus.web.cern.ch/plus/)
+* [6] S. Wheeler et al., Test results of the EF Supervision, [https://edms.cern.ch/document/374118/1](https://edms.cern.ch/document/374118/1)
+* [7] C. Bee et al., Test Results for the Supervision Scalability at ETH Zurich, November 2001, http: //weblib.cern.ch/cgi-bin/showfull?base=ATLATL&sysnb=0001981

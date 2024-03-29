@@ -1,0 +1,394 @@
+# VKaIVrt - package for vertex reconstruction in ATLAS.
+
+V. Kostioukhine
+
+CPPM,IN2P3-CNRS,Marseille,France
+
+On leave of absence from IHEP (Protvino,Russia)
+
+###### Abstract
+
+A universal vertex reconstruction package VKaIVrt is presented. It allows the use of different constraints, the reconstruction of cascade decays and has the possibility to use robust versions of the fitting functional to reduce the sensitivity to outlying measurements. Based on the Kalman filter approach the package is fast enough to deal with hundreds of tracks. Descriptions of basic features, used algorithms, calling sequences are given. Some results obtained with VKaIVrt package in the primary and secondary vertex reconstruction are presented.
+
+_Draft 1.0_Introduction
+
+The vertex reconstruction is an important problem for high energy collider experiments. It has an impact on flavour physics, b-tagging performance, lifetime measurements. Due to a high energy of collision at LHC a multiplicity of tracks may reach several hundreds, so vertex reconstruction program must be fast. Also a possibility to reconstruct a cascade decay chain with unknown apriori topology is highly desirable. To be as precise as possible the vertex fitting procedure must use full information from track reconstruction (3D particles trajectories with complete error matrices).
+
+The VKalVrt vertex fitting package is based on fast Kalman filtering method. The package allows fast and easy implementation of any type of the constraints for vertex fit in addition to already implemented ones. Charged and neutral tracks can be treated simultaneously. Cascade decays can be reconstructed consecutively. A possibility to use nonlinear robust fitting functionals is added by using a reweighting of track error matrices in each step of the fit. The package is written in FORTRAN and can be used in ATLSIM or as a standalone tool for CBNT analysis now. An interface to ATHENA framework is under construction.
+
+At the beginning of the paper a simple way to reconstruct a common 3D intersection point of the selected tracks using VKalVrt package is described. This example can be a good starting point for using VKalVrt. Then basic features of the package with descriptions of used algorithms are presented. An information about package availability and usage is given at the end. And in Appendix B a complete description of package subroutines with parameters definition is presented.
+
+## 2 How to start
+
+In the simplest (but practical) case user needs to select a set of tracks and calculates a common vertex for these tracks. A minimal calling sequence to do this with VKalVrt is :
+
+```
+realapar(5,MxTrk),aerr(15,MxTrk),par0(3,MxTrk),parfs(3,MxTrk),chi2tr(MxTrk) realxyz0(3),vrtfit(3),ptot(3),covf(21),vrt(3),vrte(6),chi2 integerich(MxTrk),iflag,ifcovv0,ierr,ntrk..................
+```
+
+_Track selection code is here_
+
+_doi=1,ntrk callVKalTrkPar(a0vert(i),zvert(i),CotThVert(i),phivert(i),
+#ptimvert(i),covvert11(i),covvert21(i),covvert22(i),covvert31(i),
+#covvert32(i),covvert33(i),covvert41(i),covvert42(i),covvert43(i),
+#covvert44(i),covvert51(i),covvert52(i),covvert53(i),covvert54(i),
+#covvert55(i),ich(i),apar(1,i),aerr(1,i)) enddo! Field in the center of ATLAS callPROFIT(0,0,0,BMAG,vrt,vrte,0) callCPEST(ntrk,xyz0,ich,apar,par0) callCFIT(iflag,ifcovv0,ntrk,ich,xyz0,par0,apar,aerr,
+#xyzfit,parfs,ptot,covf,chi2,chi2tr,ierr)
+
+Track parameters in VKalVrt don't coincide with those in ATLAS CBNT's (see Appendix A for the details) so VKalTrkPar makes a conversion from CBNT to VKalVrt representation for selected sample of tracks. Output parameters of the VKalTrkPar are ICH - charge, APAR(5) - track parameters, AERR(15) - error matrix of the track parameters. PRCFIT subroutine initializes the parameters needed for the fit and for using constraints. BMAG is a magnetic field value in \(Tesla\) and must have nonzero value. For ATLAS it is equal to 2.083 - magnetic field value at the center of inner detector. Assuming that XYZ0(3) is a starting point of the fit CFPEST subroutine does an estimation of tracks parameters at this point needed for the fit. And CFIT does the fit itself. A full description of the parameters for each subroutine is in Appendix B.
+
+As a results of the calling sequence presented above a user obtains
+
+\begin{tabular}{l l} XYZFIT(3) & \(X,Y,Z\) coordinates of fitted vertex \\ PARFS(3,1...NTRK) & fitted parameters for each track \\ COVF(21) & error matrix for \((X,Y,Z)_{fitted}\) or \((X,Y,Z,Px,Py,Pz)_{fitted}\) \\ PTOT(3) & momentum of the particle decayed at vertex \\ CHI2 & \(\chi^{2}\) of the fit \\ CHI2TRK(1...NTRK) & \(\chi^{2}\) for each track \\ \end{tabular}
+
+For each track \(CFIT\) gives the fitted parameters \((\Theta,\phi,\frac{1}{R})\) at estimated vertex position where \(R\)1 is a radius of curvature of the track. A particle momentum can be calculated from this parameters in the following way
+
+Footnote 1: For charged particles. For neutral particles see Appendix A
+
+\begin{tabular}{l l} \(P_{\perp}\) = 0.0029979246 \(*\)\(B_{MAG}*\)\(R\) \\ \(P_{x}\) = \(P_{\perp}\cdot\cos\phi\) \\ \(P_{y}\) = \(P_{\perp}\cdot\sin\phi\) \\ \(P_{z}\) = \(\frac{P_{\perp}}{\tan\Theta}\) \\ \end{tabular}
+
+This momentum doesn't coincide with momentum calculated at the position of the closest approach of the trajectory to the beam as it is written in CBNT because of change of particle direction due to magnetic field on the way from beam position to fitted vertex. Moreover even an absolute value of momentum is different because track curvature obtained after application of vertex constraint (output of VKalVrt) is different from the initial one. VKalVrt gives improved track parameters (track momentum) at fitted vertex position. To obtain the improved track parameter at any other point along trajectory one may use CFNEWP subroutine from package (see Appendix B).
+
+Usually these four subroutines provide enough functionality for simple vertex reconstruction like \(V^{0}\) decay search or \(\gamma\to ee\) conversion search, simple primary vertex reconstruction. More complex example - cascade decay of \(B_{s}\to J/\psi(\to\mu\mu)\phi(\to K^{+}K^{-})\) reconstruction can be found in Appendix C.
+
+## 3 Algorithm
+
+A goal of the full 3-dimensional vertex fit is to obtain the vertex position and track momenta at the vertex for all tracks participating in the fit as well as the corresponding error matrices.
+
+The input information for the fit consists of 5 parameter particle trajectory parametrization2\(\mathbf{q}_{i}=\{\delta\varepsilon,\delta Z,\Theta,\phi,\frac{1}{R}\}\) for 3D curved track in the magnetic field and its weight matrix3\(W_{i}\) at the reference point for each track. This helix "perigee" parametrization of the charged particle trajectory was described in [1, 3] and Appendix A. This parametrization allows a simple extrapolation of particle trajectory to the vertex region in any part of the detector. If one assumes that the particle is born at the vertex \(\vec{V}\) then the trajectory parameters \(q_{i}\) can be expressed as a function of particle origin vertex \(\vec{V}\) and particle momentum at this vertex \(\vec{p}_{i}\): \(\mathbf{q}_{i}^{\prime}=\mathbf{T}(\vec{V},\vec{p}_{i})\). A vertex fitting functional is then
+
+Footnote 2: 5-element vector \(apar(...,i)\) in the example above
+
+Footnote 3: 15-element vector \(aerr(...,i)\) in the example above gives a track error matrix - the inverse of \(W_{i}\)
+
+\[\chi^{2}=\sum_{i=1}^{N_{tracks}}\left(\mathbf{q}_{i}-\mathbf{T}(\vec{V},\vec{ p}_{i})\right)^{\top}W_{i}(\mathbf{q}_{i}-\mathbf{T}(\vec{V},\vec{p}_{i})) \tag{1}\]
+
+here \(W_{i}\) is \(5\times 5\) weight matrix from track fit. Then the goal of the fit is to find \(\vec{V}\) and \(\vec{p}_{i}\) which minimize (1). \(\vec{p}_{i}\) is the particle momentum at the vertex which is improved in comparison with the momentum obtained from the track reconstruction results \(\mathbf{q}_{i}\) only.
+
+This \(\chi^{2}\) (1) can be linearized at some convenient point close to the vertex
+
+\[\chi^{2}=\sum_{i=1}^{N_{tracks}}\left(\delta\mathbf{q}_{i}-D_{i}\delta\vec{V} -E_{i}\delta\vec{p}_{i}\right)^{\top}W_{i}(\delta\mathbf{q}_{i}-D_{i}\delta \vec{V}-E_{i}\delta\vec{p}_{i}) \tag{2}\]
+
+here \(D_{i}=\frac{\partial\mathbf{T}(\vec{V},\vec{p}_{i})}{\partial\vec{V}}\) and \(E_{i}=\frac{\partial\mathbf{T}(\vec{V},\vec{p}_{i})}{\partial\vec{p}_{i}}\) are matrices of derivatives. The exact expressions for derivative matrices can be found in [3].
+
+A fast method to find a solution of the minimization problem for (2) based on a specific matrix structure of (2) was proposed in [1, 3]. One may demonstrate that this method is completely the same as can be obtained using a Kalman filter based approach[2]. In this approach a step of Kalman filter is a recalculation of already found vertex position due to one track addition. The Kalman filter system equation in this case is
+
+\[\vec{V}_{i}=\vec{V}_{i-1} \tag{3}\]
+
+and the measurement equation is
+
+\[\mathbf{q}_{i}=\mathbf{T}(\vec{V}_{i},\vec{p}_{i})+\epsilon_{i}=\mathbf{c}_{0 i}+D_{i}\vec{V}_{i}+E_{i}\vec{p}_{i}+\epsilon_{i} \tag{4}\]
+
+near some point of linearization. \(\epsilon_{i}\) here is a process noise. Kalman filter method with (3),(4) and the "fast" method for finding the solution of (2) give exactly the same formulas for vertex position, updated track parameters and error matrices. One may use for calculation any of the two methods which is more convenient for given problem.
+
+If initial estimation of vertex position (point of functional linearization) is far from the fitted vertex, the track parameters should be extrapolated to the fitted point, all derivatives recalculated and fitting procedure repeated. The track parameters error matrix should also be translated to the new vertex position. Current version of VKalVrt uses a simple extrapolation method for charged particle in constant magnetic field without multiple scattering for error matrix translation. Particle trajectory can be calculated both in constant magnetic field approximation and using an exact ATLAS magnetic field.
+
+## 4 Constraints
+
+The constraints are included into the program by using a Lagrange multipliers method. A constraint itself is a function
+
+\[A_{j}(\vec{V},\vec{p}_{1},...,\vec{p}_{n})=\textit{const} \tag{5}\]
+
+and is added to the fitting functional as
+
+\[\chi^{2}=\chi_{0}^{2}+\sum_{j=1}^{N_{\textit{c}nst}}\lambda_{j}\cdot A_{j}^{2} \tag{6}\]
+
+Here \(\chi_{0}^{2}\) is a usual vertex fitting functional (2) without constraints, \(\lambda_{j}\) is a Lagrange multiplier and \(j\) is a constraint number. \(A_{j}^{2}(...)\) can be linearized around some point \((\vec{V}_{0},\vec{p}_{0i})\) so one has
+
+\[\chi^{2}=\chi_{0}^{2}+\sum_{j=1}^{N_{\textit{c}nst}}\lambda_{j}\cdot(A_{j0}^{2 }+H_{j}^{\top}\delta V+\delta V^{\top}H_{j}+F_{ij}^{\top}\delta p_{i}+\delta p _{i}^{\top}F_{ij}) \tag{7}\]
+
+where \(H_{j}=\frac{\partial A_{j}}{\partial\vec{V}}\), \(F_{ij}=\frac{\partial A_{j}}{\partial\vec{p}_{i}}\), \(A_{j0}\) is an _exact_ value of \(A_{j}\) at the \((\vec{V}_{0},\vec{p}_{0i})\) point, \(\delta\vec{V}=\vec{V}-\vec{V}_{0}\) and \(\delta\vec{p}_{i}=\vec{p}_{i}-\vec{p}_{0i}\).
+
+A solution of (7) can be obtained in the following way \(\vec{V}=\vec{V}_{0}+\vec{V}_{1}\), \(\vec{p}_{i}=\vec{p}_{0i}+\vec{p}_{1i}\), where \(\vec{V}_{0},\vec{p}_{0i}\) is a solution of the corresponding problem without constraints \(\chi^{2}=\chi_{0}^{2}\). Then a second part \(\vec{V}_{1}\) of the solution with constraints can be obtained in the following way
+
+\[\begin{array}{rl}\vec{V}_{1}&=-\sum\limits_{j=1}^{N_{\textit{c}nst}}\lambda_ {j}\cdot C_{\textit{cov}}\cdot L_{j}\\ \lambda_{j}&=M_{j}\cdot(\sum\limits_{i}F_{ij}^{\top}C_{i}^{-1}F_{ij}+L_{j}^{ \top}\cdot C_{\textit{cov}}\cdot L_{j})^{-1}\\ L_{j}&=\sum\limits_{i}B_{i}C_{i}^{-1}F_{ij}-H_{j}\\ M_{j}&=A_{j0}^{2}-H_{j}^{\top}\cdot\vec{V}_{0}-\sum\limits_{i}F_{ij}^{\top} \vec{p}_{0i}\\ C_{\textit{cov}}&=(K-\sum\limits_{i}B_{i}C_{i}^{-1}B_{i}^{\top})^{-1}\\ K=\sum\limits_{i}D_{i}^{\top}W_{i}D_{i},&B_{i}=D_{i}^{\top}W_{i}E_{i},\qquad C_ {i}=E_{i}^{\top}W_{i}E_{i}\end{array} \tag{8}\]
+
+The corrections to tracks momenta \(\vec{p}_{1i}\) can be obtained in the same way.
+
+Currently 6 different constraints are implemented and can be specified in the input to CFIT.
+
+The constraint 6 is not a real one because it is implemented as a \(\chi^{2}\) type term in the fitting functional. It is called "constraint" following a common practice.
+
+Any other constraint which can be expressed as a matrix of derivatives at the vertex position may be easily implemented in the code of the VKalVrt.
+
+## 5 Robust functionals
+
+The estimation of the vertex can be made less sensitive to the presence of the tracks from other vertices in the selected set of tracks by using a more robust version of the Kalman filter. An M-estimator method is used in VKalVrt. The basic idea of the method is a modification of the objective function such that outliers (measurements with big residuals) have less influence on the estimate. This can be achieved by downweighting the tracks with big residuals. Usual \(\chi^{2}=\sum\limits_{i=1}^{N}\frac{x_{i}^{2}}{2}\) is substituted by \(\chi^{2}_{robust}=\sum\limits_{i=1}^{N}\Psi(x_{i})\) with special selection of function \(\Psi\).
+
+The residuals can be calculated only after the vertex position estimation so procedure must be iterative. After successful fit the track error matrices should be scaled down according to obtained residuals and vertex position estimation procedure should be repeated. The iterations stop when the vertex position is stable.
+
+Currently in addition to standard "\(\chi^{2}\)_type_" functional the six robust functionals[5] are implemented in VKalVrt. They are listed in table below. For the first three of them (\(IROB=1\div 3\)) the outliers weights go to zero so that they don't contribute at all to the solution. The last 3 functionals (\(IROB=4\div 6\)) limit the influence of the outliers by limiting the corresponding derivatives[5].
+
+In all functionals in the table \(x=\dfrac{z_{meas}-z_{fit}}{\sigma}\) and \(c\) is a tuning constant selected so that functional has 95% efficiency4 on normally (without outliers) distributed data.
+
+Footnote 4: Efficiency here is defined as a ratio \(\dfrac{\sigma_{\chi^{2}}^{2}}{\sigma_{robust}^{2}}\),
+
+All robust functionals are constructed so that \(\lim\limits_{x\to 0}\Psi(x)=\dfrac{x^{2}}{2}=\chi^{2}\) what means that near minimum they behave exactly like usual \(\chi^{2}\) functional. VKalVrt package returns as "\(\chi^{2}\) of the solution" a value of functional at the minimum. Then for the robust functional the " \(\chi^{2}\) of the solution" is a usual \(\chi^{2}\) at small values and some monotonic function of the solution quality at high values. Monotony of the "robust \(\chi^{2}\)" means that it can be used for quality cut of \(\chi^{2}<A\) type. The only problem is the cut constant \(A\) which must be selected empirically and not based on usual "probability less than 1(0.1...)%" criterion.
+
+## 6 Magnetic field
+
+VKalVrt has a possibility to use an exact nonuniform magnetic field of ATLAS detector in vertex search. The tracks are translated to the approximate vertex position by using a modified GEANT3 subroutine GRKUTA [6] and a 3D map of ATLAS magnetic field. VKalVrt has two options:
+
+1. 3D table of ATLAS magnetic field is taken from single file5 (fast option for standalone CBNT analysis); Footnote 5: This file can be received from author
+2. A complete ATLAS magnetic field description package is used[10].
+
+At the new point the tracks derivatives are calculated using only Z component of the magnetic field which is dominant everywhere inside ATLAS inner detector. An accuracy of the derivatives obtained is enough for precise vertex position estimation. Due to speed reason a default mode in VKalVrt is a work with constant magnetic field. More information can be found in Appendix B.
+
+## 7 Where to find VKalVrt
+
+VKalVrt package is available on CVS in offline/atrecon/VKalVrt. The **include** files are in offline/atrecon/include/atrecon/vkalcdes. Also on CVS in the directory
+
+offline/atrecon/VKalVrt/examples one may find some examples of using VKalVrt. Corresponding explanations may be found in README file available there. Currently there are 3 different examples:
+
+* Using of VKalVrt in ATLASIM environment for primary and inclusive secondary vertices reconstruction;
+* Using of VKalVrt in standalone mode for CBNT analysis with the same functionality as above;
+* Using of VKalVrt also in standalone mode for \(B_{s}\to J/\psi(\rightarrow\mu^{+}\mu^{-})\phi(\to K^{+}K^{-})\) decay reconstruction (CBNT based).
+
+### Example: using of VKalVrt in ATLASIM
+
+ATLSIM version of VKalVrt provides the following functionality:
+
+* Reconstruction of primary interaction and pile-up vertices. Selection is based on the reconstructed information only. No MC information is used. See [7] for the details of the algorithm.
+* Reconstruction of common secondary vertices inside jets (either ATLFAST or reconstructed in calorimeter).
+* Creation of the KVRTPRIM block in standard CBNT with vertices from VKalVrt and xKalman.
+
+By default VKalVrt uses calorimeter based jets for secondary vertices reconstruction. If such jets are absent VKalVrt uses ATLFAST jets. For the moment VKalVrt tries to reconstruct one inclusive secondary vertex inside jet (b-tagging inspired mode of work) and provide information needed for vertex based b-tagging for each found vertex. VKalVrt has the following data cards for CBNT module:
+
+\begin{tabular}{l l} Basic & =1(def) & write vertexing information \\ NVrtF & =10(def) & maximum number of vertices \\ VKalV & =1(def) & write VKal vertices \\ XKalV & =1(def) & write XKalman vertices \\ \end{tabular}
+
+The following information is present in KVRTPRIM block in CBNT.
+
+IVTYP =1 V KalVrt primary or pileup vertex ( Primary is the first in the list, the rest are pileups) =2 Xalman vertex =11 V KalVrt secondary vertex VRTPX - X coordinate of vertex VRTPY - Y coordinate of vertex VRTPZ - Z coordinate of vertex VPCOVXX - error matrix VPCOVXY - error matrix VPCOVYY - error matrix VPCOVXZ - error matrix VPCOVYZ - error matrix VPCOVZZ - error matrix VRTPT - Sum of all vertex track Pt if IVTYP#11 Invariant mass of all tracks in vertex if IVTYP=11 VRTNT - Number of tracks in vertex VRTIO =0 for IVTYP=1,2 \(E_{tracks}^{vertex}/E_{tracks}^{jet}\) for IVTYP=11 JETVRT =0 for IVTYP=1,2 =jet number jet number from JETSINFO block for IVTYP=11
+
+Calling of VKalVrt from ATLSIM is illustrated in XKAL.KUMAC file available in _offline/atrecon/VKalVrt/examples_. In this example ATLFAST jets are used for secondary vertices search. To produce them one needs to call ATLFASTFROMATRECON(0) \(before(!!)\) calling VKalVrt. In this example the reconstructed information is written in CBNT and can be used for vertex based b-tagging. The corresponding explanations are in README file.
+
+### Example: standalone VKalVrt
+
+Two examples of VKalVrt usage for CBNT analysis are provided with the package. One example is a functional analog of the ATLSIM example and reconstruc
+
+Figure 1: _Accuracy of primary vertex reconstruction obtained for WH(400 GeV) events [7]_
+
+inclusive secondary vertices inside ATLFAST jets based on the information written in CBNT. The similar code was used in [7, 8, 9] for secondary vertex based b-tagging studies. The quality of reconstruction is illustrated in fig.1,2.
+
+Second example is a program for a cascade \(B_{s}\to J/\psi(\to\mu^{+}\mu^{-})\phi(\to K^{+}K^{-})\) decay reconstruction with constraints. More details and explanations about this example can be found in Appendix C. Both examples can be compiled and linked by _make examp (make examp1)_. After running of the examples some histograms will be present in _vertex.his_ PAW histogram file.
+
+## 8 Conclusions
+
+A universal package VKalVrt for vertex reconstruction in ATLAS is presented. It can be used for primary and secondary vertices reconstruction with application of different constraints and robust versions of fitting functionals. Code is fast enough to deal with many tracks vertex reconstruction problem. The primary vertex reconstruction takes \(\sim 1\)_ms_ for WH(400 GeV) event and \(\sim 3\)_ms_ for complete primary+pileup vertices reconstruction at Pentium III (1000 MHz). The VKalVrt package provides many possibilities for different physics studies: different error matrices calculations for resolution studies, track extrapolation from/to any point, track impact parameters calculation with errors with respect to any point.
+
+Package is available in CVS together with some working examples illustrating its use for primary and secondary vertex reconstruction. It was successfully used for b-tagging with secondary vertices studies [8, 9].
+
+Figure 2: \(\pi^{+}\pi^{-}\) _invariant mass distribution obtained during inclusive secondary vertices reconstruction in WH(400 GeV) events [7]_
+
+## References
+
+* [1] P. Billoir,R. Fruhwirth,M.Regler _NIM, A241(1985), p115_
+* [2] R. Fruhwirth _NIM, A262(1987), p444-450_
+* [3] P. Billoir,S. Qian _NIM, A311(1992), p139-150_
+* [4] R. Fruhwirth et al., _HEPHY-PUB-598/94_
+* [5] Z. Zhang "Parameter estimation techniques: a tutorial with application to conic fitting", _Image and Vision Computing, Volume 15, Issue 1, January 1997, Pages 59-76_
+* [6] "GEANT Detector Description and Simulation Tool" _W5013 CERN Program Library Long Writeup_
+* [7] V. Kostioukhine, "Secondary vertex based b-tagging" _ATL-COM-PHYS-2003-032_
+* [8] V. Kostioukhine, J. Leveque, A. Rozanov and J.B. de Vivie "b-tagging with DC1" _ATLAS note in preparation_
+* [9] V. Kostioukhine, J. Leveque, A. Rozanov and J.B. de Vivie "Physics impact of the change of the pixel b-layer longitudinal pitch from 300 to 400 microns" ATL-INDET-2003-016
+* [10]_[http://atlas.web.cern.ch/Atlas/groups/muon/magfield/mag_page1.html_](http://atlas.web.cern.ch/Atlas/groups/muon/magfield/mag_page1.html_) and references on this page
+
+## Appendix A: Track parametrization
+
+VKalVrt uses the following 6 parameters taken at the point of the closest approach to Z-axis for track description
+
+1. \(\delta\varepsilon\) - transverse (X,Y) impact parameter;
+2. \(\delta Z\) - Z coordinate;
+3. \(\Theta\) - polar angle of the trajectory with respect to Z-axis;
+4. \(\phi\) - azimuthal angle of the trajectory;
+5. \(-Q/R\) - curvature of track with sign, determined by charge;
+6. \(Q\) - charge.
+
+Usually first 5 parameters are kept in array with 5 elements inside VKalVrt and charge is treated separately. The special charge variable is needed only to distinguish neutral tracks from charged because charge information is present in the sign of the curvature for charged tracks. The corresponding error matrix is symmetric and is kept in array with 15 elements. Radius of track is connected with track \(P_{t}\) by the following formula \(\frac{1}{R}=\frac{0.0029979246\cdot B_{MAG}}{P_{\perp}}\). Magnetic field here should be expressed in \(Tesla\). For the case of neutral track identified by \(Q=0\) fifth parameter is defined as \(\frac{1}{R}=\frac{0.0029979246\cdot B_{MAG}}{P_{\perp}}\) also with the only difference that \(R\) is always positive. The "curvature" \(\frac{1}{R}\) for neutral track can't be simply put to 0 because usually such track is produced as a summed track after multiparticle decay vertex fit (_e.g._\(J/\psi\) track after \(\mu^{+}\mu^{-}\) vertex fit). For such track the momentum is well defined and strongly correlated with other track parameters. For correct using of reconstructed neutral track in subsequent vertex fits with constraints (_e.g._ cascade decay reconstruction or primary vertex fit) full information about the track must be kept. This is done by using of nonzero "curvature" for neutral track.
+
+Error matrix for these 5 track parameters (except for charge) is kept in symmetric form as an array with 15 elements inside VKalVrt.
+
+The track parameters and error matrix can be obtained from particle momentum and known particle production vertex with \(XYZTRP\) subroutine (see Appendix B).
+
+A particle momentum can be calculated from track parameters in the following way
+
+\[P_{\perp} = 0.0029979246*B_{MAG}*R\] \[P_{x} = P_{\perp}\cdot\cos\phi\] \[P_{y} = P_{\perp}\cdot\sin\phi\] \[P_{z} = \frac{P_{\perp}}{\tan\Theta}\]
+
+## Appendix B: Package subroutines
+
+Everywhere in this appendix (Real*4)I means an input parameter of REAL*4 type and (Real*4)O means an output parameter of REAL*4 type.
+
+Subroutine VKalTrkPar(a0vert(i),zvert(i),CotThVert(i),phivert(i),
+
+@ ptinvvert(i),covvert11(i),covvert21(i),covvert22(i),covvert31(i),
+
+@ covvert32(i),covvert33(i),covvert41(i),covvert42(i),covvert43(i),
+
+@ covvert44(i),covvert51(i),covvert52(i),covvert53(i),covvert54(i),
+
+@ covvert55(i),ich,apar,aerr)
+
+\(VKalTrkPar\) is a subroutine for conversion of track parameters and error matrix from usual ATLAS to VKalVrt representation.
+
+\begin{tabular}{l l l} \(ICH\) & track charge & (Integer) O \\ \(APAR(5)\) & VKalVrt track parameters (see Appendix A) & (Real*4) O \\ \(AERR(15)\) & track error matrix & (Real*4) O \\ \end{tabular}
+
+Another parameters are the usual ATLAS track parametrization (see ATLAS CBNT description \([http://droussea.home.cern.ch/droussea/cbnt/cbnt.html](http://droussea.home.cern.ch/droussea/cbnt/cbnt.html)\))
+
+Subroutine PRCFIT(ntrk,wm,wmfit,BMAG,vrt,vrte,irob)
+
+Subroutine \(PRCFIT\) sets up different parameters needed for vertex reconstruction and calculation of the constraints used. In general the parameters not used in the constraints may have arbitrary values. _This is a user responsibility to guarantee the correct values of the parameters which are really used!_
+
+\begin{tabular}{l l} \(NTRK\) & number of tracks & [Integer] I \\ \(WM(1:NTRK)\) & particle masses (if \(<0\) - track doesn't participate in mass constraint) & (Real*4) I \\ \(WMFIT\) & mass for mass constraint & (Real*4) I \\ \(BMAG\) & magnetic field (in Tesla). Must be present in all cases. Default in ATLAS is 2.083 & (Real*4) I \\ \(VRT(3)\) & point for directional constraint (usually primary vertex) & (Real*4) I \\ \(VRTE(6)\) & error matrix for VRT ( for IFLAG=6) & (Real*4) I \\ \(IROB\) & Robustness 0 = \(\chi^{2}\), \(>0\) - robust functional (see Section 5 for details) & (Integer) I \\ \end{tabular}
+
+Subroutine CFPEST(ntrk,vrt,ich,par,par0)
+
+Subroutine \(CFPEST\) gives a primary estimation of track parameters at the starting point of the fit
+
+\begin{tabular}{l l} \(NTRK\) & number of tracks & (Integer) I \\ \(VRT(3)\) & initial estimation of vertex position & (Real*4) I \\ \(ICH(1:NTRK)\) & particle charges & (Integer) I \\ \(PAR(5,1:NTRK)\) & track parameters & (Real*4) I \\ \(PAR0(3,1:NTRK)\) & estimations of track parameters in vertex VRT(3) & (Real*4)O \\ \end{tabular}
+
+Subroutine CFIT(iflag,ifcovv0,ntrk,ich,xyz0,par0,apar,aerr, @xyzfit,parfs,ptot,covf,chi2,chi2tr,ierr)
+
+\(CFIT\) is a main subroutine of the package. It calculates an estimation of common vertex position of the track sample with different constraints and fitting algorithms. Subroutine also calculates the track parameters constrained on passing through found vertex and different errors. Special argument IFCOVV0 is used to select a type of the returned error matrix because calculation of (X,Y,X,Px,Py,Pz) error matrix for the large number of participating tracks ( primary vertex reconstruction...) is time consuming and generally not needed. Error matrix for (X,Y,Z) is usually enough in most cases.
+
+\begin{tabular}{|c|c|c|} \hline Value & Action & Required information in PRCFIT \\ \hline
+0 & simple vertex fit & \\ \hline
+1 & vertex fit with mass constraint & WMFIT,WM(1:NTRK) \\ \hline
+2 & V0 track pass through primary vertex & VRT(3) \\ \hline
+3 & Z constraint & VRT(3) \\ \hline
+4 & 1+2 & WMFIT,WM(1:NTRK),VRT(3) \\ \hline
+5 & 1+3 & WMFIT,WM(1:NTRK),VRT(3) \\ \hline
+6 & Fitted vertex should be close to given one & VRT(3),VRTE(6) \\ \hline \end{tabular}
+
+\begin{tabular}{|c|c|c|} \hline Value & Result \\ \hline
+0 & Only vertex (X,Y,Z) error matrix (6 par) \\ \hline \(>0\) & Full (X,Y,Z,Px,Py,Pz) error matrix (21 par) \\ \hline \end{tabular}
+
+\begin{tabular}{|c|c|c|} \hline Value & Result \\ \hline
+0 & Only vertex (X,Y,Z) error matrix (6 par) \\ \hline \(>0\) & Full (X,Y,Z,Px,Py,Pz) error matrix (21 par) \\ \hline \end{tabular}
+
+\begin{tabular}{|c|c|c|} \hline \(NTRK\) & number of tracks & (Integer) I \\ \(ICH(1:NTRK)\) & particle charges & (Integer) I \\ \(XYZ0(3)\) & starting vertex position & (Real*4) I \\ \(PAR0(3,1:NTRK)\) & estimation of track parameter at vertex XYZ0 & (Real*4) I \\ \(APAR(5,1:NTRK)\) & track parameters & (Real*4) I \\ \(AERR(5,1:NTRK)\) & error matrix for track parameters & (Real*4) I \\ \(XYZIFT(3)\) & fitted vertex position & (Real*4) O \\ \(PARFS(3,1:NTRK)\) & obtained track parameters at vertex XYZFIT & (Real*4) O \\ \(POT(3)\) & obtained total momentum vector & (Real*4) O \\ \(COVF(21)\) & error matrix for (X,Y,Z) or (X,Y,Z,Px,Py,Pz) & (Real*4) O \\ \(CHI2\) & \(\chi^{2}\) of vertex fit (for \(IROB>0\) see Section 5) & (Real*4) O \\ \(CHI2TR(1:NTRK)\) & Contribution of each track to \(\chi^{2}\) of the fit & (Real*4) O \\ \(IERR\) & error flag & (Integer) O \\ \hline \end{tabular}
+
+\begin{tabular}{|c|c|c|} \hline Value & Meaning \\ \hline
+0 & O'k \\ \hline -1 & Bad fit \(\chi^{2}>100000\) \\ \hline -2 & Fit without error matrix \\ \hline -3 & No fit at all \\ \hline -4 & Noninvertible error matrix for 1FLAG=6 \\ \hline \end{tabular}
+
+Subroutine XYZTRP(ich,vrt0,pv0,covi,par,err,BMAG,ierr)
+
+Subroutine \(XYZTRP\) converts the result of the vertex fit ( vertex + total momentum) to the standard track parametrization (\(\varepsilon,\)Z,\(\Theta,\)\(\phi,\)1/R). Obtained track with parameters in standard form may be used as input for another vertex fit.
+
+\begin{tabular}{l l l} \(ICH\) & particle charge & (Integer) I \\ \(VRT0(3)\) & particle decay vertex position (X,Y,Z) & (Real*4) I \\ \(PV0(3)\) & particle momentum (Px,Py,Pz) & (Real*4) I \\ \(COVI(21)\) & error matrix for (X,Y,Z,Px,Py,Pz) & (Real*4) I \\ \(PAR(5)\) & track parameters in standard form & (Real*4)O \\ \(ERR(15)\) & track error matrix & (Real*4)O \\ \(BMAG\) & magnetic field (in Tesla) & (Real*4) I \\ \(IERR\) & error flag & (Integer)O \\ \cline{2-3}  & Value & Meaning \\ \cline{2-3}  & 0 & O'k \\ \cline{2-3}  & \(\neq 0\) & Wrong error matrix \\ \end{tabular}
+
+Subroutine CFNEWP(ich,paro,vrt,s,parn,per)
+
+Subroutine \(CFNEWP\) calculates the trajectory parameters with respect to a new reference point.
+
+\begin{tabular}{l l l} \(ICH\) & particle charge & (Integer) I \\ \(PAR(5)\) & track parameters with respect to (0,0,0) & (Real*4) I \\ \(VRT(3)\) & new reference point (vertex) & (Real*4) I \\ \(S\) & curved distance between old and new perigee & (Real*4)O \\ \(PARN(5)\) & track parameters with respect to VRT point & (Real*4)O \\ \(PER(3)\) & new perigee with respect to VRT point & (Real*4)O \\ \end{tabular}
+
+Subroutine CFERPR(ich,par,vrt,s,erro,errn)
+
+Subroutine \(CFERPR\) calculates the error matrix for new track parameters obtained with \(CFNEWP\) subroutine with respect to a new reference point.
+
+\begin{tabular}{l l l} \(ICH\) & particle charge & (Integer) I \\ \(PAR(5)\) & track parameters with respect to (0,0,0) & (Real*4) I \\ \(VRT(3)\) & new reference point (vertex) & (Real*4) I \\ \(S\) & curved distance between old and new perigee (from CFNEWP) & (Real*4)O \\ \(ERROR(15)\) & error matrix for old track parameters & (Double*4) I \\ \(ERRN(15)\) & error matrix for new track parameters & (Double*4)O \\ \end{tabular}
+
+Subroutine CFIMP(ich,ifl,par,err,vrt,vcov,rimp,rcov,sign)
+
+Subroutine \(CFIMP\) calculates 3-dimensional impact parameter of track with respect to any vertex.
+
+\(ICH\) particle charges (Integer) I \(IFL(+1,0,-1)\) Add or subtract6 vertex errors contribution to impact errors (Integer) I \(PAR(5)\) track parameters in standard form (Real*4) I \(ERR(15)\) track error matrix (Real*4) I \(VRT(3)\) vertex position \((X,Y,Z)\) (Real*4) I \(VCOV(6)\) vertex covariance matrix (Real*4) I \(COVI(21)\) error matrix for \((X,Y,Z,Px,Py,Pz)\) (Real*4) I \(RIMP(2)\) impact parameters in \((\delta R_{xy},Z)\) form (Real*4)O \(RCOV(15)\) error matrix for impact parameters (Real*4)O \(SIGN\) 3D impact significance from RIMP and RCOV (Real*4)O
+
+Footnote 6: Vertex contribution must be added to track errors if track didn’t participate in vertex fit and subtracted if the track was included into the vertex fit. This is true if vertex was fitted with \(\chi^{2}\) method. For robust functionals situation is more complex.
+
+Subroutine FITERM(nt,errm)
+
+Subroutine \(FITERM\) calculates full error matrix for \((X,Y,Z,Px_{1},Py_{1},Pz_{1}.....Px_{N},Py_{N},Pz_{N})\) with size \((3*N_{tr}+3)*(2*T_{tr}+4)/2\) in symmetric form.
+
+\(NT\) number of tracks (Integer) I \(ERRM((3*NT+3)*(3*NT+4)/2)\) Full error matrix for vertex+tracks (Real*4)O
+
+Subroutine CALCPTOT(ntrk,parfs,ptot,totmass,mass)
+
+Subroutine \(CALCPTOT\) calculates 4-momentum and invariant mass of particle system after vertex fit.
+
+\(NTRK\) number of tracks (Integer) I \(PARFS(3,1:NTRK)\) Track parameter after vertex fit (Real*4) I \(PTOT(4)\) 4-momentum of particle system (Real*4)O \(TOTMASS\) Mass of particle system (Real*4)O \(MASS\) Mass of particles (Real*4) I Subroutine PRCMAG(kmag)
+
+Subroutine \(PRCMAG\) sets up a mode of magnetic field using in VKalVrt.
+
+\(KMAG\)\(0\)(def) - constant magnetic field, 1 - exact magnetic field (Integer) I
+
+Subroutine VKMAGFLD(x,y,z,fx,fy,fz)
+
+Subroutine \(VKMAGFLD\) returns an exact value of magnetic field at the given point inside ATLAS detector.
+
+\(X\)\(X\) coordinate of given point (Real*4) I
+
+\(Y\)\(Y\) coordinate of given point (Real*4) I
+
+\(Z\)\(Z\) coordinate of given point (Real*4) I
+
+\(FX\)\(X\) component of magnetic field at given point (\(kgauss\)) (Real*4)O
+
+\(FY\)\(Y\) component of magnetic field at given point (\(kgauss\)) (Real*4)O
+
+\(FZ\)\(Z\) component of magnetic field at given point (\(kgauss\)) (Real*4)O
+
+## Appendix C: \(B_{s}\to J/\psi(\to\mu^{+}\mu^{-})\phi(\to K^{+}K^{-})\) decay reconstruction
+
+This decay gives 2 cascade secondary vertices. At the first vertex \(B_{s}\) decays into \(J/\psi\) and 2 kaons and at the second one \(J/\psi\) decays into 2 muons. The cascade \(B_{s}\) decay reconstruction is then a two-step procedure. At the first step one should reconstruct \(J/\psi\) decay vertex and obtain a neutral \(J/\psi\) track. At the second step one should combine neutral \(J/\psi\) track and two charged kaon tracks into one \(B_{s}\) decay vertex. Both \(J/\psi\) and \(B_{s}\) vertices reconstruction may be done with mass constraints (\(J/\psi\),\(\phi\) masses) and \(B_{s}\) vertex may be reconstructed with directional (_primary vertex_) constraint.
+
+Lets assume that k1,k2 are the indices of kaon tracks and m1,m2 are the indices of muon tracks. The reconstruction starts from \(J/\psi\) decay vertex fit with mass constraint.
+
+ call VkalTrkPar(a0vert(m1),zvert(m1),CotThVert(m1),phivert(m1),
+
+ @ ptinvert(m1),covvert1(m1),covvert21(m1),covvert22(m1),covvert31(m1),
+
+ @ covvert32(m1),covvert33(m1),covvert41(m1),covvert42(m1),covvert43(m1),
+
+ @ covvert44(m1),covvert51(m1),covvert52(m1),covvert53(m1),covvert54(m1),
+
+ @ covvert55(m1),ich(m1),apar(1,1),aerr(1,1))
+
+ call VkalTrkPar(a0vert(m2),zvert(m2),CotThVert(m2),phivert(m2),
+
+ @ ptinvert(m2),covvert1(m2),covvert21(m2),covvert22(m2),covvert31(m2),
+
+ @ covvert32(m2),covvert33(m2),covvert41(m2),covvert42(m2),covvert43(m2),
+
+ @ covvert44(m2),covvert51(m2),covvert52(m2),covvert53(m2),covvert54(m2),
+
+ @ covvert55(m2),ich(m2),apar(1,2),aerr(1,2))
+
+  wmfit=3.09688  wm(1)=0.10567  wm(2)=0.10567  call PRCFIT(2,wm,wmfit,BMAG,vrtprm,covprm,0)  call cfpest(2,vrt,ich,apar,par0)  call CFIT(1,1,2,ich,vrt,par0,apar,aerr,vrtfit,
+
+ @ parfs,ptot,covf,chi2res,chi2tr,ierr)
+
+First parameter (=1) in CFIT call tells package to do the fit with mass constraint. To do it one needs the mass value for the constraint (\(wmass=3.09688\) is the mass of \(J/\psi\) in this example) and masses for each particle used in the fit (\(wm(1),wm(2)=0.10567\) - muon mass here). As a result one has a reconstructed \(J/\psi\) decay vertex. Invariant mass of two muon system with fitted parameters is exactly the \(J/\psi\) one. To receive neutral \(J/\psi\) track error matrix one needs full (\(X,Y,Z,P_{x},P_{y},P_{z}\)) fitted error matrix so second parameter in CFIT call is also set to 1.
+
+Let's obtain now the neutral \(J/\psi\) track parameters PARV0 and errors ERRV0:
+
+ call XYZTRP(0,vrtfit,ptot,covf,parv0,errv0,BMAG,ierr)
+
+One can proceed with reconstruction of the 3 track decay vertex \(B_{s}\to J/\psi K^{+}K^{-}\)
+
+ call VkalTrkPar(a0vert(k1),zvert(k1),CotThVert(k1),phivert(k1),
+
+ @ ptinvert(k1),covvert1(k1),covvert21(k1),covvert22(k1),covvert31(k1),
+
+ @ covvert32(k1),covvert33(k1),covvert41(k1),covvert42(k1),covvert43(k1),
+
+ @ covvert44(k1),covvert51(k1),covvert52(k1),covvert53(k1),covvert54(k1),
+
+ @ covvert55(k1),ich(k1),apar(1,1),aerr(1,1))
+
+ call VkalTrkPar(a0vert(k2),zvert(k2),CotThVert(im2),phivert(k2),* 0ptinvert(k2),covvert1(k2),covvert21(k2),covvert22(k2),covvert31(k2),
+* 0covvert32(k2),covvert33(k2),covvert41(k2),covvert42(k2),covvert43(k2),
+* 0covvert44(k2),covvert51(k2),covvert52(k2),covvert53(k2),covvert54(k2),
+* 0covvert55(k2),ich(k2),apar(1,2),aerr(1,2))
+*  callucopy(parv0,apar(1,3), 5)  callucopy(errv0,aerr(1,3),15) ich(3)=0
+
+ wmfit= 1.0194  wm(1)= 0.49367  wm(2)= 0.49367  wm(3)=-3.09688  call PRCFIT(3,vm,wmfit,BMAG,vrtpm,covprm,0)  call CPPEST(3,vrt,ich,apar,par0)  call CFIT(4,1,3,ich,vrt,par0,apar,aerr,vrtfit,
+* 0parfs,ptot,covf,chi2res,chi2tr,ierr)
+
+\(B_{s}\) decay vertex VRTFFIT with covariance matrix COVF is ready. A constraint type 4 was used here what means that \(B_{s}\) track must pass through primary \(VRTPRM\) vertex and mass of \(K^{+}K^{-}\) system ( 1st and 2nd particles in the \(CFIT\) call) must be equal to the mass of \(\phi\) meson \(1.0194\ GeV/c^{2}\). If one doesn't want to use \(\phi\) mass constraint then "_call_\(CFIT(2,1,2...\)" could be used. COVF(21) here is also a full \((V_{x},V_{y},V_{z},P_{x},P_{y},P_{z})\) covariance matrix (second parameter in CFIT is set to one). And if one needs an impact parameters of reconstructed \(B_{s}\) track with respect to the primary vertex
+
+ call YYZTRP(0,vrtfit,ptot,covf,parv0,errv0,BMAG,ierr)  call CFIMP(0,1,parv0,errv0,vrtpm,covprm,RIMP,RCOV,SIGNI)
+
+Description of package subroutines used here and their parameters can be found in Appendix B. Some invariant mass distributions obtained with the code presented above are shown in fig.3.
+
+Figure 3: \(B_{s}\to J/\psi(\to\mu^{+}\mu^{-})\phi(\to K^{+}K^{-})\) _vertices reconstruction. a) - \(\phi\to K^{+}K^{-}\) decay reconstruction, b) - \(J/\psi\to\mu^{+}\mu^{-}\) decay reconstruction, c) - \(B_{s}\) decay reconstruction._

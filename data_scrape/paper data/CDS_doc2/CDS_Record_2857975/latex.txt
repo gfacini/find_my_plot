@@ -1,0 +1,178 @@
+2 Demonstrating an active learning driven pipeline for optimised analysis reinterpretation: an extended search for Higgs bosons decaying into four-lepton final states via an intermediate dark Z boson
+
+The ATLAS Collaboration
+
+Active learning techniques can enhance efficiency in new physics searches. To demonstrate this, an extended two dimensional search using an active learning technique with a preserved analysis is presented. This preserved analysis searches for a dark \(Z\) boson in four-lepton final states in a one-dimensional phase space. Bayesian optimisation is applied in the active learning process to look for the maximal difference between the observed and expected limits to identify excesses. The work is conducted using a newly developed computing model as a part of the ATLAS workload management system PanDA with the intelligent Data Delivery Service as an orchestrator. The system is integrated in the ATLAS distributed computing ecosystem, seamlessly accessing ATLAS data via the ATLAS data management system Rucio and software distributed via the CernVM-File System. No evidence of new physics is found and upper limits on the production cross section of \(H\to ZZ_{d}\to 4\ell\) are set. The excesses around the \(Z_{d}\) masses at \(m_{Z_{d}}=20\,\mathrm{GeV}\) and \(40\,\mathrm{GeV}\) seen in the original analysis are reconfirmed, along with the mild excesses around \(30\,\mathrm{GeV}\) and \(50\,\mathrm{GeV}\).
+
+## 1 Introduction
+
+The existence of dark matter (DM) is suggested by compelling astrophysical evidence. It might be comprised of stable beyond Standard Model (BSM) particles. A natural way for those dark sector particles to couple with those in the Standard Model (SM) is through interactions with the Higgs boson \(H\)[1]. Probing such models leads to efforts of searching for new physics in the Higgs sector via SM Higgs boson decays to new gauge bosons.
+
+By introducing an additional \(U(1)_{D}\) dark gauge symmetry, one can introduce a dark \(Z\) particle, \(Z_{d}\), which provides another way for dark and SM sector particles to interact. This mechanism is known as the hypercharge portal, with its mixing strength \(\epsilon\) a free parameter, as shown in Figure 1. A recent search conducted by the ATLAS Collaboration considers three related channels in four lepton final states [2], one of which is the ZX channel: \(H\to ZZ_{d}\to 4\ell\) (\(15\,\text{GeV}<m_{Z_{d}}<55\,\text{GeV}\)).
+
+Searches are performed with various mass assumptions of \(Z_{d}\) in this channel, which are summarised in Table 1. In this note, we present a new, efficient active learning [3, 4, 5] driven approach to extend the search from the published ZX analysis using RECAST [6]. Active learning is an iterative procedure to actively collect new labelled data for an optimisation task. In the iterative procedure, one or more new BSM parameter space points are selected and for each the upper limit on the BSM signal strength is evaluated. A regression on the signal strength upper limit in the multidimensional space is performed. A new set of parameter space points are suggested for further analysis such that a sufficiently accurate exclusion contour may be obtained subject to some sampling budget constraints. This can either be a fixed computational budget via defining a set number of points to explore, or by setting a minimum threshold on the acquisition function that suggests the new set of parameter space points, see Section 4.1.
+
+Previous investigations of active learning application in high energy physics were performed using toy datasets [7, 8] to demonstrate the effectiveness of this technique. A recent application in ATLAS used active learning in a dark matter search with a mixed strategy of using both particle level and reconstruction
+
+\begin{table}
+\begin{tabular}{l c c} \hline \hline Channel & \(\epsilon\) & \(m_{Z_{d}}\) [GeV] \\ \hline ZX & \(10^{-4}\) & [55, 55] in steps of 5 \\ \hline \hline \end{tabular}
+\end{table}
+Table 1: Parameter settings of the ZX signal generation as used in the ATLAS search [2]. Samples were produced in \(5\,\text{GeV}\) steps of the \(Z_{d}\) mass. The resulting relevant kinematic distribution were then interpolated to allow testing of \(m_{Z_{d}}\) hypotheses with a \(1\,\text{GeV}\) resolution.
+
+Figure 1: Exotic decays of the Higgs boson into four leptons induced by intermediate dark vector bosons.
+
+level simulations together in the procedure [9]. The work presented in this note utilises a newly developed facility integrated in the ATLAS distributed computing system [10] that can seamlessly perform a loop of full analysis chain without human intervention.
+
+The RECAST framework [6] is employed to reuse estimates of backgrounds and observations in the data from the original search. Analysis software stack, computational workflow, database, configurations, run time environment and other required external data are preserved using docker containers1[11; 12] and structured workflow specifications in Common Workflow Language (CWL) [13] and Yadage [14]. The ATLAS workflow management system PanDA [10; 15] and the intelligent Data Delivery Service (iDDS) [16] are adopted to perform the active learning loop on the ATLAS distributed computing system and the CERN REANA instance [17; 18].
+
+Footnote 1: A software tool to bundle software, dependencies and data together and run them in isolated user spaces.
+
+The note is organised as follows. Section 2 describes the preservation of the published analysis. Section 3 describes how the new signal samples are simulated and processed. Section 4 introduces the procedure of the active learning and setup used in this study. Results are presented in Section 5, followed by a conclusion in Section 6.
+
+## 2 Analysis preservation and workflow
+
+To RECAST new signal inputs on a preserved analysis, the inputs must undergo an extensive Monte Carlo (MC) simulation chain, including event generation, detector simulation, digitisation, object and event reconstruction [19], skimming [20], and finally the end-user analysis. For the purpose of this note, the steps prior to the end-user analysis are denoted as "production chain" as they are usually conducted on the ATLAS distributed computing system (Grid) [21]. The end-user analysis steps are denoted as "analysis chain", usually performed in institutional clusters or personal computers, taking the outputs from the slimming step in the format of Derived Analysis Object Data (DAOD) [20]. Technically, two chains are preserved in different ways and will be presented in the following sub-sections.
+
+### Production chain preservation
+
+The production chain utilises the CernVM-File System (CVMFS), which is a scalable, reliable and low-maintenance software distribution service [22]. Via AMI tags [23] and archived command lines in PanDA, correct ATLAS central software packages and conditions databases can be accessed at any site of the worldwide distributed computing infrastructure. Unlike in the analysis chain preservation to be explained shortly, container technique is not used in the production chain preservation, although CVMFS is now starting to support containers [24]. This will further simplify the work in the future. All the steps can be organised into a workflow described using CWL [13] or similar tools. The CWL descriptive file can be submitted to the Grid and parsed by pchain[15], a new component of PanDA developed for submitting chained tasks. These steps are then sent to various computational components and executed accordingly to the workflow description. The engine for the orchestration of job submission is the iDDS [16]. It supports complex workflows with loops or nested structures and decouples workflow management from data processing.
+
+### Analysis chain preservation
+
+The analysis chain may consist of a complex workflow with multiple interdependent steps, and ultimately outputs a measurement such as a CL\({}_{\text{s}}\) limit [25]. Software packages used in each step are containerised in docker images [11] and stored in the CERN GitLab container registry. The structure of the workflow, along with the correct usage of the software packages, are archived in workflow description languages, in this study in Yadage. The analysis chain is executed using the REANA platform, an analysis platform enabling workflow preservation and reuse for data analysis. To submit a REANA workflow, both the workflow description in Yadage and the docker containers holding the archived analysis software are required.
+
+### Data and background preservation
+
+Data and background estimation are reused from the preserved published analysis. The information are preserved in the form of histograms. This eliminates the necessity of re-processing the full data and background MC samples to save computing resources.
+
+### The workflow
+
+With the above preservation for the necessary analysis steps and data, we propose the following active learning workflow using a RECAST analysis. A schematic view of the workflow with the joint production chain and the analysis chain is shown in Figure 2.
+
+The workflow starts with a template MC configuration file to generate new signal samples, which will be discussed in Section 3. Concrete configuration files are derived from the template file for all physics parameter points to probe in a given active learning loop. The production chain is then executed in parallel for each point to generate a corresponding DAOD sample. Once a DAOD sample is available, a PanDA job then submits a REANA workflow task to a REANA cluster, e.g. the CERN REANA local cluster [17] used in this study, on behalf of the user.
+
+The REANA workflow is pre-defined by users. The first step usually consists in downloading the DAOD sample from the Grid to the REANA cluster local storage via Rucio [26]. A series of analysis steps follow to produce results, e.g. the exclusion upper limits, which are then transferred back to the Grid. A PanDA job that runs active learning logic acts as a junction step, and is activated when all results arrive. Based on the outcome of the active learning logic, either a new loop starts with new parameter points or the entire workflow is terminated. The active learning and looping will be discussed in Section 4 in detail. The full chain, including the maximum number of loops, is pre-defined and can be executed without human intervention.
+
+## 3 New signal sample simulation
+
+In general, the software releases of the ATLAS production chain are preserved on CVMFS. However, the rapid development of the ATLAS software since the generation of the original MC signal samples for the published ZX search [2] brought with it changes in the current MC sample production pipeline. As we make use of this pipeline for new MC sample production, we had to introduce changes in the signal sample production with respect to the original samples to be in sync with the current MC production setup. These include non-physics related changes in the MC configuration file that define the signal process to simulate, and the use of a newer version of the ATLAS event generation script.
+
+In a later section Table 3 will show comparisons between the published \(H\to ZZ_{d}\to 4\ell\) cross section limits and this work to show that any differences from the MC sample production are negligible.
+
+Figure 2: A schematic view of the workflow involving the production chain and the analysis chain in a loop. In this proposed workflow, the production chain names (and PanDA transformations) are indicated in the teal squares. These steps are conducted on the ATLAS Grid and use Rucio for the data flow. The orange squares indicate the steps in the analysis chain. Each step is containerised in a docker image and run on a REANA instance consecutively. Rucio is used for data flow between the ATLAS Grid and the REANA instance. The junction step is conducted on the Grid and a decision of either continuing or terminating the loop is made based on the active learning logic. The information flow on the Grid is controlled by iDDS and pchain while the information flow in REANA is controlled by the REANA steering configuration file.
+
+## 4 Active learning and looping
+
+Our objective is to find the allowed regions in the parameter space that are not excluded by the experimental data. If the measured limit is tighter than the theory prediction, the parameter value under test is excluded. The contour formed by the points at which the experimental limits and theory predictions match defines the border of the allowed region in the parameter space.
+
+To identify the allowed regions, it is sufficient to know the location of that contour. An optimisation procedure can be applied in this situation to quickly and efficiently find it by identifying points that minimise the distance between the observed limits and theory predictions. In some scenarios where theory predictions are unavailable, the same optimisation procedure can be used to look for regions e.g. where data show a large excess above the SM background expectation. This is the case in this study. The optimisation procedure is to identify the space points \(x\) where excesses manifest in the observable
+
+\[y=\text{observed limit}-\text{expected limit}, \tag{1}\]
+
+(or equivalently deficits in \(-y\)). We employ Bayesian optimisation [27] to iteratively and effectively search for the excess regions with a minimum budget of production and analysis chain evaluations.
+
+### Bayesian optimisation
+
+Bayesian optimisation attempts to find the global optimum of a "black box" objective function \(f\) in a minimum number of steps. It incorporates prior belief about \(f\) and updates the prior with samples drawn from \(f\) to get a posterior that improves the approximation. The model used for approximating \(f\) is called the surrogate model. The posterior is used in an acquisition function to determine the next query points where an improvement over the current best observation might be achieved.
+
+A number of methods can be applied to define a surrogate model, one of the most popular choices is the Gaussian Process (GP) [28; 29]. The GP yields a probability distribution over possible functions that fit a set of points. Hence it provides a probabilistic framework to model the objective function, which allows for uncertainty quantification and the ability to model complex functions with few hyperparameters. Additionally, it is highly interpretable and has a rich mathematical foundation, making it easy to use and efficient to optimise. The GP assumes that the outcome of a given input point \(\mathbf{x}\), \(f(\mathbf{x})\), is a random variable and the joint distribution of a finite number of these variables \(p(f(\mathbf{x}_{1}),f(\mathbf{x}_{2}),...,f(\mathbf{x}_{n}))\) is a multivariate Gaussian:
+
+\[p(\mathbf{f}(\mathbf{X}))=\mathcal{N}(\mathbf{f}(\mathbf{X})|\mathbf{\mu},\mathbf{K}), \tag{2}\]
+
+where \(\mathbf{X}=(\mathbf{x}_{1},\mathbf{x}_{2},...,\mathbf{x}_{n})\), while \(\mathbf{\mu}\) and \(\mathbf{K}\) are the mean vector and covariance matrix, respectively:
+
+\[\mathbf{\mu}=(E(\mathbf{x}_{1}),E(\mathbf{x}_{2}),...,E(\mathbf{x}_{n})), \tag{3}\]
+
+\[\mathbf{K_{ij}}=\kappa(\mathbf{x}_{i},\mathbf{x}_{j}), \tag{4}\]
+
+where \(\kappa\) is the kernel, a common choice of which is the radial basis function kernel:
+
+\[\kappa(\mathbf{x}_{i},\mathbf{x}_{j})=\exp\left(-\frac{(\mathbf{x}_{i}-\mathbf{x}_{j})^{2}}{2 l^{2}}\right). \tag{5}\]This kernel represents the simple assumption that closer points \(\mathbf{x}_{1},\mathbf{x}_{2}\) yield closer values of the objective function \(f(\mathbf{x}_{1})\), \(f(\mathbf{x}_{2})\), i.e. the objective function is smooth. Behind the complex mathematics, it provides a handle of a posterior probability density that describes possible values of \(f(\mathbf{x}^{*})\) at a new point \(\mathbf{x}^{*}\), with a possibility of incorporating uncertainties of evaluations into the posterior.
+
+The acquisition function predicts areas that are worth exploiting or exploring. For example, if the localisation of global minima is desired, as in Figure 3, then the acquisition function yields a high score when \(\mathbf{f}(\mathbf{X})=(f(\mathbf{x}_{1}),f(\mathbf{x}_{2}),...,f(\mathbf{x}_{n}))\) is already minimal or not well sampled. Conversely, areas where \(\mathbf{f}(\mathbf{X})\) is far from minimal or highly sampled yield a low acquisition function score. The points \(\mathbf{x}\) that maximise the acquisition function are recommended for evaluation in the next step. Following are several choices for the acquisition function:
+
+**Upper confidence bound (UCB)**: is defined as
+
+\[\text{UCB}(\mathbf{x};\lambda)=\mu(\mathbf{x})+\lambda\sigma(\mathbf{x}) \tag{6}\]
+
+where \(\mu(\mathbf{x})\) and \(\sigma(\mathbf{x})\) are the mean and uncertainty of the surrogate model prediction at point \(\mathbf{x}\), representing the degrees of exploitation and exploration, respectively. The tradeoff between both is controlled via the tunable parameter \(\lambda\).
+**Probability of improvement (PI)**: If the improvement is defined as \(I(\mathbf{x})=\max(f(\mathbf{x})-f(\mathbf{x}^{*}),0)\) where \(\mathbf{x}^{*}\) is the current best point that maximises the function \(f\), then PI is
+
+\[\text{PI}(\mathbf{x})=\text{Prob}(I(\mathbf{x})>0)=\text{Prob}(f(\mathbf{x})-f(\mathbf{x}^{*}) >0). \tag{7}\]
+**Expected improvement (EI)**: is built from the improvement \(I(\mathbf{x})\) but differs from PI by taking into account the expectations:
+
+\[\text{EI}(\mathbf{x})=\mathbb{E}[I(x)]=\int_{-\infty}^{+\infty}I(x)\cdot\text{Gaus }(z)\,\text{d}z,z=\frac{x-\mu(\mathbf{x})}{\sigma(\mathbf{x})}. \tag{8}\]
+
+In this study, we use the gp_hedge option as the default implementation in the scikit-optimize package [30]. It probabilistically chooses an acquisition function for every iteration from the above three acquisition functions. The choices of the acquisition function and hyperparameters involved in the GP procedure (e.g. the length scale \(l\) in the Radial Basis Function kernel) are taken as the default settings since the number of iterations and the total number of points in this study are not huge. In more complex applications, a dedicated optimisation can be beneficial.
+
+A demonstration of a Bayesian optimisation is illustrated in Figure 3. In this example, the objective is to find the hypothetical mass value (independent variable) that gives the smallest \(p\)-value (dependent variable) according to a fictitious \(p\)-value function (the truth, but invisible to the algorithm) as shown by the blue dashed curve. A traditional grid search may test evenly spaced mass hypotheses, perhaps in the interval of \([1000,4000]\text{GeV}\) with a step of \(100\,\text{GeV}\). Using Bayesian optimisation, one can find the desired position with fewer points. In this example 10 total points are used with initial six points randomly sampled in the range and last four points predicted by the algorithm. The figure from top to bottom shows how the predicted point improves the precision and confidence of the estimated curve in red.
+
+Figure 3: An example showing how Bayesian optimisation can be helpful to solve an optimisation problem. Four rows of figures show four timestamps of the iterative algorithm in chronological order. The objective is to find the hypothetical mass where the smallest \(p\)-value occurs in a true and unknown \(p\)-value function in blue. The algorithm first draws six random mass points and evaluate their \(p\)-values. A 5% level of noise is set when evaluating the \(p\)-values in this example to mimic the presence of measurement uncertainties. “Probability of improvement” (PI) is used as the acquisition function (see Section 4.1). The Gaussian Process regression \(\mu_{\text{GP}}\) is shown as the red dashed curve in the left-hand column. With more data acquired, the regressed curve evolves and approaches the true (unknown) curve. The green band shows the uncertainty from the Gaussian Process regression at each mass point. Where there is a measure (red dot), the uncertainty is smaller; the non-zero uncertainty at the point is due to the injected 5% noise. The plots in the right-hand column show the response of the acquisition function, together with the next suggested point in red. The suggestion is always at the maximum response by definition, as the response is a measure of probability to improve the knowledge of the full landscape. After testing around 10 points, the algorithm successfully finds the desired mass value within 2% of the true value.
+
+### Active learning setup
+
+As a pioneer of utilising the active learning service system and of applying the active learning to this physics search, we will adopt two steps to produce the final results. The first step is to run a one dimensional (1D) scan on \(m_{Z_{d}}\) and verify the results with the aforementioned published results. This is to ensure that the preserved analysis works as desired. The second step is to perform a two dimensional (2D) limit scan in the plane spanned by the \(Z_{d}\) mass and the \(Z\)-\(Z_{d}\) mixing parameter \(\epsilon\). This explores a new parameter space, beyond what was done in the published analysis in Ref. [2]. The scanned parameters space are summarised in Table 2. The range of \(m_{Z_{d}}\) follows the similar search range to Ref. [2]. The range of \(\epsilon\) is chosen to avoid experimental constraints and allow for prompt decay of \(Z_{d}\). The 2D scan is performed in three iterations, with six to twelve points each. This balances overall runtime with the acquisition function's ability to refine the prediction of phase space points that are worth exploring. In total 30 points are studied. For each point, \(10\,000\) signal events are simulated.
+
+## 5 Results
+
+### 1D results
+
+Six values of \(m_{Z_{d}}\) are consider to verify that the results in Ref. [2] can be reproduced using the recasted workflow. Expected and observed limits on the cross section are evaluated through the full analysis chain described in Section 2. The impact of the systematic uncertainties on the limits was found to be less than 2%. Therefore, although technically feasible, systematic uncertainties are not included for further analysis to expedite the process. Table 3 summarises results from both studies. Good agreement is found across all the mass points for both observed and expected limits. Residual differences of \(<5\%\) are due to different signal MC sample statistics (10k vs 190k), different MC generation software versions, asymptotic v.s. toy approaches in the limit setting and because of the omission of systematic uncertainties in this work.
+
+### 2D results
+
+Starting from the 1D results, we performed three iterations on the 2D plane of \(m_{Z_{d}}-\epsilon\) using the Bayesian optimisation. The GP is applied as the surrogate model and the gp_hedge option is used for the acquisition function. The target of the Bayesian optimisation algorithm is to maximise the difference between the observed limit and expected limit (i.e. the excess), as shown in Figure 4(c). The markers there represent the points in the \(m_{Z_{d}}-\epsilon\) space that were selected by the active learning process to be explored via the recasted workflow. Results in-between the markers are interpolated via cubic spline. It is expected that the cross
+
+\begin{table}
+\begin{tabular}{l r r r} \hline \hline Steps & \(m_{Z_{d}}\) [GeV] & \(\epsilon\) & \(N\) points \\ \hline
+1D & [15, 20, 25, 30, 40, 50] & \(10^{-4}\) & 6 \\
+2D, iter 1 & 15–55 & \(10^{-1}-10^{-4}\) & 6 \\
+2D, iter 2 & 15–55 & \(10^{-1}-10^{-4}\) & 12 \\
+2D, iter 3 & 15–55 & \(10^{-1}-10^{-4}\) & 6 \\ \hline \hline \end{tabular}
+\end{table}
+Table 2: Search steps and search spaces for each step.
+
+section of the process has a mild dependence on \(\epsilon\), that is seen in both the observed limit (Figure 4(a)) and the expected limit (Figure 4(b)). In addition, the excesses around \(m_{Z_{d}}=20\,\mathrm{GeV}\) and \(40\,\mathrm{GeV}\) observed in Ref. [2] with local significances of \(1.7\,\sigma\) and \(2.0\,\sigma\), respectively, are both reconfirmed in the 2D space.
+
+Despite the small number of evaluated points, the learning behaviour is revealed from these iterations. With the 1D results fed as starting points, the algorithm exploits primarily the region near \(m_{Z_{d}}=20\,\mathrm{GeV}\) in its first iteration (red squares), where the large excess is observed. For the second iteration (orange pentagon) the sampled points are clustered around the edges of the phase space, while in the third iteration (dark green hexagons), the algorithm focuses on the central area that was least explored in the previous iterations.
+
+### Discussion of the efficiency
+
+In Ref. [2], nine signal samples are simulated in steps of \(5\,\mathrm{GeV}\), as shown in Table 1. An interpolation method is used to reduce the step size in the measured limits down to \(1\,\mathrm{GeV}\). As the impact of \(\epsilon\) on the result is mild, Ref. [2] utilises signal reweighting techniques and recasts from 1D results to achieve good 2D results. In this work, 30 points are simulated in the two dimensional \(m_{Z_{d}}\)-\(\epsilon\) plane. No interpolation of the signal shape is assumed, demonstrating the feasibility of active learning without reweighting techniques. Although the complexity of the parameter landscape in this study is not sufficient to showcase the power of active learning, the study unlocks the possibility to perform active learning in ATLAS analyses. In more complex situations with higher dimensionality, active learning may reveal larger potential.
+
+\begin{table}
+\begin{tabular}{l|c c c c|c c} \hline \hline \(m_{Z_{d}}\) & \multicolumn{2}{c}{Ref. [2]} & \multicolumn{2}{c|}{This work} & \multicolumn{2}{c}{Ratio of this work to Ref. [2]} \\ \([\mathrm{GeV}]\) & Obs. [fb] & Exp. [fb] & Obs. [fb] & Exp. [fb] & Obs. [fb] & Exp. [fb] \\ \hline
+15 & 0.34 & 0.48 & 0.32 & 0.48 & 0.96 & 1.00 \\
+20 & 0.74 & 0.53 & 0.73 & 0.51 & 0.97 & 0.96 \\
+25 & 0.37 & 0.54 & 0.37 & 0.55 & 1.01 & 1.01 \\
+30 & 0.56 & 0.51 & 0.57 & 0.52 & 1.01 & 1.02 \\
+35 & 0.39 & 0.33 & 0.39 & 0.34 & 1.01 & 1.03 \\
+40 & 0.39 & 0.25 & 0.39 & 0.26 & 1.00 & 1.03 \\
+50 & 0.30 & 0.21 & 0.30 & 0.20 & 0.99 & 0.97 \\ \hline \hline \end{tabular}
+\end{table}
+Table 3: Comparison of 95% confidence-level limits on the cross section for selected \(m_{Z_{d}}\) values between Ref. [2] and this work. The differences between the two sets of results are smaller than 5%.
+
+## 6 Conclusion
+
+An extended search for a dark \(Z\) boson in four-lepton final states is presented, using an active learning technique and based on the preserved analysis of Ref. [2]. The computing model to perform the active learning is developed as part of the ATLAS workflow management system, PanDA, using iDDS as an orchestrator. The analysis is well integrated in the ATLAS distributed computing ecosystem, seamlessly accessing ATLAS data via Rucio and software stack via CVMFS. The analysis chain is preserved in docker containers and performed using the REANA facilities. Smooth transitions of both information and data flows between REANA and PanDA are achieved.
+
+The search is conducted in a 2D plane, an extension of the preserved analysis which was only exploring a one-dimensional phase space. Bayesian optimisation is used for the active learning to look for the maximal difference between the observed limit and expected limit (excess). The (non-significant) excesses around \(m_{Z_{d}}=20\,\mathrm{Ge\kern-1.0ptV}\) and \(40\,\mathrm{Ge\kern-1.0ptV}\) are reconfirmed.
+
+Figure 4: Upper limits at 95% CL on the \(pp\to H\to ZZ_{d}\to 4\ell\) cross section in the \(m_{Z_{d}}\)–\(\epsilon\) plane for (a) the observed cross section, (b) the expected cross section, and (c) the difference. For all figures, the cubic spline is used to interpolate between points.
+
+The main objective of this study is to showcase the pipeline in ATLAS for active learning. The active learning approach is demonstrated in this study to achieve a precision level similar to Ref. [2]. Any potential active learning advantage in this scenario is however moderated by the relatively flat landscape along \(\epsilon\), that is exploited in Ref. [2] by reweighting and extrapolating the 1D results therein. When the dimensionality of the parameter space is high or the landscape is more complex, active learning is expected to reveal even greater potential.
+
+## References
+
+* [1] D. Curtin et al., _Exotic decays of the 125 GeV Higgs boson_, Phys. Rev. D **90** (2014) 075004, arXiv: 1312.4992 [hep-ph] (cit. on p. 2).
+* [2] ATLAS Collaboration, _Search for Higgs bosons decaying into new spin-0 or spin-1 particles in four-lepton final states with the ATLAS detector with \(139\,\text{fb}^{-1}\) of \(pp\) collision data at \(\sqrt{s}=13\,\text{TeV}\)_, JHEP **03** (2021) 041, arXiv: 2110.13673 [hep-ex] (cit. on pp. 2, 5, 9-12).
+* [3] R. Roussel et al., _Turn-key constrained parameter space exploration for particle accelerators using Bayesian active learning_, Nature Commun. **12** (2021) 5612, arXiv: 2106.09202 [physics.acc-ph] (cit. on p. 2).
+* [4] M. D. Goodsell and A. Joury, _Active learning BSM parameter spaces_, Eur. Phys. J. C **83** (2023) 268, arXiv: 2204.13950 [hep-ph] (cit. on p. 2).
+* [5] B. Settles, _Active Learning_, JMLR **13** (2012) 1852, url: [http://www.cs.wisc.edu/~bsettles/pub/settles.activelearning.pdf](http://www.cs.wisc.edu/~bsettles/pub/settles.activelearning.pdf) (cit. on p. 2).
+* [6] K. Cranmer and I. Yavin, _RECAST: Extending the Impact of Existing Analyses_, JHEP **04** (2011) 038, arXiv: 1010.2506 [hep-ex] (cit. on pp. 2, 3).
+* [7] S. Caron, T. Heskes, S. Otten and B. Stienen, _Constraining the Parameters of High-Dimensional Models with Active Learning_, Eur. Phys. J. C **79** (2019) 944, arXiv: 1905.08628 [cs.LG] (cit. on p. 2).
+* [8] J. Rocamonde, L. Corpe, G. Zilgalvis, M. Avramidou and J. Butterworth, _Picking the low-hanging fruit: testing new physics at scale with active learning_, SciPost Phys. **13** (2022) 002, arXiv: 2202.05882 [hep-ph] (cit. on p. 2).
+* [9] ATLAS Collaboration, _Active Learning reinterpretation of an ATLAS Dark Matter search constraining a model of a dark Higgs boson decaying to two b-quarks_, (2022), ATL-PHYS-PUB-2022-045, url: [https://cds.cern.ch/record/2839789](https://cds.cern.ch/record/2839789) (cit. on p. 3).
+* [10] T. Maeno et al., _Evolution of the ATLAS PanDA workload management system for exascale computational science_, J. Phys. Conf. Ser. **513** (2014) 032062 (cit. on p. 3).
+* [11] D. Merkel, _Docker: lightweight Linux containers for consistent development and deployment_, Linux Journal **2014** (2014), url: [https://www.seltzer.com/margo/teaching/CS508.19/papers/merkel14.pdf](https://www.seltzer.com/margo/teaching/CS508.19/papers/merkel14.pdf) (cit. on pp. 3, 4).
+* [12] J. Elmsheuser, L. Heinrich, G. Stewart and M. Vogel, _Using containers with ATLAS offline software_, J. Phys. Conf. Ser. **1085** (2018) 032042 (cit. on p. 3).

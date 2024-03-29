@@ -1,0 +1,247 @@
+_G4AGDD_
+
+_an AGDD based G4 application_
+
+_Saclay Muon Software Group: J.F.Laporte1,2, L.Chevalier 2, C.Guyot 2, M.Virchaux 2_
+
+Footnote 1: CERN, Geneva, CH
+
+Footnote 2: CEA/DSM/SPP, F
+
+### 0.1 Introduction
+
+The aim of this note is to present the G4AGDD application, a Geant 4 application using AGDD [7-1]. In this application, we have implemented original algorithms for automatic building of the Geant 4 geometry in a "generic". i.e subdetector independent, way. Futhermore, some issues related to digitization, led us to develop a "generic" mechanism to retrieve geometry informations exclusively from AGDD. This allowed us to implement a Digitization stage independent of Geant 4.
+
+The concepts have been tested by simulating part of the Muon System and producing Simulation data (digits) usable as inputs for the Muon Reconstruction code, Muonbox [7-2].
+
+For the time being, the application does not cover all the AGDD syntax. However, since they have triggered some recent interest, we think that it is worthwhile to present our algorithms in view of their possible reuse.
+
+### 0.2 Motivation
+
+The main motivation of the ATLAS Generic Detector Description (AGDD) effort is to provide a Detector Description independent of any specific application using it. The sources of this description are AGDD files which are ASCII files listing parameters defining the dimensions and the positions of volumes. A syntax, defined using the Extensible Markup Language (XML), specifies how these parameters are entered. In our opinion, the use of XML is quite secondary. It is just a convenient, although somewhat verbose way, to define sets of variables, their values and the relations between them. It is true that XML comes with syntax checkers and parsers. However, as revealed by a look on any AGDD file, AGDD is no more than a convention on how to write ASCII files.
+
+In its current state, AGDD is defining elements corresponding to elementary geometrical volumes, such as box or tube, and elements corresponding to the positioning of volumes in space. The resulting description is a set of very understandable instructions to build and to assemble elementary volumes. However we have demonstrated elsewhere that this kind of "explicit" description is, in practice, unmaintainable for real detectors because of the size of the description and the many duplications of parameters. Futhermore, some tasks, such as reconstruction, are greatly helped by synthetic views of the detector. This suggests including in the AGDD description subdetector-specific structures beside the elementary detector volumes, and to describe them using "compact" elements1. In order to preserve the advantages of the simplicity of the "explicit" description, methods must be provided to expand these "compact" elements into the equivalent set of elementary elements [7, 8, 9, 10].
+
+Footnote 1: One can fairly argue that it is possible, at least in principle, to restore a synthetic view from an explicit description, e.g to identify a bunch of independent tubes as a Muon MDT multilayer. However, to try to create a structure from an unstructured description does not seem to be a very sensible approach, and indeed may not always be possible in an unambiguous way. If specific structures are primarily needed, it is much wiser to acknowledge the need of specific elements to describe them.
+
+In Figure 1, we have briefly sketched a scheme that we do consider as sensible. It involves AGDD files, which would be maintainable because of the use of "compact" elements, and an AGDD Software giving access to both the "compact" elements and the "explicit" elements resulting from the "expansion" of the former. Then, an application would be able either to get the "compact" elements, e.g. to perform detector-specific actions, or to get the "explicit" elements, e.g. to perform "generic" actions.
+
+Typical examples of such "generic" applications may be graphics display programs. The minimal requirement for these applications could be that they have to be able to visualize elementary volumes positioned in space. This being fulfilled, the field of applicability of such an application is large since any detector describable in terms of boxes, tubes, trapezoids, etc. can be visualized without having to be known by the application. It is clear from this example that "generic" applications, if workable, are valuable since they are both fundamentally simple, for what concerns the set of objects that they have to deal with, and powerful, for what concerns their field of applicability. It should be noticed that, because of this universality, a "generic" application may be not highly optimized. However this should be weighed against the above virtues.
+
+In developing G4AGDD, our goal is to explore the issues related to the development of such a "generic" application for simulation in Geant 4. In the next sections, we explain how this could be performed.
+
+Figure 1: AGDD scheme including Compact Description and Expansion
+
+### 3.0 Description of the problem
+
+In this section, we present the main ideas that we have implemented in G4AGDD. They are solutions to issues that we have met in the building of the Geant4 geometry and in the development of the digitization stage. In order to make clear these developments, it is necessary to start by a brief description of what an AGDD file looks like and what is the Generic Model code, developed by Christian Arnault [7-1], which provides access to the AGDD objects in a C++ context.
+
+### 3.1 Brief description of AGDD
+
+#### 3.1.1 AGDD files
+
+As input for G4AGDD, we have used AGDD files provided by Shawn McKee and Steven Goldfarb [7-4] that describe in great detail the barrel trigger (RPC) and precision (MDT) chambers of the Muon System. These files have been produced from the AmdbSimrec file [7-5] (version m2.8) by using a perl script. A few simplified parts from the files describing the MDT precision chambers, are commented below.
+
+First the gas cylinder contained in a MDT tube should be described. It is specified by giving its inner and outer radii, its length, the material of which it is made and its sensitive status.
+
+ <tubs name="TUBEGAS" Rio_Z="0 14.60 2560.0" material="ArcO2"  sensitive="true" />
+
+Copies of this tube are put together to form a layer of tubes aligned along the Z axis of some local reference frame 1. This is performed by using the mposZ element asking for ncopy copies, separated by a dz distance, the first of these copies being at the position Z0. Since in its proper reference frame the tube axis is the Z axis, a rotation is necessary.
+
+ <composition name="LAYER">  <mposZ volume="TUBEGAS" ncopy="36" dZ="30." Z0="-525" rot="0 90 0">  <identifier field="Tube" value="1" step="1" />  </mposZ>  </composition>
+
+The composition named "LAYER" is an AGDD volume which really just defines a co-ordinate system into which many (36) tubes (TUBEGAS) will be placed. In particular, it should be noted that the volume "LAYER" has no boundaries, in contrast to an elementary AGDD volume such as "tubs". The identifier element associates a positioned tube to an identifier named Tube and specifies that this identifier will have the value 1 for the first tube. The step entry indicates that the value Tube will have to be incremented by 1 for each subsequent copy.
+
+Then copies of the composition LAYER are assembled to form a multilayer.
+
+ <box name="MULTILAYER1_Envelope" X_Y_Z="2700. 122.94 1095" material="Air"/>  <composition name="MULTILAYER1" envelope="MULTILAYER1_Envelope">  <posXYZ volume="LAYER" X_Y_Z="0 -31.47 -7.5">  <identifier field="TubeLayer" value="1" />  </posXYZ>  <posXYZ volume="LAYER" X_Y_Z="0 -5.489 7.5">  <identifier field="TubeLayer" value="2" />  </posXYZ>  </composition>This assembling is obtained by positioning, with posXYZ, two copies of LAYER in the new composition MULTIILAYER1. Each copy is identified by the identifier TubeLayer. Note that the composition "MULTIILAYER1" is associated to a box volume "MULTIILAYER1_Envelope" which serves to define the boundaries of "MULTIILAYER1". (c.f the composition LAYER which did not have any boundaries defined.)
+
+Then MDT multilayers are assembled with RPC chambers to form a station. In order to keep this example simple, only one MDT multilayer is shown bellow.
+
+ <box name="STATION_Envelope" X_Y_Z="2700. 415.88 1095" material="Air" />  <composition name="STATION" envelope="STATION_Envelope">  <posXYZ volume="MULTIILAYER1" X_Y_Z="0 -146.47 0">  <identifier field="MultiLayer" value="1" />  <identifier field="Technology" value="1" />  </posXYZ>  </composition>
+
+Finally STATION is positioned at five locations in ATLAS:
+
+ <composition name="MuonSpectrometer">  <mposphi volume="STATION" ncopy="5" dphi="45" phi0="0" R_Z="4926 697.5" >  <identifier field="subdet" value="7" />  <identifier field="StationName" value="0" />  <identifier field="StationPhi" value="1" step="1" />  <identifier field="StationEta" value="1" />  </mposPhi>  </composition>
+
+The value "7" of the "subdet" identifier identifies this composition as belonging to the Muon Spectrometer. The StationName identifier refers to the naming scheme of Muon Chambers (e.g. StationName=0 means that this is a chamber of Type BIL). The StationPhi and StationEta identifiers are indices for segmentation in azimuth and rapidity1.
+
+Footnote 1: The identifier scheme for the Muon Spectrometer has been documented in [7-6]
+
+### Comments
+
+As illustrated by the above example, the AGDD files define chains of volumes most of them being compositions, equipped or not with envelopes, with the bottom of the hierarchy being a solid such as box or tube2. The overall structure is a hierarchy of volumes linked by positioning elements. This hierarchy is not the tree of the positioned volumes since some chains merge when the positioned volumes are identical.
+
+Footnote 2: Our example does not cover the full AGDD syntax. Other volumes such as boolean volumes are possible. We have not implemented the boolean volumes in the present G4AGDD version since they were not necessary for our exploratory purposes. Their inclusion should not pose any problem.
+
+The tree of the positioned volumes is implicit in the AGDD volume hierarchy. Its branches emerge by following the chains from the top AGDD volume. Along one of these paths, one collects a series of positioning operations and ends up with a solid. The composition of these positioning operations gives the overall rotation and translation to be applied on this solid to position it in the ATLAS coordinate system.
+
+Finally, since identifiers can be set in the AGDD positioning elements, a complete set of identifiers corresponds to a branch of the tree of the positioned volumes and can be associated to a particular AGDD volume and to the rotation and the translation to be applied to it.
+
+#### Generic Model Code
+
+This code parses the AGDD files and provides a set of AGDD C++ objects corresponding to the AGDD XML objects. It is not the place here to give a detailed description of this code. However some points should be commented in order to understand the G4AGDD developments.
+
+The connection between the AGDD C++ objects and the AGDD XML objects is very direct. All parameters set in the AGDD files become available as public data members of C++ objects. The relations between the AGDD XML objects are implemented through pointers.
+
+The AGDD C++ classes are of two base types: AGDD_Volume, for the AGDD XML volume elements, and AGDD_Position, for the AGDD XML positioning elements. In particular the AGDD_Composition class corresponds to the AGDD XML composition. As illustrated in the last section, the AGDD XML composition is used to position different volumes inside a common coordinate system. Thus the composition can be associated to a set of positioning elements. As a consequence, the AGDD_Composition class carries a vector of pointers to objects of type AGDD_Position. Since the AGDD XML positioning element involves one AGDD XML volume, the AGDD_Position carries a pointer to one object of AGDD_Volume type.
+
+As a consequence, starting from the AGDD C++ object corresponding to the top AGDD XML volume and following the paths defined by the successive pointers, it is possible to reveal the branches of the tree of positioned volumes as we have explained in Section 3.1.1. This feature is particularly useful to implement recursive algorithms.
+
+It should be noted that we did not have to duplicate the objects of the Generic Model code to build a superstructure of objects of richer content or behavior. Our algorithms have been implemented as static functions having AGDD C++ objects as arguments. This is also true for the rotation and translation classes which are not provided by the Generic Model code. We supplied them by building, on demand, the CLHEP corresponding objects from the parameters carried by the AGDD objects.
+
+### Building the Geometry
+
+As explained above, an AGDD file can be viewed as a series of instructions to build and to assemble elementary volumes. Then to build the Geant 4 geometry from this description, one should look for the Geant 4 tools allowing to carry out these instructions.
+
+One can find a one-to-one correspondence between the elementary AGDD volumes and the basic Geant 4 volumes such as G4Box, etc. The translation of the positioning is less direct. Geant 4 provides a simple positioning method by means of the class G4PVPlacement and more sophisticated methods such as G4PVReplica and G4PVPVarameterisation. Our previous experience with the G4VPVParameterisation method (implementation of AmdbSimrec in Geant 4 [7-7]) showed us that this method is delicate and convenient only if one knows explicitly what geometry one is building. It is not adapted to a "generic" building of the geometry. So we decided to restrict ourselves to the simpler method, i.e G4PVPlacement.
+
+In Figure 2, a rough sketch of typical AGDD and Geant 4 volumes trees is shown. In both cases, volumes are positioned in others volumes. The only difference is that the AGDD construct "composition" has no Geant 4 equivalent. The AGDD "composition" is close to the concept of the Geant Mother Volume in that both are means to gather subvolumes into a common entity. However, a Geant Mother Volume always has boundaries, whereas an AGDD "composition" may have boundaries, but is not required to do so (see Section 3.1.1).
+
+The algorithm starts by the creation of a "World" Geant 4 volume in which the top AGDD volume will be placed. If this AGDD volume is a solid such as a box or a tube, the corresponding G4 Logical Volume is created and directly put in the "World" Geant 4 volume. If it is a composition, one loops over its subvolumes and places each of them in the "World" volume by applying the associated positioning operation. If this subvolume is itself a composition, the process goes on but the positioning operations associated with the subvolumes of the subvolume have to be combined with the positioning operation acting on the subvolume.
+
+Thus the process is recursive and the placement of a AGDD volume is an operation parameterised by a positioning operation and a G4 Volume in which one wants to place the AGDD volume by applying the positioning operation.
+
+A bit of reflection shows that the above process is inefficient. Indeed, each elementary volume is put in its final position in the ATLAS co-ordinate system. This results from the fact that the Geant Mother Volume concept has not been used in the building of the geometry. Fortunately, the AGDD composition can be equipped with an envelope (see Section 3.1.1) which, if understood as defining boundaries, can be used to insert Geant Mother Volumes into the process1.
+
+Footnote 1: One can fairly argue that an envelope volume can be determined dynamically for any given set of volumes. However, the development of such an algorithm is quite challenging. It is wiser to require that such envelope be defined by the descriptor.
+
+To do this, the algorithm is modified in the following way. Each time a composition has a specified envelope, the corresponding G4 Logical Volume is created and placed2. The process goes
+
+Figure 2: AGDD volumes and Geant 4 volumes trees
+
+on using this G4 Volume as Mother Volume instead of the "World" G4 Volume. The running positioning operation is reset accordingly. At the end, only the AGDD volumes with boundaries lead to G4 Volumes and all the positioning operations between them are composed.
+
+A special mechanism is needed to keep track of the Identifiers which accumulate as one goes through the process. This accumulation is ensured by a vector of Identifier objects (see Section 4.0) which is updated at each step. The storage of the Identifiers is performed at the G4 placement stage when the process ends up on a AGDD Solid volume (tube, box,.). At this point, the corresponding G4 Logical Volume is created and placed by creating a G4 Physical Volume from the G4 Logical Volume, a translation, a rotation, and a name. We build this name from the vector of Identifier objects. For example, in the three-level tree of G4 Physical Volumes built using the AGDD file of Section 3.1.1, there is one branch formed by the volumes named:
+
+/subdet.7/StationName.0/StationPhi.2/StationEta.1/STATION_Envelope
+
+/MultiLayer.1/Technology.1/MULTILAYERI_Envelope
+
+/TubeLayer.1/Tube.12/TUBEGAS
+
+### Digitization, Retrieving Geometry from Identifiers
+
+In the above construction, G4 volumes are made sensitive when the AGDD volumes are declared to be so. This means that, during the tracking process, one will get access to the tracking step in those volumes. The digitization process starts with the management of these steps. Since the digitization is subdetector dependent, the question is first to know from which subdetector, a given step comes.
+
+A very simple Geant 4 mechanism allows to get all information on the active volume in which the step occurred and all volumes on top of this volume in the G4 Physical Volumes hierarchy. In particular, one can extract all the names of these volumes. Since, as explained in Section 3.2, the identifiers have been included in the names of the G4 Physical Volumes, one can decode these names to retrieve all the identifiers specifying the active volume. Among these identifiers, the subdet one (see Section 3.1.1) identifies the type of the subdetector to which this active volume belongs. Then, one can condition the activation of a subdetector specific treatment to the value of this identifier.
+
+Within the tasks of this subdetector-specific treatment, there is the generation of digits from the information taken from the step. This could involve geometrical information other than that carried by the active volume. Consider for example, the digitization of RPC chambers.
+
+The signal is generated by the deposition of energy in an active gas volume lying between two layers of strips as sketched in Figure 3. A hit corresponds to this gas gap volume. But the digits correspond to strip volumes. The difficulty is that, in the perspective of a "generic" description, these volumes are described independently.
+
+All the identifiers describing the RPC Gas volume can be collected as explained above. The identifiers of a RPC strip are based on these identifiers. In fact they can be built from the RPC Gas volume identifiers by adding a specific identifier corresponding to the strip number. Thus it is possible to construct the identifiers of a volume that one needs to perform the digitization.
+
+Figure 3: Hit in the gas gap of a RPC chamber
+
+However there is no mechanism in the Generic Model code, to get access to a volume from the set of the identifiers specifying it. We have therefore developed such a "generic" mechanism. The algorithm is similar to the one described in the last section. Equipped with a set of identifiers specifying the volume that we are looking for, one starts from the top AGDD volume and explores the branches of the tree of the positioned volumes (see Section 3.1.1). Since each branch corresponds to a set of identifiers, it is trivial to check if a given branch is the one we are looking for. When, eventually, the right positioned volume has been found, a pointer on the AGDD volume and the rotation and the translation to position it are returned.
+
+This retrieving mechanism allows to get all geometrical information from AGDD only. As a consequence, the digitization stage is completely independent of Geant 4. In the algorithms that we have explained in this section, the Geant 4 volumes are used only to retrieve the identifiers encoded in their names.
+
+### 4.0 Description of the Application
+
+In this section, we comment on the main G4AGDD classes and their dependencies on AGDD and Geant 4. A section is devoted to the treatment of hits and digits in a detector-specific manner as exemplified by the Muon Spectrometer case. Finally we show that a complete chain from simulation to reconstruction, going from G4AGDD to Muonbox, can be worked out.
+
+### 4.1 G4AGDD Classes independent on Geant 4 and AGDD
+
+We have implemented a few classes to facilitate the handling of the Identifiers and the positioning operations. They are shown in Figure 4.
+
+Figure 4: G4AGDD Classes independent on Geant 4 and AGDD
+
+The smallest unit for the identifiers is the G4AGDD_ValuedId class. This is a pair of strings corresponding to the identifier name and its value (for example, "TubeLayer" is an identifier name and its value could be "1", see Section 3.1.1). Since several identifiers can be set by one AGDD positioning element, it is convenient to have a G4AGDD_ValuedIdBunch which is a vector of G4AGDD_ValuedId objects.
+
+We have implemented a G4AGDD_Transformation class to carry a G4AGDD_Translation object and a G4AGDD_Rotation object. These classes are CLHEP ThreeVector and Rotation classes respectively. A system of units is defined modeled on the Geant 4 system of units. The fundamental units are the millimeter and the radian.
+
+An association of a G4AGDD_ValuedIdBunch and a G4AGDD_Transformation gives a G4AGDD_Placer class. This corresponds to the action of an AGDD single positioning element (for example posXYZ, see Section 3.1.1). However since there are AGDD multiple positioning elements, it is convenient to have a G4AGDD_PlacerBunch class which is a vector of G4AGDD_Placer.
+
+These classes are accompanied by two helper classes: G4AGDD_ValuedIdHelper and G4AGDD_TransformationHelper. These classes provide various functions such as the comparison of two G4AGDD_ValuedIdBunch objects or the composition of two G4AGDD_Transformation objects.
+
+This set of classes is independent of Geant 4 and of AGDD. It depends only on CLHEP for the definition of the rotations and the translations.
+
+### G4AGDD Classes independent of Geant 4
+
+The preceding classes are used by some classes depending on AGDD, i.e on the Generic Model code, but not on Geant4 (Figure 5).
+
+The G4AGDD_PositionHelper static class performs the conversion of AGDD C++ positioning objects into G4AGDD_PlacerBunch objects. The class G4AGDD_units is used in this conversion to handle the conversion of AGDD units (the default AGDD units are the millimeter and the degree).
+
+Figure 5: G4AGDD Classes independent on Geant 4
+
+The G4AGDD_Retrieve static class performs the retrieving recursive algorithm described in Section 3.3. The main method is the Retrieve method. Its signature is:
+
+static int Retrieve (G4AGDD_ValuedIdBunch TestIdBunch,
+
+G4AGDD_Transformation& TheTransformation,
+
+AGDD_Volume*& TheVolume);
+
+TestIdbunch is a G4AGDD_ValuedIdBunch containing the identifiers of the positioned volume to be retrieved. If the volume is retrieved, the return value of Retrieve is 1. In this case, TheVolume is a pointer to the AGDD_Volume and TheTransformation is the G4AGDD_Transformation to be applied on this volume to position it in ATLAS.
+
+### G4AGDD classes depending on Geant 4
+
+The classes depending on the Generic Model as well as on Geant 4 are shown in Figure 6.
+
+The G4AGDD_Placement static class performs the placement recursive algorithm described in the Section 3.2. Since the actions are different whether the AGDD C++ volume is a solid or not, there are two main methods: the Place_Solid method and the Place_Composition method. Since the actions for a composition depend on whether or not it has an envelope, they are managed by two methods: the Place_Composition method already mentioned and the Place_CompositionContent method.
+
+The G4AGDD_Build static class is in charge of building the G4 Logical Volumes corresponding to the AGDD C++ Solid volumes. Since one should not create more than one G4 Logical Volume per AGDD C++ Solid volume, a G4AGDD_LogVolStore singleton class keeps trace of the G4 Logical Volumes already created.
+
+### G4AGDD Sensitive Volume, hits and digits
+
+#### G4.1 G4AGDD Sensitive Volume
+
+Since we are interested in a "generic" approach, we have implemented an unique G4VSensitiveDetector class: the G4AGDD_SensitiveDetector class (Figure 7). This class holds a pointer to a G4Muon object. This object is in charge of management of Muon Hits and Digits. Its action is conditioned by the value of the subdet identifier as explained in Section 3.3. The analysis of the names of the G4 Physical Volumes which extracts the complete set of identifiers, is performed in the method ProcessHits of
+
+Figure 6: G4AGDD classes depending on Geant 4
+
+the method ProcessHits of G4Muon is called with the arguments of the method ProcessHits of G4AGDD_SensitiveDetector. In a similar way, the Geant 4 calls to the methods Initialize and EndOfEvent of G4AGDD_SensitiveDetector lead to calls to the methods Initialize and EndOfEvent of G4Muon.
+
+#### Muon Hits
+
+The classes involved in the Muon hits management are shown in Figure 8.
+
+G4Muon analyses the Geant 4 tracking step which has been provided by G4AGDD_SensitiveDetector. It extracts the absolute positions of the start and end points of this step and stores them in objects of base type G4Muon_Hit together with a G4AGDD_ValuedIdBunch object containing all the identifiers specifying the active volume.
+
+The base class G4Muon_Hit provides methods returning the point positions (method GetStepPosition) as well as the identifiers at the Muon Station level (method GetStationIndexes). The G4Muon_HitMDT and G4Muon_HitRPC are derived classes with the same content and specialized methods returning indices relevant at the MDT or RPC chambers levels. Objects of these derived classes are stored in two vectors held by G4Muon.
+
+Figure 8: Management of muon Hits
+
+Figure 7: G4AGDD Sensitive Detector class
+
+In order to return the above indices, the identifiers should be interpreted in a subdetector-specific way. This relies on conventions of the Identifier scheme for the Muon Spectrometer chambers which are encapsulated in the G4Muon_IdScheme class (for example this class dictates that the identifier encoding the names of the Stations is named StationName).
+
+Within the classes shown in Figure 8, only G4Muon depends on Geant 4. The G4Muon_Hit classes are filled from data provided by Geant 4 but they do not depend on it.
+
+#### Muon Digits
+
+The classes involved in the Muon hits management are shown in Figure 9.
+
+When the EndOfEvent method of G4Muon is called, the digitization procedure starts. This task is performed by a G4Muon_DigitizerModel object which takes the vectors of G4Muon_HitMDT and G4Muon_HitRPC objects held by G4Muon and fills vectors of objects of type G4Muon_DigitMDT and G4Muon_DigitRPC held by G4Muon. These objects carry a G4AGDD_ValuedIdBunch object containing all the identifiers specifying the readout volume (e.g. strip volumes for RPC), a pointer to their parent hit, as well as technology-dependent data (e.g drift time for MDT).
+
+The digitization performed by G4Muon_DigitizerModel makes uses of G4AGDD_Retrieve to retrieve all the geometrical data from AGDD. The digitization of the MDT includes the effects of time delay for time of flight, the Lorentz angle, resolution, and time delay for signal propagation along the wire.
+
+### Actions Sequence
+
+The simulation starts by the building of the Geant 4 geometry as explained in Section 3.2 using the G4AGDD_Placement class (see Section 4.3). The main feature of this building is that it is "generic", i.e automatic and fully controlled by the external AGDD files. In the present state of the application, only boxes, tubes and trapezoids are treatable. This is enough to build the Chambers of the Muon Spectrometer, but extension should not be a problem. Among the
+
+Figure 9: Generation and Management of Muon Digits
+
+AGDD files, one is defining the various materials to be used. To define them in Geant 4, we used the very convenient material builder of the G4Builder [7-1] application from Stan Bentvelsen1.
+
+Footnote 1: The G4Builder is a Geant 4 application based on AGDD. At the time when we started the development of G4AGDD, G4Builder was understood as mainly a display program, and its geometry was inefficiently built using Geant 4 unions. Recently, this building has been drastically improved by implementing ideas quite close to ours.
+
+For each event simulated, a set of Muon hits is generated and maintained by the G4Muon class (see Section 4.4). It should be noted that these hits have a very light content. This is mainly due to the fact that all the geometrical information is encapsulated in the set of identifiers that these hits carry. Because of the retrieving mechanism that we have implemented, this set of identifiers is enough to access from AGDD all information needed later on.
+
+At the end of an event simulation, the digitization class, G4Muon_DigitizerModel, generates Muon digits from the set of Muon Hits produced during the simulation (see Section 4.4.3). This digitization stage is completely independent of Geant 4. It relies only on AGDD and on the conventions of the detector-specific Identifier scheme. In particular, this means that this stage could be run separately from Geant 4 provided that the hits are stored and accessible in a Geant 4 independent way. This is because both AGDD and our retrieving mechanism are independent of any software framework. This is, in our opinion, a nice feature which could help to find solutions to the issues concerning the communication between separated frameworks.
+
+Finally, as a proof of concept, the event can be reconstructed by the Muon Reconstruction code, Muonbox [7-2].
+
+In order to avoid irrelevant integration difficulties, the digits are simply dumped on an ASCII file which is then used as input to Muonbox running, incidentally, in Athena.
+
+Since Muonbox is using the AmdbSimrec Identifier scheme [7-5], an identifier conversion is to be performed. We have implemented a conversion procedure similar to the one that we use to access the Event data in Athena.
+
+Figure 10 shows the reconstructed momenta of single muons of 100 GeV simulated with G4AGDD.
+
+It should be mentioned that, although Muonbox is using AmdbSimrec and not AGDD as detector description, there is no problem of consistency since the AGDD files used here have been produced from AmdbSimrec. The direct connection to AGDD requires a synthetic description which will be available when the compact AGDD elements have be designed [7-8].
+
+Figure 10: Distribution of the reconstructed momenta of single muons of 100 GeV momenta simulated with G4AGDD
+
+[MISSING_PAGE_FAIL:14]

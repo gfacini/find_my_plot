@@ -1,0 +1,167 @@
+###### Abstract
+
+Reconstruction algorithms functioning at the Event Filter stage must be able both to validate or reject hypotheses formed at a previous stage in the triggering process and to operate in a general purpose mode, i.e. reconstructing the whole event in full scan. This note describes the implementation of a general purpose Muon Reconstruction package (Moore) as Event Filter. The strategy and the philosophy of the implementation are discussed, as well as the results in terms of efficiencies, resolution and time performances.
+
+ATLAS Communication
+
+ATL-COM-SOFT-2003-009
+
+**Moore as Event Filter in the ATLAS High Level Trigger**
+
+J.Shank
+
+_Boston University_
+
+D.Adams, K.Assamagan, Y.Fisyak, T.Wenaus
+
+_Brookhaven National Laboratory (BNL)_
+
+K.Mair, A.Nairz, A.Poppleton, S.Rosati
+
+_European Organization for Nuclear Research (CERN)_
+
+L.Sposli
+
+_INFN - Laboratori Nazionali di Frascati LNF_
+
+G.Stavropoulos
+
+_Lawrence Berkeley National Laboratory (LBNL)_
+
+G.Cataldi, E.Gorini, M.Primavera, S.Spagnolo
+
+_INFN and University of Lecce_
+
+S.Goldfarb
+
+_University of Michigan_
+
+M.Biglietti, G.Carlino, F.Conventi, L.Merola
+
+_INFN and University of Napoli "Federico II"_
+
+A.Farilla, M.Verducci
+
+_INFN and University of RomaTre_
+
+T.Lagouri
+
+_Aristotle University of Thessaloniki_Introduction
+
+The ATLAS trigger system is composed of three levels. The first level [1] is implemented in custom hardware. It reduces the 40 MHz input rate to about 75 kHz. The second (LVL2) and third level (Event Filter) are commonly referred to as High Level Trigger (HLT) system [2]. They share overall trigger selection framework and differ mostly in the amount of the event data they access and how they access it.
+
+The Level 2 trigger restricts itself to the so-called Regions of Interest (ROI), a small subset of the full event. Pointers to these ROIs are provided by the Level 1 trigger. Data is accessed on demand from the buffers which store the event until the Level 2 decision is made. The Level 2 trigger reduces the 75 kHz to about 2 kHz.
+
+After an event passes Level 2 the full event is built and sent to the Event Filter. Algorithms in the Event Filter can access to the full event. A further reduction to about 200 Hz is achieved before events are put into mass storage.
+
+This note describes the implementation of the Muon Object Oriented REconstruction Package (Moore) in the High Level Trigger framework at the Event Filter stage. The first part of the note (sections 2 and 3) describes the main topics regarding the reconstruction package that are relevant in this context. A general overview of the requirements to implement a package in the HLT framework is given in section 4, while the solutions adopted by Moore and a more detailed overview of the implementation is reported in section 5. Finally sections 6 and 7 report the main performances in terms of efficiency, resolutions and execution times.
+
+## 2 Moore in the Offline environment
+
+Moore is an offline track reconstruction package for the ATLAS Muon Spectrometer [3]. The requirements, the conceptual design, and the reconstruction methods developed inside Moore are discussed in detail elsewhere [4]. In this section we just provide a brief overview of the topics that are relevant for this note. The description is restricted to the barrel region of the Muon Spectrometer since at present only this region is considered from the trigger chain (Muon vertical slice).
+
+In the standard offline configuration Moore takes as input collections of digits or clusters inside the Muon Spectrometer and outputs fitted reconstructed tracks whose parameters are expressed at the first measured point inside the Muon Spectrometer. The reconstruction flow is disaggregated into sequential steps, and each step is driven by an ATHENA [5] Algorithm module (MooMakeXXX) that builds partial or final reconstruction objects. Each algorithm retrieves object created by the previous modules by StoreGate [6] and builds transient objects that are subsequently recorded in StoreGate where they become available for others algorithms. Data and algorithms are strictly separated: the algorithms should know the structure of the data objects they are accessing or producing, but the objects do not depend on the algorithms. This fact, together with the flowing sequence of the reconstruction steps allows to establish which algorithm will produce an object at run-time.
+
+As it is now, the overall reconstruction starts from the searches of regions of activity performed in two consecutive steps:
+
+* In this algorithm the \(\phi\) measurements of the trigger chambers inside the barrel region of the Muon Spectrometer (RPC's hits) are analyzed by using the histograms method. This method, together with the use of selection criteria based on thresholds, allows to establish the activity regions of of the \(\phi\) hits and to construct the objects _PhiSegments_ that are recorded in the Transient Data Store via StoreGate.
+* In analogy with the \(\phi\) view, in this algorithm the R-Z measurements of the precision chambers inside the barrel region of the Muon Spectrometer (MDT's hits) are analyzed, and the activity regions of the RZ-hits are selected. Finally the objects _RZSegments_ are recorded in the Transient Data Store.
+
+The search for regions of interest inside the Muon Spectrometer constitutes the starting point for the tracking process, divided in two steps: _MooMakeRoads_ and _MooMakeTracks_. We omit the description of the tracking process since it did not require any _ad hoc_ implementation in the HLT framework.
+
+## 3 Final reconstructed tracks
+
+As mentioned in section 2 the reconstructed objects produced by Moore are tracks whose parameters are expressed at the first measured point inside the Muon Spectrometer. In order to be used for the analysis an extrapolation to the vertex of the track parameters is needed. To accomplish this task we have used a different offline package, MuonIdentification (MuId). MuonIdentification accesses the Moore track and propagates it through the magnetic field in order to obtain the track parameters and their associated covariance matrix at the point of closest approach to the beam intersection. The multiple scattering in the Calorimeters is parametrised with a set of scattering planes, the muon energy loss is evaluated either from the calorimeters measurements or from a parameterized function which depends on \(\eta\) and on the muon momentum.
+
+After a refit at the vertex the track parameters are used for the analysis. This way of using _MuonIdentification_ is referred as _MuId standalone_ mode. From a technical point of view _MuId standalone_ has been run subsequentely to the Moore algorithms accessing the pointer to the offline version of the algorithm. Since MuId uses as input from the Muon Spectrometer the Moore tracks, the use of fully wrapped or seeded version is transparent to the package.
+
+## 4 Requirements for the Algorithms in the HLT framework
+
+The requirements and the conceptual design of the HLT core software are discussed in detail elsewhere [7], [8], [9]. For this reasons in the following we will just remind the components of the software that have an explicit interaction with the Algorithms of HLT and in particular the requirements that the Algorithms must fulfil.
+
+At the heart of the philosophy of the High Level Trigger design is the concept of seeding. Algorithms functioning as Event Filter should not operate only in a general purpose or exclusive mode, but they must retain the possibility of working in seeded mode, i.e. processing the trigger hypotheses formed at a previous stage in the triggering process.
+
+The HLT processing flow is disaggregated into Steps, and the decision to go further in the process is taken at every new Step. The basic requirement to the algorithms is to inherit from the HLTAlgo Base Class that augments the Athena Algorithm Base Class with some HLT Navigation helper functions.
+
+The Athena Event Loop Manager is then substitute from a step controlled flow that has the responsibility of calling the Algorithms everytime the hypotheses of the trigger become available. Following the availability of the trigger hypothesys an algorithm must allow multiple calls per event.
+
+The HLT algorithms working in seeding mode typically need to access the event data that pertains to a region in (\(\Delta\eta\), \(\Delta\phi\)) around the center of a Region of Interest. For this need the algorithm must use the RegionSelector tool [10].
+
+## 5 Moore in the HLT environment
+
+To avoid an explicit dependency from the Trigger in the Offline package and to be able to use the software components of the trigger framework we have isolated the software Moore for the Event Filter in the package TrigMoore1. A sketch of the dependencies is shown in Figure 1. 1.
+
+Footnote 1: The package is located under the Trigger Area of the ATLAS CVS repository within the TrigAlgorithms package container
+
+This package is written in C++ and his core object is the class MooHLTAlgo (see Figure 2). This class inherits from the HLTAlgo base Class and controls the reconstruction chain via jobOptions. There are two main strategies for running Moore in the EventFilter:
+
+* In this strategy the MooHLTAlgo accesses directly the pointers of the offline version of the algorithms allowing to execute those algorithms as in the offline package.
+* In this strategy the MooHLTAlgo accesses algorithms (namely MooMakePhiSegmentSeeded and MooMakeCrudeRZSegmentSeeded) that perform a _seeded_ search of the Region of Activity and substitute the first two _Makers_ (described in section 2) of the offline version of the algorithms. The main difference with respect to the offline algorithm is the fact that by using the RegionSelector the algorithm accesses only the chambers that pertains to a certain geometrical region. After the search in the Region of Interest and the construction of the intermediials objects produced by MooMakePhiSegmentSeeded and MooMakeCrudeRZSegmentSeeded, the typical offline processing chain is executed.
+The natural seeding for an Event Filter Algorithm is the seeding coming from the LVL2 trigger. However, at the time at which this note has been written, and the analysis has been performed only information concerning the Regions of Interest produced by the LVL1 Trigger were available. For this reason the seeding has been constructed starting only from this information. This will be modified in the future, when the trigger hypothesis coming from the LVL2 trigger will be available. The trigger hypothesys are represented by an object called TriggerElement [7]. In the sequence of the HLT, Moore is called with a trigger element produced by the LVL1 output as input parameter. This trigger Element has a navigable link to a Region of Interest (MuRecoRoI). The RoI contains, among other information, its position in \(\eta\) and \(\phi\). The Algorithms call the RegionSelector to know the chambers located in a a certain region (\(\Delta\eta\), \(\Delta\phi\)) around the center of the RoI. The RegionSelector returns a list of Offline Identifiers [11] of detector elements that are contained within the region. Only these elements will be accessed from the seeded algorithms.
+
+## 6 Validation with single muon samples
+
+In order to verify the performances of the reconstruction we have analized single muon samples without cavern background in a range of transverse momentum from 3 \(GeV/c\) to 1000 \(GeV/c\). The data used are extracted from the DC1 data production, using the layout P of the Muon Spectrometer. Although Moore is able to reconstruct tracks in the full \(\eta\) range, we will restrict the analysis to the barrel region of the Muon Spectrometer, since only this region is taken into account from the trigger chain (Muon vertical slice).
+
+In our analysis a successfully reconstructed track is required to have a normalized \(\chi^{2}<10\) and to contain hits coming from at least two station layers in the Muon Spectrometer. The reconstruction efficiency has been defined normalizing the reconstructed tracks to the tracks entering
+
+Figure 1: _The Moore/Muid packages in offline and online environment. The arrows show the dependencies between the packages._
+
+the Muon Spectrometer. The reconstruction efficiency obtained in _wrapped mode_ as a function of the generated \(p_{T}\) is reported in Figure 3. This running mode is fully equivalent to the offline running and in fact the efficiencies are well in agreement with the results of the offline version [4].
+
+The blue triangle-up simboles are referring to the tracking efficiency of Moore. The track is therefore considered only in the Muon Spectrometer and no extrapolation to the vertex is performed. By running Moore combined with MuId standalone is possible to see the results of this extrapolation, shown in figure with the red triangle-down data points.
+
+The efficiency of the two methods is equivalent above 6 GeV/c, while for muons with a lower \(p_{T}\) the muon track reconstruction is more critical therefore the extrapolation can fail. The measured efficiency are in rather good agreement with the one reported in the Physics TDR [12], obtained with the Muonbox package.
+
+In order to point out the efficiency uniformity, we have analized the efficiency as a function of \(|\eta|\) for different values of the transverse momentum. The resulting plots have been inserted in figure 4. The efficiency is quite uniform in all the barrel region. The dropping value for \(|\eta|~{}<~{}0.1\) is due to a crack in the spectrometer around \(\eta~{}=~{}0\) due to cabling and various services.
+
+Figure 2: _The MooHLTAlgo class - UML diagram._
+
+In analogy with the plots in figure 4, we have analized the uniformity versus \(\phi\) for fixed values of the transverse momentum. The results are shown in figure 5.
+
+Defining the \(p_{T}\) resolution as the sigma of the gaussian fit to the \(p_{T}(rec)/p_{T}(gen)\) distribution, it is possible to evaluate the resolution of \(p_{T}\) as a function of the generated transverse momentum for both Moore and Moore plus MuId. The result is shown in the left part of figure 6.
+
+In analogy with the previous plot we have evaluated the \(p_{T}\) resolution by running in seeded strategy. In this strategy the reconstruction has been started only from the Muon Reconstructed RoI coming from the LVL1, as explained in section 5. The amplitude (\(\Delta\eta\), \(\Delta\phi\)) of the RoI has been preliminary set to (0.2, 0.2). The choice of the amplitude is related to the amplitude of the RoI from LVL1, that is, at minimum equal to (0.1, 0.1). A further tuning of the value has to be performed according to the analyzed \(p_{T}\) treshold. The resulting plot is shown on the right part of figure 6. There is no difference in the reconstruction steps, but only in the amount of data to be accessed. The resolution is in full agreement in the two running mode, even if for lower \(p_{T}\) there is a slightly lower value in seeded mode. At present, running the trigger chain there are no output RoI for events with \(p_{T}\) thresholds below 8 GeV/c, but only above 20 GeV/c. Figure 7 shows the efficiency of the reconstruction (seeded version) normalized to the LVL1 trigger.
+
+Figure 3: _Efficiency of single muon reconstruction as a function of the \(p_{T}\) obtained with Moore and with MuId standalone (wrapped mode). The efficiency is evaluated in the barrel region (triangle-up: Moore reconstruction, triangle-down: Moore plus MuId standalone)._
+
+## 7 Timing Tests
+
+The requested latency time for an algorithm operating as Event Filter is 1 sec. This time should include only the algorithmic part and not the time spent in accessing the data. The timing performance of the Moore algorithm both for seeded and wrapped mode have been evaluated using a Intel XEON(TM) CPU 2.40GHz processor, 1GHz ram. The code has been built in optimized more. The event samples consist of a number of reconstructed tracks ranging from 0.6 to 2.0 K. The time measurements include the accesses to the event, and are referred to the reconstruction including the extrapolation to the vertex, unless otherwise specified.
+
+In figure 8 the distributions of execution time for different \(p_{T}\) values have been plotted for single muon samples.
+
+In table 1 the average execution times per event both for seeded and wrapped mode have been reported. The average is calculated on the samples left after rejecting 5 % of the events in the high execution times tail. The wrapped mode timing has been evaluated by running only on the barrel region. The events are single muons of different \(p_{T}\) plus two samples where the single muons have been added to the cavern background. This background (X1 safety factor) has been produced by assuming a nominal luminosity of \(1\times 10^{34}\ cm^{-2}sec^{-1}\) and boosting by a factor 2 the predictions provided by the GCALOR package [13]. A safety factor X2 has also been analyzed, considering the double rate of the background.
+
+The general behaviour of the average execution time for the different samples is represented in figure 9 for both seeded and wrapped version. In order to show the impact of the extrapolation to the vertex we have plotted the execution times for the track reconstruction inside the Muon Spectrometer (Moore), the execution times for extrapolating the track to the vertex (MuID), and the sum of the two (total). The execution times are rather flat over the analysed \(p_{T}\) range. In this case the average has been performed considering only events registering execution times below 1 sec.
+
+In order to show the impact of events with longer execution times we define a time efficiency
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline Sample & Time-seeded & Time-wrapped \\ GeV/c & msec & msec \\  & average (rms) & average (rms) \\ \hline \hline
+8 & 73 (30) & 68 (30) \\ \hline
+20 & 59 (15) & 58 (21) \\ \hline
+50 & 61 (21) & 58 (25) \\ \hline
+100 & 61 (19) & 64 (26) \\ \hline
+300 & 75 (23) & 64 (32) \\ \hline
+100 +X1 & 763 (37) & 2680 (450) \\ \hline
+100 +X2 & 1218 (50) & 5900 (1100) \\ \hline \end{tabular}
+\end{table}
+Table 1: _Overview of timing tests_as the ratio between the number of reconstructed tracks in one second and the total number of reconstructed tracks. The plot is shown in figure 10 for both seeded and wrapped mode.
+
+## 8 Conclusions
+
+The Atlas trigger system consists of three different levels, designed to extract interesting physics signatures with a \(10^{6}\) rate reduction. To accomplish this, components of the offline physics analysis will be embedded within the online trigger system; this is true particularly for the offline reconstruction algorithms that will be used in the HLT system. For this algorithms the main difference with the offline functioning is that algorithms operating within the HLT framework must deal with data access and latency limitation.
+
+This note describes a specialized implementation of the offline version of Moore, designated to work as Event Filter algorithm in the HLT environment. Two different strategies for running Moore in this framework have been foreseen; the first is referred as the _wrapped strategy_ and permits to run the offline package from the HLT framework, allowing for a full event reconstruction. The second is the so called _seeded strategy_, that performs a seeded reconstruction, starting from the Regions of Interest from the LVL1 Trigger.
+
+The reconstruction performances of both strategies have been tested with single muons samples with fixed transverse momentum, in the range from 3 GeV/c to 1 TeV/c, produced for the Data Challenge 1. In addition, the execution time performances have been evaluated for the same samples, and testing also the effect of the cavern background. The overall results of this note demonstrate that there is a well definite possiblility for the use of Moore in the online environment as Event Filter.
+
+## References
+
+* [1]_"ATLAS first level trigger technical design report"_, CERN-LHCC/98-14 (1998).
+* [2] ATLAS collaboration: _"ATLAS High-Level Triggers, DAQ and DCS Technical Proposal"_, CERN/LHCC 2000-17, 2000.
+* [3] ATLAS collaboration: _"ATLAS Muon spectrometer, Technical Design Report"_, CERN/LHCC/97-22.
+* [4] J.Shank et al., _"Track Reconstruction in the ATLAS Muon Spectrometer with MOORE"_, ATL-COM-MUON-2003-012, ATL-COM-SOFT-2003-008.
+* [5]_"Athena Developer Guide"_, [http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/)
+* [6] P. Calafiura _et al._, _"StoreGate: a Data Model for the ATLAS Software Architecture"_, contribution to CHEP 2001.

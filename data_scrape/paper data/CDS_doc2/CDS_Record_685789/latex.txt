@@ -1,0 +1,221 @@
+ATLAS DAQ Note 68
+
+30/Apr/97
+
+Bernardo Kastrup, Rudolf Bock and Christian Hortnagl
+
+## 0.1 Introduction
+
+Different architecture and technology choices have been under study for the ATLAS second-level trigger implementation [1]. In the framework of the so-called architecture "B", local farms of commercial general-purpose processors (one independent farm for each subdetector) are intended to perform Feature EXtraction (FEX) on the RoI raw data sent by the ReadOut Buffers (ROBs). Physics signatures (features) that has being extracted from data that is coming from different subdetectors are then sent to a global farm, where they are combined in order to allow for a LVL2 decision [2].
+
+Data sent from the ROBs to the FEX processors has to pass through a local network. Two main classes of networks are under consideration:
+
+* Large switching systems built up from a number of small low-cost packet routers, where the initially high data transmission rate, in particular frequency, is spread among several local connections. Example: STC104 chips [3];
+* Commercial High-performance networks, allowing large bandwidth transmission. Example: SCI rings and switches [4];
+
+Both approaches have potential advantages. A highly-connected local network can be built up with C104 routers, having a large number of FEX nodes (thus, each node deals with a small fraction of the original data transmission rate). This reduces the frequency in each connection and allows the use of low-cost processors as feature extractors. On the other hand, a high-performance network leads to the use of high-performance FEX farms, once the frequency of incoming data in each connection is high (however, the number of connections is reduced). The choice between one or another approach is a compromise between performance and cost effectiveness.
+
+This work aims to bring up new information related to high-performance local sub-farm systems. Each local subfarm is connected to the local network via a so-called Switch Farm Interface (SFI). A number of general-purpose processors is used to perform feature extraction by means of a distributed processing strategy. See figure 1.
+
+The example application chosen is the feature extraction for one among the four main ATLAS subdetectors: the Calorimeter [5, 6].
+
+No abstract benchmarks are done, all the work being very application specific.
+
+We're thankful to G. Crone, R. Dankers, B. Green, R. Hauser and K. Koski for helpful discussions concerning this work.
+
+## 0 The SFI running the fragment collection code
+
+As described in [7], a general feature extraction algorithm could be divided into three main phases: fragment collection, data preparation, and feature extraction itself. The fragment collection deals with the task of collecting ROB packets that are contributing to a given RoI (each packet contains a fragment of the RoI). The other two parts are concerned with data processing.
+
+The most natural idea for a FEX implementation using the subfarm concept is to split the fragment collection phase from the other phases. As seen in figure 1, there could be several other processors ("processing nodes") connected to the SFI. The SFI collects the ROB packets and assigns one of the subfarm's nodes to process each set of fragments concerned to a given RoI. Several RoIs can, thus, be processed in parallel, and the SFI collects the packets for all of them.
+
+### C40 implementation
+
+#### 0.1.1 Description
+
+Figure 2 illustrates the implementation in a LSI DBV44 board, a VME based card with 4 embemdded Texas Instruments TMS320C40, Digital Signal Processors (DSPs). Only 3 of the DSPs have been actually used.
+
+The so-called Tim-C, playing the role of the SFI, runs a fake fragment collector. Instead of collecting packets from the local network, the program reads a file from a disk. Each set of fragments corresponding to a RoI (which makes a so-called "fragments packet") is sent to one of the processing nodes. After processing the RoI, the node sends back a feature packet to the fake collector.
+
+Definitions of both "fragments packet" and "features packet" follows.
+
+Figure 1: The local subfarm concept.
+
+/* THIS IS THE FEATURES PACKET STRUCTURE */ struct FEXD {  int error_flag; /* <> 0 if an error occurred */  int roi_id; /* Event/ROI identifiers */  int event_id;  float feature1_data; /* Actual Features */  float feature2_data;  };
+
+ struct RoID {  int roi_eta_index;  int roi_phi_index;  int subdetector_no;  int crate_id;  int rob_id;  int data[500];  };
+
+ /* max number of fragments per ROI expected for the calorimeter */  #define MAX_FRAGMENTS 10
+
+ /* structure to collect all information and data  * for an event/roi pair  * THIS IS THE FRAGMENTS PACKET STRUCTURE  */  struct collect {  /* identification */  int event_id; /* event identifier */  int roi_id; /* ROI identifier */  int expected; /* # of packets to follow */  /* data */  struct RoID packet[MAX_FRAGMENTS];  };
+
+The data type struct FEXD is used for defining the features packet. Two fields are reserved for the actual features. Two fields (roi_id and event_id) are used to uniquely identify a given RoI. One field (the error_flag) is used for error reporting during the feature extraction processing in the nodes.
+
+The struct collect defines the fragments packet, as described in [7]. As can be seen from above, one fragments packet is formed by 10 fragments (or ROB packets) in the worst case (and only this case has been considered in the present work). Each ROB packet has the size of \(\sim\) 2Kbytes. _The entire fragments packet has the precise size of 20212 bytes_.
+
+The Texas Instruments TMS320C4x run-time library has been used for message passing. All the C40s were running internally at 20 MHz (nominal frequency of 40 MHz). No operating system was present. This, associated to the possibility of accessing the C40 internal timers, permitted very accurate timing measurements. The run control was made from a standard Sun Workstation that was running the NIKHEF C40 Server software.
+
+#### How it runs
+
+The collector initializes sending a fragments packet to both nodes at the same time. Both sending and receiving processes use asynchronous and non-blocking communication primitives via the DMA machine of the C40. Whenever possible, communication and computation overlap.
+
+After a fragments packet is sent to a given node, that node is marked as "busy" in the collector, and no other fragments packet is sent to it. However, as soon as the features packet rearrives, the node is marked as "free", and another fragments packet is sent. No queues are implemented between the collector and each of the processing nodes, for sending nor receiving packets.
+
+If an error happens during the feature extraction in the node, the calculations are interrupted and a dummy features packet is sent back to the collector, with the error flag active. Thus, errors can be counted.
+
+The software is interruption driven. It's assumed that no data corruption nor transmission errors can occur inside the subfarm, since the connections are supposed to be internal (no cables used). For testing with the DBV44, however, two flat C40 communication port cables had to be connected.
+
+#### Results and discussion
+
+The optimum performance for the data preparation \(+\) feature extraction algorithm (not considering the time for fragments collection) in a subfarm with 2 processing nodes when no communication overhead is present, is by a factor of 2 better than the
+
+Figure 2: FEX subfarm implementation in a DBV44 board with C40s.
+
+performance of only one processor. For the calorimeter data preparation + feature extraction algorithm described in [7], the results are: _Average of 3.74 milliseconds per RoI_ (composed by 10 fragments), for one only C40 (result extracted from [7]). When the subfarm of figure 2 is used, the _average time per RoI is 2.97 milliseconds_. Details about the input file used can be found in [7]. The real algorithm was adapted and implemented in the subfarm.
+
+An improvement in performance is achieved, however communication overheads are clearly visible. When comparing both results, one should also keep in mind that in a real application, the CP time for collecting fragments from the local network is also substantial (however it is not considered here). When one only processor is used, it has also to deal with the fragments collection. When the subfarm of figure 2 is used, the processing nodes are free to process data, while the SFI deals with the packet collection. This is an important advantage of the subfarm concept which is not apparent in the result above.
+
+The performance of the subfarm is dependent on the rate:
+
+\[\frac{\text{Communication latency for exchange of packets}}{\text{Execution time in the nodes}} \tag{1}\]
+
+When the communication overhead is negligible if compared to the execution time in the nodes (the rate (1) approaches zero) the subfarm performance approaches the ideal. It's also reasonable to expect that the subfarm starts overcoming the performance of a single node when the rate (1) becomes smaller than one (in other words, when the execution time starts being slightly higher than the communication overhead).
+
+To check those statements, a set of measurements of the subfarm performance have been done for different execution times emulated in the nodes. For this purpose, no real algorithm was used, but the nodes were made to "sleep" for a given period after receiving the fragments packet. The results are shown in figure 3.
+
+It can be seen from the figure that when the execution time in the nodes is negligible, the communication overhead determines the final performance. For an execution time in the order of 2 milliseconds, the subfarm performance starts to overcome the single node performance. For execution times higher than 50 milliseconds in the processing nodes, the subfarm performance is by a factor of \(\sim\) 2 better than the single node performance, as expected.
+
+The latency for transmitting the features packet is negligible when compared to the latency for transmitting the fragments packet. Measurements made with a C40 sending fragments packets in a loopback mode have shown that this last _latency is of 2.26 milliseconds_, which agrees with the results shown in figure 3.
+
+It's important however, that in all of the above, the time for collecting a set of fragments from the local network is not considered long if compared to the remaining tasks. The collector was sending a new fragments packet to a given node as soon as the features packet was received. In a real application however, it might not be true.
+
+In order to realize how the subfarm performance varies when the collector spends a certain period for completing the fragment collection, new measurements have been made.
+
+The time spent for collecting a set of packets from the local network was simulated by making the collector to "sleep" for a given period, after receiving the features packet, and only then to send a new fragments packet to the node (this time will be referred, for now on, as the _sleeping period_). The results are shown in figure 4. The real FEX algorithm was running in the nodes.
+
+Ideally, when the sleeping period is large enough if compared to the time spent in the remaing tasks, the average time for processing each RoI (or, to be more specific, Event/RoI ID pair) should be equal to the sleeping period itself. This happens because, while the collector is waiting for sending a new fragments packet to one of the nodes, the other node is processing one RoI in parallel, such that, ideally, all the processing tasks in one node would overlap with the sleeping periods of the other node. As seen in figure 4, this is true except for a software overhead of 0.64 milliseconds, related to the particular way of simulating the time for collecting fragments chosen.
+
+All of the above only confirms the natural conclusion that, when the time spent for collecting a complete set of packets (corresponding to one RoI) from the local network in not negligible if compared to the FEX execution time (which means low rate of incoming data), it drives the final performance of the subfarm. This, however, is not a limitation, since high-performance subfarms are not supposed to be used together with low-bandwidth switch networks.
+
+Figure 3: Performance of the subfarm (average execution time per RoI) for a given execution time in the processing nodes.
+
+### DEC Alpha subfarm implementation
+
+#### 2.2.1 Description
+
+Figure 5 illustrates the implementation in a DEC Alpha Memory Channel cluster [8]. As described in [9], the system consists of one AlphaServer 4000, running at 300 MHz, and four AlphaStations 200, running at 166 MHz. Each of the 5 machines can communicate to each other via a Memory Channel hub. The server plays the role of the SFI, and runs the fake fragment collector. Both "fragments packet" and "features packet" are the same as in 2.1.1.
+
+For our goals, we used a two-copy implementation of a message-passing layer over Memory Channel, built on the top of Memory Channel software API version 1.4 [10]. This implementation is faster than both MPI and PVM, and follows the format specifications for communication layers defined by R. Hauser in [11]. Digital Unix V4.0B was the operating system running.
+
+As before, the real calorimeter data preparation \(+\) feature extraction algorithm has been adapted and actually run in the Alphas.
+
+Figure 4: Simulating the subfarm performance when the average time for collecting a set of fragments is not negligible
+
+#### 2.2.2 How it runs
+
+Three different configurations have been tested: two, three and four nodes active. It runs exactly in the same way as for the C40 implementation, described in 2.1.2.
+
+#### 2.2.3 Results and discussion
+
+Results are shown in table 1.
+
+When the AlphaServer 4000 runs the FEX code in stand-alone mode, it achieves an _average of 181 microseconds per RoI_ (result extracted from [7]). Each of the AlphaStations 200 achieves an _average of 417 microseconds per RoI_ (also extracted from [7]). The conclusion from this is that the parallelization of this particular process among the four stations is not an advantage.
+
+\begin{table}
+\begin{tabular}{|p{113.8pt}|p{56.9pt}|p{56.9pt}|p{56.9pt}|} \hline
+**Number of AlphaStations (processing nodes) active.** & 2 & 3 & 4 \\ \hline
+**Average execution time per RoI.** & 744 microseconds & 623 microseconds & 627 microseconds \\ \hline \end{tabular}
+\end{table}
+Table 1: Results for the DEC Alpha Memory Channel cluster implementation.
+
+Figure 5: FEX subfarm implementation in a DEC Alpha Memory Channel cluster.
+
+However the Memory Channel latency for transmitting packets is very low (a few microseconds for small packets), the Alpha processors are fast enough to make the rate (1) go much higher than 1. It's also apparent that, when using 3 nodes, the processors are already idle, which implies that there is no improvement when the fourth node is added.
+
+To confirm a conclusion earlier derived, the latency for transmitting the "fragments packet" across the Memory Channel was measured. The procedure was the same as in the "communication benchmark One-way", or ping-pong, described in [11] and [12]. The _latency measured was of 915 microseconds_. As expected, this is much larger than the execution time in the nodes, which explains why the parallel processing strategy is not efficient.
+
+#### 2.2.4 Overlapping communication and computation
+
+In order to try improving the results achieved so far, and taking advantage of the fact that both sending and receiving tasks over the Memory Channel may use non-blocking communication primitives, the system functionality was changed.
+
+The node now processes data for a given RoI while already receiving the next fragments packet from the SFI. The server initializes sending two fragments packets to each of the nodes, and stays sending a new one as soon as the features packet is received from a given node. The results are shown in table 2.
+
+A slight improvement is achieved for two processing nodes. Practically no change is apparent when 3 or 4 nodes are used, since the addition of nodes must get each of them idle for an extensive period. _Since no DMA machine nor communication co-processor is present in the used Alphas, the overlap between communication and computation does not have a sizeable effect for this particular technology._
+
+Explicit transmission of packets has an associated latency which seems to rule the final performance of the subfarm when very high-performance processors are used. A possible solution for making the parallel processing strategy to allow improvements in performance might be the use of shared memory machines, where no explicit data transfer is made among the processors.
+
+\begin{table}
+\begin{tabular}{|p{113.8pt}|c|c|c|} \hline
+**Number of Alpha-aStations (processing nodes) active.** & 2 & 3 & 4 \\ \hline
+**Average execution time per RoI.** & 657 microseconds & 622 microseconds & 621 microseconds \\ \hline \end{tabular}
+\end{table}
+Table 2: Results for the DEC Alpha Memory Channel cluster implementation when overlap between communication and computation is tried.
+
+### Parallelizing RoI positions and functions in the Alphas
+
+#### Introduction
+
+In this section another strategy for processes distribution among the subfarm's processing nodes will be studied. As described in [7], the calorimeter data preparation and feature extraction algorithm is based on two main parts:
+
+* Loop over packets, where the information in the packets sent by the readout buffers is selected, being discarded all data which do not belong to the RoI;
+* Loop over RoI positions, where the 16 towers of the RoI are mounted, based on the raw data inside the ROB packets.
+
+The "loop over RoI positions" makes use of several auxiliary functions for mounting each of the 16 RoI towers. Usually, for each position, one auxiliary function is called to deal with the electromagnetic packet, and another one to deal with the hadronic packet. It's also possible that two different hadronic packets are present in one position only, and in this case three auxiliary functions are called. These functions are the most time consuming part of the whole algorithm.
+
+Originally, the RoI positions, as well as the auxiliary functions in each position, are processed sequentialy, as shown in figure 6.
+
+However, there is no limitation on processing all the 16 positions in parallel. Auxiliary functions in a given position can also be processed in parallel.
+
+#### How it runs
+
+The idea is to process a whole RoI line in parallel, which means 4 positions. For each position in a given line, the main code, running in the SFI, sends a specific electromagnetic trigger tower (and not the whole ROB packet) to one of the processing nodes. Asynchronously with the sending process, the SFI processes the hadronic part and then jumps to the next position in the line. In the end of the loop, each of the four processing nodes would be ideally executing code for one of the four RoI positions in
+
+Figure 6: Sequential processing of RoI positions and auxiliary functions.
+
+the given line. When it's completed, the SFI starts the next RoI line. The procedure is repeated four times, such that the entire RoI is mounted. This is illustrated in figure 8.
+
+Besides the parallelization, the size of the data packets sent from the SFI to the processing nodes is smaller, since only the information inside each ROB packet which actually belong to the RoI (except for some extra dummy data when the number of channels in the trigger tower is not the maximum possible) is transmitted.
+
+### Results
+
+For the SFI running the main code and each processing node running the em. auxiliary functions code, the _average execution time per RoI was 325 microseconds._ This is still not an advantage, since the AlphaServer running the entire algorithm in stand-alone mode has a better performance (by a factor of \(\sim\) 2). The absence of a communication co-processor in the Alphas makes the aim of overlapping between communication and computation relatively minor. In spite of that, the parallelization of pieces of the algorithm, where the natural parallelism of the code is exploited and the size of the transmitted packets inside the subfarm is smaller, seems to be more promising than the concept discussed in section 2.0.
+
+### Conclusions
+
+The FEX subfarm concept was introduced and discussed. Systematic measurements have been made with several different implementations of the subfarm, all of them being very application specific: the calorimeter FEX algorithm was used.
+
+General conclusions could be drawn out from the C40 subfarm implementation. The improvement in performance one can achieve with a subfarm of local processors is dependent on the rate:
+
+Communication latency for exchange of packets
+
+Execution time in the nodes
+
+When the algorithm execution time is negligible, the communication overhead determines the subfarm performance. For execution times slightly higher than the com
+
+Figure 7: Parallel processing of RoI positions and auxiliary functions.
+
+munication latency, the subfarm performance starts being slightly better than a single node performance. When the communication latency is negligible when compared to the execution time, the performance of the subfarm tends to be optimal.
+
+For the implementation in the Alpha Memory Channel cluster, the execution times in the Alpha processors have proved to be too low for making the processes distribution to perform better than the sequential processing, in spite of the Memory Channel latency being small when compared to the latency of the C40 links. Other parallel processing strategies have been tried as well, namely the execution of different parts of the algorithm in different nodes, but the performance was still not better than one Alpha running in stand-alone mode with no packets exchange.
+
+The Alpha cluster also seems to be less efficient than desired for communication and computation overlap as is obvious from its architecture (no DMA engine, no symmetric multi-processor). No communication co-processors is present in the Alpha nodes tested, and the main processor implicitly deals with the communication tasks while making normal computation, in a time-sharing mode. Very similar observations have been made in [13].
+
+All of the above leads us to the conclusion that the subfarm concept, when using explicit exchange of packets, might be an advantage for compute intensive algorithms (TRT full scan, for example), where the execution times are expected to be much higher than the communication latency. However, for relatively fast algorithms, as the calorimeter FEX, only shared-memory clusters might justify processes distribution.
+
+All of the codes used are available at: _[http://sunrans.cern.ch/](http://sunrans.cern.ch/)\(\sim\)kastrup/source/_.
+
+### References
+
+* [1][http://hepwww.rl.ac.uk/atlas/l2/demonstrator/home.html](http://hepwww.rl.ac.uk/atlas/l2/demonstrator/home.html)
+* [2][http://hepsun.ph.rhbnc.ac.uk/atlas/paper_model_note.ps](http://hepsun.ph.rhbnc.ac.uk/atlas/paper_model_note.ps)
+* [3][http://www.cern.ch/HSI/dshs/](http://www.cern.ch/HSI/dshs/)
+* [4][http://www.cern.ch/HSI/sci/sci.html](http://www.cern.ch/HSI/sci/sci.html)
+* [5]_ATLAS Tile Calorimeter Technical Design Report_. CERN/LHCC/96-42, 15 December 1996.
+* [6]_ATLAS Liquid Argon Calorimeter Technical Design Report_. CERN/LHCC/96-41, 15 December 1996.
+* [7] Rudolf Bock and Bernardo Kastrup. _Realistic Calorimeter Feature Extraction: Algorithm, Benchmarks and Implementation Options_. ATLAS DAQ Note 65 [http://atlasinfo.cern.ch/Atlas/documentation/notes/DAQTRIG/notes.html](http://atlasinfo.cern.ch/Atlas/documentation/notes/DAQTRIG/notes.html)
+* [8][http://www.digital.com:80/info/hpc/ref/refdoc.html](http://www.digital.com:80/info/hpc/ref/refdoc.html)
+* [9] R. K. Bock _et al.__Subfarms in the ATLAS level-2 trigger_. DRAFT document, 25 November 1996.
+* [10]Christian Hortnagl. _ATLAS Communication Benchmarks over Memory Channel_. March 1997. [http://www.cern.ch/RD11/subfarm/](http://www.cern.ch/RD11/subfarm/)
+* [11] R. Hauser. _An Example Implementation of the Atlas Communication Benchmarks_. 14 December 1995. [http://www.cern.ch/RD11/combench/combench.ps.Z](http://www.cern.ch/RD11/combench/combench.ps.Z)
+* [12] R. K. Bock _et al.__Benchmarking Communication Systems for Trigger Applications_. ATLAS DAQ Note 48. [http://atlasinfo.cern.ch/Atlas/documentation/notes/DAQTRIG/notes.html](http://atlasinfo.cern.ch/Atlas/documentation/notes/DAQTRIG/notes.html)
+* [13]Christian Hortnagl. _An Example Implementation of the DAQ61 Benchmark Suite and Early Results Over Memory Channel_. April 1997. [http://www.cern.ch/RD11/subfarm/daq61/daq61-implmsg.ps.Z](http://www.cern.ch/RD11/subfarm/daq61/daq61-implmsg.ps.Z)

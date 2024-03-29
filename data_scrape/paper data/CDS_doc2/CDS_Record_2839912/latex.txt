@@ -1,0 +1,304 @@
+**Methods for \(\chi^{2}\) parameter estimation using histograms**
+
+The ATLAS Collaboration
+
+A common procedure in high energy physics data analysis is to derive correction factors to simulated events that make them better agree with data. This is often done using histograms created from data, and a Monte Carlo sample that is modified by some correction parameters. However, as the simulated events are modified, events will migrate between bins. This introduces discontinuities in the prediction: an infinitesimal perturbation of the correction factor can result in an event migrating across a bin boundary. As a result, a standard \(\chi^{2}\) minimization will not work. This note discusses this problem and proposes a solution.
+
+## 1 Introduction
+
+The optimization of parameters via shape comparison (with e.g. \(\chi^{2}\) minimization) is a very common practice in particle physics. Most commonly, it is encountered when fitting a user-defined function to a distribution (observed in a histogram). Nonetheless, it is also common to compare the shapes of two independent distributions, and to modify one of them so that their shapes are as similar as possible (as is the case for calibration of simulated to real data, or \(W\) boson mass fits via the template method [1]).
+
+The main focus of the study presented in this document is around the later scenario, when two samples are compared to each other. It is of interest because such studies typically lead to discontinuous \(\chi^{2}\) curves (with many non-physical minima), which are generally left untreated and worked around with approximate methods, but the lack of treatment sets a limit on the accuracy (and implementability) of such a calibration and can provide misleading results.
+
+By deepening into the available bibliography, one can find studies where such discontinuities are treated. However, these typically depend on a solution that is custom-made for a specific scenario. Such is the case of top-quark measurement studies [2], where functional forms that depend indirectly on physics parameters are fitted to data distributions. Consequently, extracting and generalizing the procedure may be difficult for the average reader.
+
+Our goal is to provide in this note a general description of a method to treat \(\chi^{2}\) discontinuities, as well as a practical example, aiming to make such a method accessible to a general public.
+
+## 2 The migration problem
+
+### Traditional \(\chi^{2}\) minimization: histogram vs. PDF
+
+Let us think of a simple example, where a sample comprised of \(10^{5}\) entries is generated with a Gaussian of known standard deviation \(\sigma=1\), but unknown mean \(\mu\). The corresponding distribution, histogrammed with \(n\) bins between \(-3\) and \(3\), is shown in Figure 1 (top-left). If we are interested in fitting a Gaussian PDF, such as
+
+\[f(x;\sigma=1,\mu,K)=\frac{K}{\sqrt{2\pi\sigma^{2}}}e^{-\frac{(x-\mu)^{2}}{2 \sigma^{2}}}=\frac{1}{\sqrt{2\pi}}e^{-\frac{(x-\mu)^{2}}{2}} \tag{1}\]
+
+(Figure 1, bottom-left), where the normalization constant \(K\) takes into account the size of the sample (roughly, \(K\approx\) number of events), one can define a \(\chi^{2}\) as the difference between the bin content \(N_{i}\) of the histogram and the function \(f(x;\mu,K)\) evaluated at the center of each bin \(x_{i}\) (with bin width \(h_{i}\)) for some \(\mu\), weighted by the bin error \(\delta_{i}\). In other words,
+
+\[\chi^{2}(\mu,K)=\sum_{i}^{n}\frac{[N_{i}-h_{i}\times f(x_{i};\mu,K)]^{2}}{[ \delta_{i}]^{2}}, \tag{2}\]
+
+where \(N_{i}\) and \(\delta_{i}\) remain constant. In the literature [3], Eq. (2) is known as the _modified least-squares method (MLS)_.
+
+Please note that, for this particular example, the sample size is sufficiently large compared to the bin width. That is, the number of events \(N_{i}\) in each of the bins \(i\) is large enough as to approximate the correspondingPoisson distribution by a Gaussian (for instance, there are at least 70 events per bin in the far tails of Figure 1, whose histogram is comprised of \(n=40\) bins), thus enabling the use of the \(\chi^{2}\) defined in Eq. (4). Should the sample be considerably smaller and bins in the tails contain just a few events, a more appropriate way to study the shape of the distribution would be achieved via the binned likelihood approach [3], which takes into account the Poissonian nature of the bin contents.
+
+Such a \(\chi^{2}\) definition results in a (typically parabolic) continuous curve as a function of \(\mu\), as shown in Figure 1 (right hand side). Following traditional statistics, the best estimator of \(\mu\), called \(\hat{\mu}\), is the value at the minimum of the \(\chi^{2}\) curve, i.e. \(\chi^{2}(\hat{\mu})=\chi^{2}_{\text{min}}\). Similarly, one can estimate the corresponding parameter uncertainty \(\sigma(\mu)\) by looking for
+
+\[\Delta\chi^{2}=\chi^{2}(\hat{\mu}\pm\sigma(\mu))-\chi^{2}(\hat{\mu})=1. \tag{3}\]
+
+This is illustrated in Figure 1, where a parabolic fit to the \(\chi^{2}\) curve indicates a minimum at \(\hat{\mu}=-0.0040\) with error \(\sigma_{\Delta\chi^{2}=1}=0.0032\), which is consistent with the distribution of the nominal sample (see the statistics box in the top-left graph of Figure 1).
+
+In most parameter optimization studies, this method can be used to estimate the value of unknown parameters, with a big caveat: the analytical form of the PDF must be known a priori. The case considered here, where there is no direct access to an analytical PDF and two samples are compared directly to each other, can prove to be challenging as described below.
+
+### Histogram vs. histogram \(\chi^{2}\) minimization
+
+Following the previous section, let us consider now the case where we have two independent samples, which shall be called data and MC, and we want to match the shape of their corresponding distributions by
+
+Figure 1: Traditional \(\chi^{2}\) minimization scenario. A fixed data template (known to be Gaussian with \(\sigma=1\), top-left) is being fitted by a Gaussian PDF (also with \(\sigma=1\) but variable \(\mu\), bottom-left). The right plot shows the \(\chi^{2}\) between the fixed template and the PDF as a function of \(\mu\) [\(\chi^{2}(\mu)\)], fixing the normalization constant to \(K=10^{5}\times h\), where \(h\) is the bin width.
+
+doing an event-by-event correction to the MC sample. Trying to keep things simple for the moment, let us define such samples as follows:
+
+* Data remains the same distribution as in the previous example (top-left of Figure 1, also top-left of Figure 2), i.e., \(N_{\text{data}}=10^{5}\) events that have been generated with a Gaussian of \(\sigma_{\text{data}}=1\) and \(\mu_{\text{data}}=0\) (although \(\mu_{\text{data}}\) is considered as unknown a priori). This sample remains constant through the study.
+* MC is also generated (only once) with a Gaussian of \(\sigma_{\text{MC}}=1\) for \(\mu_{\text{MC}}=0\), containing a total of \(N_{\text{MC}}\) events. We do not have access anymore to the analytical PDF, but the list of individual events is available (and in fact, filling them into a histogram gives their distribution, bottom-left of Figure 2).
+
+Let us realize first that a change in the mean value \(\mu_{\text{MC}}\rightarrow\mu^{\prime}_{\text{MC}}=\mu_{\text{MC}}+\Delta\mu\) is equivalent to shift all the events \(i\) by \(\Delta\mu\) (i.e. \(x_{i}\to x^{\prime}_{i}=x_{i}+\Delta\mu\)). As we are trying to match the shape of the MC distribution to that of data, and we know that (once normalized to the number of events) they only differ by their mean value, one could look for the value of \(\Delta\mu\) such that the distribution of data and MC' (this is, after the shift) are as similar as possible. In other words, the MC distribution is being fitted to data.
+
+First, let us notice that for each value of \(\Delta\mu\) there is a distribution of events (in a histogram). As we are purely interested in matching the shape of the MC distribution to that of the data, and the samples may have different sizes (in general, \(N_{\text{data}}\neq N_{\text{MC}}\)), one must normalize the MC to the data. For this particular case, we choose to multiply the MC histogram by some factor \(C^{\text{norm.}}\) such that the integral of data and MC histograms have the same value. One could then naively define a \(\chi^{2}\) by looking at the difference between normalized histograms i.e.
+
+\[\chi^{2}(\Delta\mu)=\sum_{i}^{n}\frac{\left[N_{i}^{\text{data}}-N_{i}^{\text{ MC}}(\Delta\mu)\right]^{2}}{[\delta_{i}^{\text{data}}]^{2}+[\delta_{i}^{\text{MC}} (\Delta\mu)]^{2}}, \tag{4}\]
+
+(where the MC uncertainty has been included, as it may not be negligible) and minimizing it with respect to \(\Delta\mu\). Nonetheless, if one were to provide this function to a minimization algorithm (such as MINUIT [4]), it would completely fail. The reason is simple, but only noticeable when the plot is available: the \(\chi^{2}\) curve in the histogram vs. histogram case **is not continuous**.
+
+In order to understand the reason behind the discontinuity, it is useful to notice that a \(\chi^{2}\) defined as in Eq. (4) is nothing more than the sum of \(n\) individual \(\chi^{2}_{i}\) values, one per bin, with
+
+\[\chi^{2}_{i}=\chi^{2}_{i}(\Delta\mu)=\frac{\left[N_{i}^{\text{data}}-N_{i}^{ \text{MC}}(\Delta\mu)\right]^{2}}{[\delta_{i}^{\text{data}}]^{2}+[\delta_{i}^ {\text{MC}}(\Delta\mu)]^{2}}. \tag{5}\]
+
+By shifting the individual events by \(\Delta\mu\), there is a partial migration of events from one bin to a neighbouring one (or even further), i.e., after the shift, some events will remain in the same \(i\)-th bin, while others will migrate to a different one. Since this migration is discrete, an infinitesimal change of \(\chi^{2}_{i}(\Delta\mu)\) is followed by a non-continuous change of the bin content \(N_{i}^{\text{MC}}(\Delta\mu)\) (as well as its error \(\delta_{i}^{\text{MC}}\)), which leads to a discontinuous change of \(\chi^{2}_{i}(\Delta\mu)\), and eventually of \(\chi^{2}(\Delta\mu)\).
+
+Figure 2 (right hand side, blue curve) shows the effect of the event migration, where the \(\chi^{2}\) values were computed using Eq. (4), all while using the same data distribution as in Figure 1. The MC sample was generated only once with \(\sigma_{\text{MC}}=1\) and \(\mu_{\text{MC}}=0\) (the nominal distribution is shown in the bottom-left of Figure 2), and shifted in steps of \(\Delta\mu\). For comparison, the red curves showing the analogous analytical scenario histogram vs. PDF (previously discussed, shown in Figure 1) are superimposed. Note that the blue \(\chi^{2}\) curve is wider than the red one due to the non-negligible effect of the MC statistical uncertainty. In the case of an infinitely large MC sample, the blue curve would tend towards the red one.
+
+The huge \(\chi^{2}\) discontinuities generate multiple local minima a few \(\chi^{2}\)-units deep, and not even the global minimum is obvious anymore. In this particular example, there seems to be a global minimum at 0.0065, which is completely wrong when comparing to the analytical estimate. Furthermore, the estimation of parameter errors (following from Eq. (3)) is not reliable anymore, as looking for
+
+\[\Delta\chi^{2}=1\]
+
+becomes completely obscured by the size of the discontinuities. This is particularly noticeable in Figure 3, at e.g. \(\Delta\mu=0.001\) and \(\Delta\mu=0.0065\).
+
+Figure 3: Amplified view of the bin-to-bin \(\chi^{2}\) curve shown in Figure 2 (right hand side).
+
+Figure 2: Discontinuous \(\chi^{2}\) curve between two samples (histogram vs. histogram) due to event migration (shown in blue on the right hand side). The analogous analytical scenario (identical to Figure 1) is shown in red.
+
+### The typical workaround
+
+In relatively simple studies with only one or two free parameters, one can use an (approximate) approach to work around the discontinuities with the so-called template method. To first order, this consists of doing a manual \(\chi^{2}\) scan for different parameter values, and simply fitting a parabola to estimate the position of the minimum.
+
+The caveat here is that, in order to increase the reliability of this technique, one must do the parabolic fit to a sufficiently large region such that the discontinuities are relatively small. However, by going far enough from the minimum one risks leaving the Gaussian regime, and entering in asymmetric cases that cannot be described with a parabola anymore.
+
+Moreover, there is an additional complication with such an approach. Looking at Figure 2 (right hand side, blue curve), let us consider the MC histograms for two different shifts, that is, MC(\(\Delta\mu_{1}\)) and MC(\(\Delta\mu_{2}\)). As the data and MC samples do not have correlations, the corresponding values \(\chi_{1}^{2}\) and \(\chi_{2}^{2}\) can be computed with Eq. (4). However, one must notice that the individual base events that make up the MC sample (before the \(\Delta\mu\) shift) do not change, so the histograms MC(\(\Delta\mu_{1}\)) and MC(\(\Delta\mu_{2}\)) are correlated due to the event migration between bins. This means that while the computation of \(\chi_{1}^{2}\) and \(\chi_{2}^{2}\) do not need additional considerations, their values share a relation due to indirect correlation, so comparing \(\chi_{1}^{2}\) to \(\chi_{2}^{2}\) (i.e. putting them in the same plot) must be done with care. Potentially, one could aim to get rid of the \(\chi^{2}\) discontinuities if the migration can be perfectly quantified and taken into account, but such an approach is not trivial to implement. Furthermore, if the previous considerations are not taken into account, the parabolic fit approach would not directly provide a reliable estimate of the real position of the minimum, and additional treatment may be required.
+
+As a final note, while parabolic fits are a quick workaround to the \(\chi^{2}\) discontinuities for a single parameter, such a technique is not feasible for a large number of free parameters, which very quickly increases the complexity of the implementation.
+
+### Resampling techniques
+
+While one may be tempted to use resampling techniques (such as studies with bootstrap or data replicas fluctuated by its statistical uncertainty) in order to return to the continuous \(\chi^{2}\) scenario, these are unfortunately unable to explain/correct the discontinuities. There are primarily two reasons for this:
+
+* By definition, resampling techniques must conserve the size of the sample, i.e., no new events are generated. This means that even if \(10^{6}\) replicas of the sample are created and averaged, the effective sample size will remain the same, and in fact the average \(\chi^{2}\) values would remain constant due to the Central Limit Theorem [3].
+* The discontinuities in the \(\chi^{2}\) curve are artifacts of the finite MC sample size, rather than straightforward statistical effects. One could suppress the discontinuities if the bin-to-bin migration becomes infinitesimal (relative to the total MC sample, normalized to data), which is achievable only if the sample becomes infinitely large (extremely impractical).
+
+While resampling remains useful for error propagation estimation, a different technique must be used to treat the discontinuities.
+
+## 3 Getting rid of the migration-induced discontinuities: histogram vs. fitted PDF minimization
+
+The treatment for \(\chi^{2}\) discontinuities due to event migration may be obvious by now: one should avoid directly comparing the histogrammed shapes of two samples, and prefer histogram vs. PDF comparisons. That being said, this is not a luxury we always have, as many samples (such as fully calibrated MC samples) have been through several complex correction steps, and cannot be described exactly with an analytical PDF.
+
+In order to go back to the case described in Subsection 2.1, one must estimate the PDF corresponding to the MC sample. In other words, for a set of free parameters \(\vec{p}\) acting event-by-event on the MC sample (giving a corresponding distribution in a histogram \(\mathtt{histMC}(\vec{p})\)), we wish to estimate the corresponding analytical description \(f^{\mathrm{MC}}(x;\vec{p})\) in a non-parametric way (i.e. when the dependence on \(\vec{p}\) is not explicit), and use a \(\chi^{2}\) as defined in Eq. (2).
+
+A possibility is to use Kernel Density Estimation (KDE) [5] to approximate the PDF of the MC sample using e.g. a Gaussian kernel. This allows infinitesimal changes in \(\vec{p}\) to be well accounted for while giving a function \(f^{\mathrm{MC}}_{\mathrm{KDE}}(x;\vec{p})\) that is continuous by definition, and can be used directly in Eq. (2). A downside, however, is that the estimation of a kernel density becomes time-consuming for large samples.
+
+An alternative to this, not limited by the size of the sample, is to identify a case-tailored functional form capable of describing well enough the shape of the distribution, i.e., to fit a function \(f_{\mathrm{fit}}(x;\vec{\theta})\) (built for the specific study) to the distribution \(\mathtt{histMC}(\vec{p})\) such that \(\chi^{2}_{\mathrm{fit}\text{-on-histMC}}/n_{\mathrm{dof}}\approx 1\) (where \(n_{\mathrm{dof}}\) is the number of degrees of freedom of the fit) and the bias induced in the shape is minimal (see Subsection 4.3 for a practical example).
+
+As a general rule, the procedure involves replacing the \(\chi^{2}\) function (Eq. (2)) used by the minimization algorithm (e.g. Minuit) such that the algorithm evaluates a new quantity at each point in the parameter space. The quantity is calculated as follows:
+
+1. Correct all the events in the MC sample for a given value of \(\vec{p}\)
+2. Build/draw the corresponding distribution in a histogram \(\mathtt{histMC}(\vec{p})\)
+3. Fit the already defined functional form \(f_{\mathrm{fit}}(x;\vec{\theta})\) to \(\mathtt{histMC}(\vec{p})\) \(\rightarrow\) this gives \(f^{\mathrm{MC}}_{\mathrm{fit}}(x;\hat{\vec{\theta}}(\vec{p}))\)
+4. Use \(f^{\mathrm{MC}}_{\mathrm{fit}}(x;\hat{\vec{\theta}}(\vec{p}))\) to evaluate a modified \(\chi^{2}\) quantity, as described in Subsection 3.1, that takes account of bin-to-bin correlations
+
+Note that the fitted values \(\hat{\vec{\theta}}\) depend indirectly on \(\vec{p}\), and thus \(f^{\mathrm{MC}}_{\mathrm{fit}}\) depends implicitly on the parameters \(\vec{p}\).
+
+A well chosen functional form of \(f_{\mathrm{fit}}(x;\vec{\theta})\) must fulfill certain criteria:
+
+* It must be able to describe well enough the shape of the distribution \(\mathtt{histMC}(\vec{p})\).
+* this also translates in including enough free parameters \(\vec{\theta}\).
+* There should not be any obvious bias of the shape of the distribution, neither for the initial histogrammed distributions, nor for the MC distribution after applying some \(\vec{p}\) within parameter limits (e.g. the fitted function should remain within the statistical uncertainty of \(\mathtt{histMC}(\vec{p})\)).
+
+* It must be capable of accounting for small changes in the parameter values i.e. to correctly see the effect of a small change \(\vec{\Delta p}\). \(\rightarrow\) in practice, it is desired that an (almost1) infinitesimal change of the free parameters of the correction \[\vec{p}\rightarrow\vec{p}+\mathrm{d}\vec{p}\] corresponds to an (almost) infinitesimal change of the fitted parameters \[\hat{\vec{\theta}}(\vec{p})\rightarrow\hat{\vec{\theta}}(\vec{p})+\mathrm{d} \vec{\theta}\] for some \(\mathrm{d}\vec{\theta}\). Footnote 1: We say “almost” because, in reality, the MC sample has a finite size, so one could find a small enough \(\vec{\Delta p}^{\min}\) that generates no migration. This means that the corresponding histograms would be exactly the same \(\mathtt{histMC}(\vec{p})=\mathtt{histMC}(\vec{p}+\vec{\Delta p}^{\min})\), and thus \(f_{\mathrm{fit}}^{\mathrm{MC}}(x;\hat{\vec{\theta}}(\vec{p}))=f_{\mathrm{fit}}^ {\mathrm{MC}}(x;\hat{\vec{\theta}}(\vec{p}+\vec{\Delta p}^{\min}))\). That being said, MC samples are typically large enough for this to not be an issue, so doing steps as small as \(\vec{\Delta p}^{\min}\) would not make sense from a computational point of view.
+
+An example of a poorly chosen \(f_{\mathrm{fit}}(x;\vec{\theta})\) is the use of a simple Gaussian (Eq. (1)) to describe a Breit-Wigner distribution (unknown a priori):
+
+\[f^{\mathrm{BW}}(x)=\frac{k}{(x^{2}-m^{2})+m^{2}\Gamma^{2}}. \tag{6}\]
+
+While both are symmetric and have a well defined mean (respectively \(\mu\) and \(m\), which in fact would yield similar values in both cases due to symmetry), the standard deviation \(\sigma\) of the Gaussian function is not compatible with the width \(\Gamma\) of the BW, and thus, the final estimation of \(\vec{p}\) would be biased by this forced change of shape. A better description could be attained by including additional free parameters to \(f_{\mathrm{fit}}\) (e.g. polynomials as in
+
+\[f_{\mathrm{fit}}(x;\mu,\sigma,A,B)=\frac{1}{\sqrt{2\pi\sigma^{2}}}e^{-\frac{( x-\mu)^{2}}{2\sigma^{2}}}+A(x-\mu)+B(x-\mu)^{2},\]
+
+which could follow more closely the shape of the distribution), but again, this has to be tailored for the particular study.
+
+It is worth mentioning that, while the addition of free parameters allows more complex distribution shapes to be described, strongly correlated ones can lead to multiple sets of solutions \(\hat{\vec{\theta}}\) describing well enough the distribution (i.e. multiple local minima exist). As any of the minima can be randomly found by the fit, this does not satisfy the third criterion above, as \(\hat{\vec{\theta}}\) is no longer a continuous function of \(\vec{p}\). In practice, these multiple local minima can lead to equally correct data vs. \(\mathrm{MC}(\vec{p})\)\(\chi^{2}\) curves, equivalent up to a small vertical shift. Numerically this is problematic, because if the same minimum is not followed as \(\vec{p}\) changes and the fit finds different ones randomly, the observed \(\chi^{2}\) curve values can alternate between the corresponding curves, appearing as a branching of the observed \(\chi^{2}\) surface (see for instance the example in Figure 4). There are multiple "tricks" that allow the "good" set of solutions to be selected consistently, which are good practices for any fit, such as:
+
+* Providing an ansatz of the starting parameters \(\vec{\theta}_{\mathrm{initial}}\) for the fit of \(f_{\mathrm{fit}}\). One can look at e.g. the mean, RMS or position of the maximum of \(\mathtt{histMC}(\vec{p})\).
+* Dynamically defining tight enough limits for the free parameters \(\vec{\theta}\) to exclude undesired minima, yet loose enough to not interfere with the fit.
+
+Note that in general, these are not enough. Additional considerations may be required for more complex problems.
+
+### Bin-to-fitted PDF \(\chi^{2}\) minimization
+
+Intrinsic to the fit of \(f_{\rm fit}^{\rm MC}(x;\hat{\vec{\theta}}(\vec{p}))\), there are uncertainties and correlations among all the fitted parameters, which must be propagated to the uncertainty in \(f_{\rm fit}^{\rm MC}\) itself (and correlation between predicted MC bin contents). Consequently, it is not possible to directly use the \(\chi^{2}\) definition shown in Eq. (2), but rather the more generalized form is necessary:
+
+\[\chi^{2}=\vec{d}^{\rm T}V^{-1}\vec{d}, \tag{7}\]
+
+where \(\vec{d}\) is the vector of differences between data and MC such that \(d_{i}=N_{i}^{\rm data}-N_{i}^{\rm MC,pred}\) and \(V\) the total covariance matrix.
+
+There are two options to compute \(N_{i}^{\rm MC,pred}\): either to take the value of \(f_{\rm fit}^{\rm MC}(x;\hat{\vec{\theta}}(\vec{p}))\) at the middle of each bin, or to take the average of the function along each bin. As the former option yields a bias if the function has a sizeable curvature inside a given bin, in the following we choose to use the later, which also happens to be consistent with the definition of a PDF. That is, for \(f(x)=f_{\rm fit}^{\rm MC}(x;\hat{\vec{\theta}}(\vec{p}))\) and equally-sized bins of width \(h\), we define
+
+\[d_{i}=N_{i}^{\rm data}-\overline{f(x)}\big{|}_{x_{k}}=N_{i}^{\rm data}-\left[ \int_{x_{i}-\frac{h}{2}}^{x_{i}+\frac{h}{2}}f(x){\rm d}x\right]\frac{1}{h}. \tag{8}\]
+
+In the most general case, the total covariance matrix is defined as
+
+\[V=V^{\rm data}+V^{\rm MC}, \tag{9}\]
+
+where
+
+\[\left(V^{\rm data}\right)_{ij}=\delta_{i,j}\cdot(\sigma_{i}^{\rm data})^{2},\]
+
+Figure 4: Example of \(\chi^{2}\) branching caused by the unsupervised addition of free parameters. The blue dots show the bin-to-bin discontinuities \(\chi^{2}\), while the red is computed using the bin-to-fittedPDF technique described in this study.
+
+and where \(\delta_{ij}\) is the Kronecker delta, and \(\sigma_{i}^{\text{data}}\) the statistical bin uncertainty of data. This means that, as expected, the covariance matrix for data remains diagonal, and there are no inter-bin correlations.
+
+Different from the data case, \(V^{\text{MC}}\) is not a diagonal matrix. Since its content propagates from the error of the fitted \(\hat{\theta}\) and the correlations between parameters \(\rho_{k,J}\), the entries of \(V^{\text{MC}}\) are to be estimated on the fly via
+
+\[V^{\text{MC}}_{i,j}=V^{\text{MC}}(x_{i},x_{j})=\left\langle\mathrm{d}f\right|_{ x_{i}},\mathrm{d}f\right|_{x_{j}})=\left\langle\sum_{k}\overline{\frac{\partial f }{\partial\theta_{k}}}\right|_{x_{i}}\mathrm{d}\theta_{k},\sum_{l}\overline{ \frac{\partial f}{\partial\theta_{l}}}\bigg{|}_{x_{j}}\mathrm{d}\theta_{l}\right\rangle \tag{10}\]
+
+\[\Rightarrow V^{\text{MC}}_{i,j}=\sum_{k,l}\overline{\frac{\partial f}{ \partial\theta_{k}}}\bigg{|}_{x_{i}}\overline{\frac{\partial f}{\partial \theta_{l}}}\bigg{|}_{x_{j}}\sigma_{k}\sigma_{l}\rho_{kl}, \tag{11}\]
+
+where \(\sigma_{k}\) and \(\sigma_{l}\) are the fit errors for the parameters of \(f\), \(\rho_{kl}\) their respective correlation, and \(\left.\overline{\frac{\partial f}{\partial\theta_{k}}}\right|_{x_{i}}\) the average value of the gradient in the bin \(i\).
+
+Putting all the previous into practice for the (trivial) Gaussian example of Subsection 2.2, one can very easily obtain the migration-treated \(\chi^{2}\) curve as displayed in Figure 5 (in red). It follows closely the behaviour of the migration-affected \(\chi^{2}\), but conserving the parabolic behaviour and being free of multiple minima.
+
+Figure 5: \(\chi^{2}\) treated due to event migration-induced discontinuities, corresponding to the simplified case described in the beginning of Subsection 2.2. It shows in blue the original untreated curve, and in red the result of the method described in Subsection 3.1. Note that the blue curve is the same as in Figure 1, while the red one is obtained with a different method.
+
+## 4 A practical example
+
+While the case described in the previous section is rather pedagogical and demonstrative, it may seem redundant and unnecessary (we are, in the end, generating a sample with a Gaussian distribution, and then fitting it with a Gaussian). In this section we study a more realistic example.
+
+Let us think of a hypothetical calibration procedure using \(Z\to ee\) events, after simulating the detector effects of the ATLAS experiment, looking only at the region around the \(Z\) resonance, i.e. \(80~{}\mathrm{GeV}<m_{ee}<100~{}\mathrm{GeV}\). We define first our pseudodata as a subset of the whole simulated sample (e.g. half of it), and MC as the rest of the sample (i.e. the other half). The objective of this calibration method is to minimize the shape difference between the pseudodata and (normalized) MC binned distributions by uniformly changing the reconstructed MC energy scale event by event as
+
+\[E_{\mathrm{corr}}^{\mathrm{MC}}=E^{\mathrm{MC}}+p_{0},\]
+
+such that the calibrated reconstructed dilepton mass would roughly look as
+
+\[m_{ee}^{\mathrm{corr}}\approx 2E_{1}^{\mathrm{corr}}E_{2}^{\mathrm{corr}}(1- \cos(\Delta\theta)).\]
+
+In other words, we want to find the best value of \(p_{0}\) such that the \(\chi^{2}\) between pseudodata and MC histograms is minimized.
+
+While the corresponding "truth" distribution of the MC \(m_{ee}\) is expected to be a Breit-Wigner function, the smearing of energies due to the simulation of detector effects generates a sample with no analytical PDF. This means that a bin-to-PDF minimization is not possible. However, by using the method described in Subsection 3.1, one can get rid of \(\chi^{2}\) discontinuities due to event migration (as exemplified in Figure 8), thus allowing a binned study to be performed.
+
+### Functional forms
+
+Two functional forms have been seen to best describe the mass lineshape, although there may be others that do a just-as-well (or perhaps even better) job at describing the lineshape. These two forms shall be called _Breit-Wigner-like_ (BW) and _Crystal Ball with exponential tails_ (CB). These are defined respectively as:
+
+\[f^{\mathrm{BW}}(x)=\begin{cases}80<x<c_{1}:&e^{F(x-P)}+R\\ c_{1}<x<c_{2}:&\dfrac{C}{(x-A)^{2}+B}+E(x-D)^{2}\\ c_{2}<x<100:&e^{G(x-Q)}+S\end{cases} \tag{12}\]
+
+and
+
+\[f^{\mathrm{CB}}(x)=\begin{cases}80<x<c_{1}:&e^{D(x-P)}+R\\ c_{1}<x<c_{2}:&\dfrac{C}{B\sqrt{2}\pi}e^{-\frac{1}{2}\left(\frac{x-A}{B} \right)^{2}}\\ c_{2}<x<100:&e^{E(x-Q)}+S,\end{cases} \tag{13}\]where the parameters \(P,Q,\)\(R\) and \(S\) are used to assure continuity of \(f(x)\) and \(\mathrm{d}f(x)/\mathrm{d}x\) (see Subsection 4.2). Variables \(A\) through \(G\) are the free parameters of the fit, as well as the nodes \(c_{1}\) and \(c_{2}\) (i.e. the transition points between the exponential tails and the core-function).
+
+It is important to mention that, while some of these parameters can have a physical interpretation, a priori these do not have to be connected to a physical quantity. For this particular application, the only purpose of the functional forms is to describe the shape of the template as well as possible.
+
+### Continuity of the function and its derivative
+
+As there is no reason to expect a non-smooth template in the infinite-statistics scenario, the functional forms should follow the same hypothesis. This means that both \(f(x)\) and \(\mathrm{d}f(x)/\mathrm{d}x\) should be continuous along the whole range (and particularly at the nodes \(c_{1}\) and \(c_{2}\)).
+
+The procedure to assure continuity is analogous for either functional form. Let us focus particularly at \(x=c_{1}\) for the Breit-Wigner-like function (Eq. (12)):
+
+\[f^{\mathrm{BW}}(x)=\begin{cases}80<x<c_{1}:&f^{\mathrm{BW}}_{\mathrm{left-tail }}(x)=e^{F\left(x-P\right)}+R\\ c_{1}<x<c_{2}:&f^{\mathrm{BW}}_{\mathrm{core}}(x)\\ c_{2}<x<100:&f^{\mathrm{BW}}_{\mathrm{right-tail}}=e^{G\left(x-Q\right)}+S.\end{cases}\]
+
+#### 4.2.1 Derivative continuity
+
+Since we are interested in a smooth function at the nodes, we can simply establish derivative continuity via
+
+\[\left.\frac{\mathrm{d}\ f^{\mathrm{BW}}_{\mathrm{core}}(x)}{\mathrm{d}x} \right|_{x=c_{1}}=\left.\frac{\mathrm{d}\ f^{\mathrm{BW}}_{\mathrm{left-tail }}(x)}{\mathrm{d}x}\right|_{x=c_{1}}=Fe^{F\left(x-P\right)}|_{x=c_{1}}\]
+
+\[\Rightarrow P=\frac{-1}{F}\ln\left(\left.\frac{\mathrm{d}\ f^{\mathrm{BW}}_{ \mathrm{core}}(x)}{\mathrm{d}x}\right|_{x=c_{1}}\times\frac{1}{F}\right)+c_{1}\,.\]
+
+The determination of \(Q\) for derivative continuity at \(c_{2}\) is analogous.
+
+#### 4.2.2 Function continuity
+
+Similarly, we want
+
+\[f^{\mathrm{BW}}_{\mathrm{core}}(x)\big{|}_{x=c_{1}}=f^{\mathrm{BW}}_{\mathrm{ left-tail}}(x)\big{|}_{x=c_{1}}=e^{F\left(c_{1}-P\right)}+R,\]
+
+which implies
+
+\[R=f^{\mathrm{BW}}_{\mathrm{core}}(x)\big{|}_{x=c_{1}}-e^{F\left(c_{1}-P\right)},\]
+
+where \(P\) has already been determined, and the rest are free parameters. The parameter \(S\), which provides function continuity at \(c_{2}\), is determined in the same fashion.
+
+### Bias induced by the functional form
+
+Before proceeding with the study, it must be decided whether the functional forms describe well enough the data and MC distributions. In order to judge this, one can look at the induced bias and \(\chi^{2}\) of the fit.
+
+We define the bias, in a bin by bin manner, as the ratio between the average of the fitted function and the histogram (Figure 6, bottom plot). A good enough functional form should be able to describe the shape of the distribution along the whole range, i.e., the ratio should be close to 1 (within statistical uncertainty). A badly chosen function would show systematic deformations of this ratio (consider for instance, the ratio of a Gaussian and a Breit-Weigner curve).
+
+In a more quantitative approach, it is also good to continuously monitor the \(\chi^{2}_{\rm fit}\) value of the fit, and assure it remains in an acceptable range. This is a good indicator of the quality of the fit and whether the functional form remains capable of describing the shape of the distribution. In general, for \(n_{\rm dof}\) degrees of freedom, it is desired to have \(\chi^{2}_{\rm fit}\in[n_{\rm dof}-\sqrt{2\times n_{\rm dof}}\,\ n_{\rm dof}+\sqrt{2\times n_{\rm dof}}]\). Such a range, though, should also be tuned for each study.
+
+Note that, for a set of parameters \(\vec{p}=\{p_{0},p_{1},...\}\) being optimized, if \(\chi^{2}_{\rm fit}(\vec{p}_{\rm initial})\) is acceptable but \(\chi^{2}_{\rm fit}(\vec{p}_{1})\) gets very degraded for some \(\vec{p}_{1}\), it can mean either that the functional form is not capable of properly catching the effects of changing the parameters \(\vec{p}\), or that the possible values of the parameter should be limited to a narrower range. Failing to do so could further bias the optimization of the parameters \(\vec{p}\).
+
+Figure 6: Bias inspection of the Crystal Ball function (Eq. (13), 7 free parameters) fitted to the MC distribution. The ratio shows the average of the fitted function, per bin, to the histogram, and the band shows the relative bin statistical uncertainty.
+
+### Propagation of correlation
+
+The covariance matrix for the predicted MC template is computed using Eq. (11). An example of the bin-to-bin MC correlation is shown in Figure 7 for a 100 bin histogram (in the 80 to 100 GeV range), where the transition nodes (\(c_{1}\) and \(c_{2}\)) can be noticed by eye, and a strong correlation between neighbouring bins is evident. Nonetheless, the correlation between far apart bins is weak.
+
+### Migration treated \(\chi^{2}\) curve
+
+Putting all the previous quantities together using Eq. (7), we can build the corresponding \(\chi^{2}\) value for a particular shift in \(p_{0}\). Repeating the same procedure for many different values of \(p_{0}\), we can build the corresponding migration-less \(\chi^{2}\) curve as shown in red in Figure 8. A parabolic fit is also shown in Figure 8 for both of the \(\chi^{2}\) curves (in the same colour as the corresponding curve, but fainter).
+
+The first remark one can make is that the \(\chi^{2}\) discontinuities nearly disappear with the bin-to-fitted PDF method, and the minimum of the curve becomes well defined. Furthermore, the red curve follows almost perfectly the corresponding parabolic fit, which is expected in the completely analytical case.
+
+As briefly mentioned before, an approximate quick treatment to the migration problem is to simply fit a parabola to the discontinuous curve. As shown with the blue curve in Figure 8, such a fit can approximate well enough the position of the minimum and size of the error, and the only way to improve it is by doing the scan in a larger region, e.g., \(-0.5<p_{0}<0.5\), with the latent risk of including points outside the region where the \(\chi^{2}\) is parabolic. Furthermore, this is only viable in the few free parameter scenario, strongly motivating the use of the bin-to-fittedPDF method.
+
+Figure 7: Example of correlation matrix for the Breit-Wigner-like functional form.
+
+## 5 Unbinned likelihood approach
+
+Since the method described here explicitly provides an analytical approximation to the PDF of the distribution, one could even ditch completely the \(\chi^{2}\) method and use an unbinned likelihood. Furthermore, the same functional form can be fitted to the data distribution, enabling as well the use of a Likelihood ratio2 such as
+
+Footnote 2: N.B. as the denominator is completely independent of \(\vec{p}\) (and in fact, it can be separated as a constant +2 \(\sum_{i}^{N_{\text{data}}}\log f(x_{i};\hat{\vec{\theta}}_{\text{data}})\)), it will not modify the position of the minimum of \(-2\sum_{i}^{N_{\text{data}}}\log f(x_{i};\hat{\vec{\theta}}_{\text{MC}}(\vec{p}))\). Moreover, the denominator normalizes the negative log-likelihood, allowing to work with very small numbers by bringing the minimum along the y-axis to \(\sim 0\) instead of being at arbitrarily large numbers. This is also preferred by the minimizer, because the likelihood values are used to compute gradients using very small variations along the \(\vec{p}\)-space.
+
+\[-2\log\mathcal{L}_{R}(\vec{p})=-2\sum_{i}^{N_{\text{data}}}\log \frac{f(x_{i};\hat{\vec{\theta}}_{\text{MC}}(\vec{p}))}{f(x_{i};\hat{\vec{ \theta}}_{\text{data}})}, \tag{14}\]
+
+where the sum \(\sum_{i}^{N_{\text{data}}}\) runs over all the individual data events (in the previous example, each of these corresponds to a single \(Z\to ee\) event), \(f(x_{i};\hat{\vec{\theta}}_{\text{data}})\) has been fitted (only once) to the data histogram distribution, and \(f(x_{i};\hat{\vec{\theta}}_{\text{MC}}(\vec{p}))\) is fitted to MC for each \(\vec{p}\) during the minimization procedure. Note that the functional form fitted to data and MC must be the same (e.g. both should be Breit-Wigner-like), and that the values of the fitted parameters \(\hat{\vec{\theta}}_{\text{data}}\) and \(\hat{\vec{\theta}}_{\text{MC}}\) will be, in general, different.
+
+Figure 8: Practical example of the bin-to-fitted PDF method proposed in Subsection 3.1 (shown with red dots). The corresponding bin-to-bin discontinuous \(\chi^{2}\) is displayed with blue dots. For comparison, the parabolic fits on each of the \(\chi^{2}\) curves are plotted as faint continuous lines (in the same colour as the corresponding dotted curves).
+
+Minimizing Eq. (14) yields the same results as the method described in Subsection 3.1, up to a trade-off:
+
+* It is faster (computationally speaking) to compute \(-2\log\mathcal{L}_{R}(\vec{p})\) than the treated \(\chi^{2}\) for the same values of \(\vec{p}\), because no covariance matrix must be estimated (i.e., the likelihood relies completely on the central value of \(\hat{\vec{\theta}}_{\text{MC}}\) and \(\hat{\vec{\theta}}_{\text{data}}\), and does not include information on their errors and correlations),
+* The uncertainties on the fit of \(f(x_{i};\hat{\vec{\theta}}_{\text{data}})\) and \(f(x_{i};\hat{\vec{\theta}}_{\text{MC}}(\vec{p}))\) are neglected, which could lead to an underestimation of the uncertainties on \(\vec{p}\) if one uses the \(\Delta\chi^{2}=1\) approach.
+
+The choice of method is study-dependent, with the biggest impact being in the time that e.g. MINUIT [4] would need to find the best parameters \(\hat{\vec{p}}\).
+
+## 6 Parameter errors in the hist. vs. fitted PDF case
+
+First, there is a remark worth making: if the minimization methods are unbiased, one should be able to find exactly the same central values of the parameters \(\hat{\vec{p}}\) by minimizng either a \(\chi^{2}\) or \(-2\log\mathcal{L}_{R}\). That being said, the estimation of the errors on \(\hat{\vec{p}}\) typically depends on the shape of the curve (which is indeed method-dependent), so some considerations should be taken into account.
+
+If one were to drastically zoom in on the red curves of Figures 5 (right hand side) and 8, which show results of the hist. vs. fitted PDF procedure, tiny imperfections around a parabolic curve (consequence of the MC statistical uncertainty) would be seen. Normally this is not problematic, as it is possible to set a value of sensitivity with which the minimizer "sees" the \(\chi^{2}\). In MINUIT, for instance, this is done through the precision variable. That being said, such micro-discontinuities and sensitivity have an effect on the estimation of the gradient of the \(\chi^{2}\) surface, which can be problematic for methods that completely rely on knowledge of the derivative, such as the estimation of errors via inversion of the Fisher's information matrix (also called Hessian method) [3].
+
+Alternatively, one may consider the use of algorithms that estimate parameter errors \(\sigma(\mu)\) by numerically looking for e.g. \(\Delta\chi^{2}=\chi^{2}(\hat{\mu}\pm\sigma(\mu))-\chi^{2}(\hat{\mu})=1\) (as illustrated in Eq. (3)), such as MINUIT's MINOS [4]. However, as MINOS still relies on the knowledge of the gradient to provide an ansatz for the size of \(\sigma(\mu)\), error estimations are perturbed by the remaining micro-discontinuities, even if the effect is milder than in the case of the Hessian method. We observed that this leads to non-reliable error values in 10-20% of the cases. Moreover, using the MINOS algorithm can dramatically extend the computing time required by MINUIT, which in general is not worth it.
+
+It is important to note that the unbinned likelihood approach described in Section 5 does not directly include information of the correlations due to the fit of the PDFs \(f(x_{i};\hat{\vec{\theta}}_{\text{MC}}(\vec{p}))\) and \(f(x_{i};\hat{\vec{\theta}}_{\text{data}})\), thus mis-estimating the errors of the parameters \(\hat{\vec{p}}\). Should one wish to include the corresponding correlations, a more generalized form of Eq (14) is required, with the drawback of extended computing time at each iteration of the minimization. Moreover, just as in the bin-to-fittedPDF \(\chi^{2}\) technique, it is vulnerable to the same micro-discontinuities, so the corresponding Hessian errors are not reliable.
+
+With all the previous in mind, we suggest to use the errors estimated with any of these methods only as indicative. For precise error determination, it is encouraged to use numerical approaches, such as resampling studies via pseudodata replicas obtained around the original data distribution [6] (for \(\chi^{2}\)) or bootstrap [7] (for unbinned likelihoods).
+
+## 7 Conclusions
+
+We have described a technique capable of treating and suppressing \(\chi^{2}\) discontinuities generated due to bin-to-bin event migration, allowing to go from a completely unminimizable curve to an almost-parabolic scenario that can be easily optimized by a minimization framework such as MINUIT. Such a technique allows the long-standing histogram vs. histogram minimization problems, which are typically worked around via other approximate methods, to be treated, and enables the possibility for higher-dimensional minimizations. By showing a real-life example, the power of the technique is demonstrated, as well as the relative improvement when compared to the untreated scenario.
+
+## References
+
+* [1] ATLAS Collaboration, _Measurement of the W-boson mass in pp collisions at \(\sqrt{s}\) = 7 TeV with the ATLAS detector_, The European Physical Journal C **78** (2018), url: [https://doi.org/10.1140/epjc/s10052-017-5475-4](https://doi.org/10.1140/epjc/s10052-017-5475-4) (cit. on p. 2).
+* [2] ATLAS Collaboration, _Top-quark mass measurement in the all-hadronic \(t\bar{t}\) decay channel at \(\sqrt{s}=8\) TeV with the ATLAS detector_, JHEP **09** (2017) 118, arXiv: 1702.07546 [hep-ex] (cit. on p. 2).
+* [3] G. Cowan, _Statistical Data Analysis_, Oxford science publications, Clarendon Press, 1998, isbn: 9780198501558, url: [https://books.google.fr/books?id=ff82yW@nlJAC](https://books.google.fr/books?id=ff82yW@nlJAC) (cit. on pp. 2, 3, 6, 16).
+* [4] F. James, _MINUIT Function Minimization and Error Analysis: Reference Manual Version 94.1_, CERN-D-506 (1994) (cit. on pp. 4, 16).
+* [5] M. Rosenblatt, _Remarks on Some Nonparametric Estimates of a Density Function_, The Annals of Mathematical Statistics **27** (1956) 832, url: [https://doi.org/10.1214/aoms/1177728190](https://doi.org/10.1214/aoms/1177728190) (cit. on p. 7).
+* [6] G. J. Feldman and R. D. Cousins, _Unified approach to the classical statistical analysis of small signals_, Phys. Rev. D **57** (7 1998) 3873, url: [https://link.aps.org/doi/10.1103/PhysRevD.57.3873](https://link.aps.org/doi/10.1103/PhysRevD.57.3873) (cit. on p. 17).
+* [7] ATLAS Collaboration, _Evaluating statistical uncertainties and correlations using the bootstrap method_, ATL-PHYS-PUB-2021-011 (2021), url: [https://cds.cern.ch/record/2759945](https://cds.cern.ch/record/2759945) (cit. on p. 17).

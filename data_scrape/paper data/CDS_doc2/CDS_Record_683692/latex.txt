@@ -1,0 +1,382 @@
+ATLAS Internal Note
+
+INDET-N O-2XX
+
+DA Q-N O-120
+
+25 June 1998
+
+**Global Pattern Recognition**
+
+**in the TRT for the**
+
+**ATLAS LVL2 Trigger**
+
+**Matthias Sessler**
+
+University of Mannheim
+
+**Maria Smizanska**
+
+University of Lancaster
+
+**Challenges of the B-physics Strategy in LVL2 for the TRT**:
+
+The current B-physics trigger strategy in LVL2 is built upon a non RoI-guided scan of the full volume of the TRT, which requires the reconstruction of large numbers of tracks. The detector volume to be analysed is \(\sim\)100 fold larger than an RoI. Furthermore, extending the \(p_{T}\) range of the track search down to 0.5 GeV requires an additional factor of 12 in processing time in comparison with the high-\(p_{T}\) TRT feature extraction. On the other hand, B-physics is done initially at low luminosity (\(10^{33}\,cm^{-2}s^{-1}\)), which gives an \(\sim\)10 fold lower occupancy in comparison to the RoI-guided high-\(p_{T}\) track search. For B-physics, the full scan has to be executed with an event frequency of 9 kHz \(|1|\). Taking into account all these factors, the full scan at low luminosity is consuming an \(\sim\)100 fold higher amount of computing power than the RoI-guided scan at high luminosity. It is even the most challenging of all LVL2 algorithms in terms of computing power and bandwidth requirements. Therefore, a simple and very fast algorithm is not only desirable but essential, independent of the hardware realisation.
+
+**Presentation of an algorithm**:
+
+This paper presents a TRT track reconstruction algorithm which is based on a Hough Transform using a look-up table [LUT]. All algorithm steps are implemented in C++ and the most time-demanding steps are partially also implemented in VHDL (standardised Hardware Description Language) for FPGAs (Field Programmable Gate Arrays) on Enable++ [2]. Enable++ achieves an increase in execution speed of up to a factor of 100 \(|3|\). For the algorithm development and the algorithm quality studies, the C version was used. The FPGA implementation [4] was compared with the C++ version to prove the identical behaviour of the hardware and to measure the improvement in speed. All quality studies are made at low luminosity, and the results cannot be easily extrapolated to high luminosity.
+
+###### Contents
+
+* 1 Introduction
+* 2 B-Physics Trigger Strategy
+* 3 Barrel Algorithm
+	* 3.1 Initial Track Finding
+	* 3.2 Local Maximum Finding
+	* 3.3 Track Splitting
+	* 3.4 Final Selection
+	* 3.5 Track Fitting
+* 4 End-cap Algorithm
+	* 4.1 Initial Track Finding
+	* 4.2 Threshold and 2-D Maximum Finding
+	* 4.3 Track Splitting
+	* 4.4 3-D Maximum Finding and Fit
+	* 4.5 High Luminosity Outlook
+* 5 Reduction of Track Candidates
+* 6 Data Samples and Detector Geometry
+* 7 Benchmarking
+* 8 Single Track Performance
+	* 8.1 Track Reconstruction Efficiency
+	* 8.2 \(\phi\) - Resolution
+	* 8.3 \(1/p_{T}\) - Resolution
+	* 8.4 \(\eta\) - Resolution
+* 9 B-Physics Performance
+	* 9.1 Track Reconstruction Efficiency
+	* 9.2 Multiple Reconstructed Tracks and Fake Tracks
+	* 9.3 Electron Identification
+* 10 Conclusions
+
+Introduction
+
+The purpose of this paper is to present an algorithm which can be used for a fast track reconstruction in the whole TRT, and to show the results obtained with that algorithm. Chapter 2 explains the strategy of the B-physics trigger at low luminosity and the resulting requirements for the track reconstruction in the TRT. To meet these requirements, an algorithm has been developed. "Natural" overlapping zones given by the detector geometry define the number of parts in which the algorithm can be split. These are two barrel halves and two end-cap halves for the TRT. Thus a minimum number of 3 sub-detector transition regions can be combined in subsequent algorithm steps. For track finding, the TRT should be treated in 4 parts, as explained in chapter 4. The algorithms in the barrel and the end-caps are sufficiently different, that they are described separately in chapters 3 and 4. Merging of the reconstructed tracks of the different detector parts is an area of ongoing study.
+
+After the track reconstruction, the algorithm has to eliminate in several steps multiple reconstructed tracks. The track elimination capability of the different steps is summarised in chapter 5. The data samples used are listed in chapter 6 and the reference algorithm xKalman is described briefly in chapter 2. The values of the execution times obtained are presented in chapter 7. Finally, the performance of the algorithm is presented in chapter 8 for single tracks and in chapter 9 for B-physics events.
+
+## 2 B-Physics Trigger Strategy
+
+The B-physics LVL 2 trigger starts from events containing at least one muon candidate with transverse momentum \(p_{T}>\) 6 GeV and within \(|\eta|<2.4\). These events pass the LVL1 trigger at a rate of 23 kHz. The first LVL2 action is to confirm the muon with a recalculation of the muon \(p_{T}\) (including the Inner Detector) and a sharper threshold cut. The surviving events occur at a frequency of 9 kHz and are assumed in this note to be dominantly B-events. These events need a non RoI-guided scan of the whole TRT volume to reconstruct all tracks with \(p_{T}^{gen}\geq\) 1 GeV 1. Allowing for bremsstrahlung, a \(p_{T}\) cut of 0.5 GeV is used to be efficient for electrons with \(p_{T}^{gen}\geq\) 1 GeV. This is the most challenging of all LVL2 algorithms in terms of computing power and bandwidth requirements. The electron identification capability of the TRT is used to select all electron candidates with \(p_{T}^{rec}>0.5\) GeV and all other track candidates with \(p_{T}^{rec}>1\) GeV. This loose B-physics selection is very efficient for electrons with \(p_{T}^{gen}\geq\) 1 GeV and for all charged tracks with \(p_{T}^{gen}\geq\) 1.5 GeV. This strategy obviously leads to a high average number of reconstructed tracks per event. All track candidates are then passed to the SCT and pixels to refine the track reconstruction parameters (in particular in the dimension not measured or poorly measured in the TRT). Both the \(1/p_{T}\) resolution and the \(\phi\) resolution influence the computing requirements, since they determine the RoIs for tracks which have to be completed with SCT information.
+
+Footnote 1: \(p_{T}^{gen}\) is used for the generated \(p_{T}\), and \(p_{T}^{rec}\) is used for the reconstructed \(p_{T}\).
+
+Finally, the global decision of the LVL 2 trigger is based on a trigger menu utilising all the information from the reconstructed tracks. From the TRT point of view, the following parameters contribute to the trigger decision and to the overall computing requirements:* Execution time
+
+* Track finding efficiency for all tracks with \(p_{T}>0.5\) GeV
+* Rate of multiple reconstruction of a given track
+* Rate of reconstruction of fake tracks
+* Electron identification
+
+The values for the execution time are presented in chapter 7, the \(\phi\) and \(p_{T}\) resolutions are discussed in chapter 8, and the last four items are reviewed for B-physics events in chapter 9.
+
+For the algorithm described here, only the tube positions of the TRT are used. The achieved \(p_{T}\) resolution without drift-time is sufficient for the reconstruction of the low-momentum tracks of B-physics events at the trigger level and to define the RoIs for further track searches in the SCT/Pixel detectors.
+
+This information is only used to define the tracks which are passed to the SCT and Pixels to refine the particle reconstruction.
+
+The track finding efficiency, the rate of fake tracks and the electron identification of the algorithm presented in this note are compared with the off-line code called xKalman [5], which was chosen as the reference algorithm, since it is well understood as a reconstruction code [6], and it is the only available code which can efficiently perform the general pattern recognition required for B-physics events. xKalman applies the Kalman filter-smoother algorithm combining SCT/pixels and TRT, but is not designed to give an intermediate track output after the TRT pattern recognition. First, in the TRT, the initial track seeds for the SCT/pixels are produced, then the SCT/pixel information is added, and the final step is a global track fit. xKalman was optimised for a combined TRT and SCT/Pixel track finding. As a consequence, xKalman does not stress the reduction of multiple reconstructed tracks after the TRT. For this reason, the parameters, such as efficiency or multiple reconstruction of tracks, are compared only after the complete xKalman. However, there is no sense in comparing the \(\phi\) and \(p_{T}\) resolutions of the complete xKalman with the LUT-based implementation of the TRT only. On the other hand, for the benchmarking, only the initial TRT step of xKalman was compared with the full LUT-based TRT track reconstruction for B-physics events.
+
+## 3 Barrel Algorithm
+
+The implementations of the C++ and VHDL versions of the algorithm differ in some minor details, which are not relevant within the scope of this paper.
+
+This chapter contains a breakdown of the algorithm into the following steps:
+
+* **Initial track finding:** utilises a LUT-based Hough Transform to find potential track candidates.
+* **Local maximum finding:** selects potential track candidates and eliminates multiple reconstructed tracks.
+
+* **Track splitting:** removes hits incorrectly assigned to a track and splits tracks that have been erroneously merged.
+* **Final selection:** selects final track candidates.
+* **Track fitting:** performs a fit in the R-\(\phi\) plane using a third order polynomial to improve \(\phi\) and \(p_{T}\) reconstruction. The algorithm uses only the straw position (i.e. the drift-time information is not used).
+
+### Initial Track Finding
+
+The initial track finding applies a **look-up table (LUT) based Hough Transform**[7] from the R-\(\phi\) space to \(\phi-1/p_{T}\) space. The LUT consists of 96 000 (\(\phi\times 1/p_{T}\) = 1200 \(\times\) 80) pre-defined roads. All pre-defined roads point to (x, y) = (0, 0). The assumption of straight lines in the R-\(\phi\) projection is not sufficiently accurate for low-\(p_{T}\) tracks. Therefore pre-defined overlapping roads are computed as **exact circles** in the x-y projection, with an increasing road width for increasing R. The equation
+
+\[q\,C_{T}\,R\,=\,sin(\phi-\phi_{0})\]
+
+where \(C_{T}=0.3/p_{T}\), \(\phi_{0}\) is the initial azimuthal angle of the particle and \(q\) is the particle charge, is solved numerically for all required pairs of values of R of a straw and \(1/p_{T}\) of a track, and tabulated.
+
+The road width increases linearly from 4.5 mm at layer 1 (counted from the innermost layer outwards) to 6.8 mm at layer 42 and is then constant and equal to 6.8 mm from layer 42 to layer 73. With this definition, \(\approx 65\) straws belong to each road.
+
+Figure 1: **Structure of LUT for Hough Transform**. _The LUT stores for all possible straws the corresponding bins, for which the counters have to be incremented. All active straws of an event are put into this LUT, which returns the bin numbers (each bin number codes one \(\phi,1/p_{T}\) combination) which have to be incremented. For the end-caps, the symmetrical detector geometry is used to reduce the size of the LUT (chapter 4.1). The barrel symmetry is not yet used._
+
+The roads are computed in **bundles** of 80 tracks with different slopes in \(1/p_{T}\), from \(1/p_{T}=\) -2 \(GeV^{-1}\) to \(1/p_{T}=+2\)\(GeV^{-1}\) using constant steps in \(1/p_{T}\). This corresponds to a scan of the \(p_{T}\) range from 0.5 GeV to infinity for both signs of charge.
+
+These bundles have two points in common, the origin and a point at R = 0.8252 m. This radius is located in the middle of the barrel TRT and between two layers to avoid an unequal distribution of straws in the LUT. The \(\phi\) used for the Hough Transform space \((\phi,1/p_{T})\) is the \(\phi\) at this radius. Tracks that are close in \(p_{T}\) and \(\phi\) at this radius are close in space. Using this definition of \(\phi\) simplifies the selection of the correct track candidate (section 3.2). This method maximises the probability for correctly finding the tracks also at low \(p_{T}\), because in R-\(\phi\) the trajectories are only approximately straight lines. One bundle (35 kBytes) is stored on disk and, during the initialisation phase, this bundle is rotated throughout the barrel. The initialisation takes a few seconds to produce 1200 track bundles shifted by a constant \(\Delta\phi=2\pi/1200\).
+
+The pre-defined roads overlap by about 30 % - 50 % in \(1/p_{T}\) and \(\phi\). This overlapping of the roads prevents the loss of too many hits of a track if it is located between two pre-defined roads. On the other hand, this leads to multiple reconstruction of tracks, which have to be eliminated in further algorithm steps. The overlapping leads to \(\approx\) 120 roads (max. 130) belonging to each straw, as shown in Figure 1.
+
+The Hough Transform works in the following way: for each hit straw in the event, counters are incremented for all roads containing that straw. Each counter corresponds to a bin in a histogram in \(\phi-1/p_{T}\) space. Bins having \(>15\) active straws are identified as potential track candidates. The result of the initial track finding is a histogram, as illustrated in Figures 2 and 3 for a single muon with \(p_{T}=\) 3 GeV. One can see the steps in \(\phi\) and slope, which corresponds to \(1/p_{T}\). Each bin corresponds to a road in \(\phi-1/p_{T}\) space and the content of the bin is the number of active straws in this road.
+
+### Local Maximum Finding
+
+Histogram bins having \(>15\) active straws are identified as potential track candidates. Every potential track candidate must correspond to a **local maximum with respect to the 8 neighbouring bins in both dimensions \(\phi\) and \(1/p_{T}\)** to be retained as a track candidate. No interpolation is made between the bins, since the pre-defined roads are overlapping.
+
+Figure 2(a) shows a histogram for a single muon. The horizontal arrangement of the filled bins is due to the fact that the LUT is ordered in bundles of intersecting tracks at R = 0.8252 m and R = 0 m. This ordering results in a concentration of the filled histogram bins within a small \(\phi\) range, and therefore enables the maximum finder to compare only the 8 neighbouring bins to eliminate multiple reconstructed tracks.
+
+In Figure 2(b) the threshold cut selects 8 track candidates, and the maximum finding selects the one track candidate with the highest number of active straws. For single tracks, the multiplicity of found tracks is in most cases equal to 1 after the local maximum finding.
+
+Even in these simple events, because of the overlap of the bins in \(\phi\) and \(1/p_{T}\), the number of track candidates is large after the threshold cut. But these overlaps are needed to avoid losses of hit straws belonging to a track which does not match exactly a pre-defined road. A large reduction in the number of track candidates is achieved by the local maximum finding.
+
+For complete B-physics events including the expected pile-up at low luminosity, the local maximum finding reduces the number of track candidates on average by a factor of 10.
+
+### Track Splitting
+
+For this next analysis step, the association of the track candidate and the corresponding straws is used. For reasons of speed, this is achieved with a second LUT storing exactly the same information, but bin-ordered instead of straw-ordered, as shown in Figure 4(a). Both LUTs are computed once at initialisation. The second, the bin-ordered LUT takes as address the bin (=road) number and the stored information are all straws belonging to that road (=bin). Furthermore, a hash table is needed, which is filled once per event with all active straw numbers, as shown in Figure 4(b). This is needed to have a fast possibility to find out, which straws belonging to the road are active.
+
+The track splitting step applies the following criterion: if potential track candidates contain more than 8 consecutive layers without a hit, the track is split into two separate track candidates. This removes hits incorrectly assigned and splits tracks that have been erroneously merged. The split track segments are retained if they have more than 15 hits. These track segments differ from the track candidates in the previous step, because they consist of only part of a pattern with a defined start and end of track. The start of the segment produces rough \(\eta\) information about the reconstructed track, due to the fact that, in the region of the barrel at \(|z|<40\) cm, layer 10 is the first active layer. This is only true of course, if the
+
+Figure 2: **Detail of histogram of a single muon track with \(\mbox{$p_{T}$}=3\) GeV in the barrel TRT**.
+
+track splitting does not produce any fake tracks. This \(\eta\) information is used for the next step, the final selection. The track splitting step reduces the number of track candidates by a factor of \(\sim\)2 and introduces a negligible number of new tracks.
+
+### Final Selection
+
+In the final stage of selection, track candidates are classified according to the layer number (counting from the inside) of the innermost straw with a hit. This classification makes use of the fact that in the region of the barrel at \(|z|<40\) cm, layer 10 is the first active layer, as shown in Figure 5. The layer number of the first hit, therefore, provides some information on the position of the track candidate in z. The final selection is as follows:
+
+* If the first hit is in layers 1-9, the track is considered to be traversing the barrel/end-cap transition region. All such track candidates are accepted.
+
+Figure 3: **Histogram of a single muon with \(p_{T}\) = 3 GeV in the barrel TRT**_. Each point (hit straw) of the track in \(R-\phi\) space is transformed into a quantised curve in Hough space (\(\phi-1/p_{T}\)). The intersection point of these curves is located in the bin with the highest number of active straws._
+
+* If the first hit is in layers 10-25, the track is assumed to be traversing the region of the barrel at \(|z|<40\) cm. Such a candidate must exceed a threshold of 20 active straws to be accepted.
+* If the first hit is in a layer \(>25\), the track is rejected. Such candidates are mainly background or decays, but, in a small fraction of cases, are real tracks pointing presumably not at the origin.
+
+This is the last step of the track finding. The next step is to fit the tracks and calculate the corresponding features \(p_{T},\phi,\eta\) and electron probability. The final selection step reduces the number of track candidates by a factor of \(<2\).
+
+### Track Fitting
+
+For candidates passing the final selection, a fit is performed in the R-\(\phi\) plane using a third-order polynomial. The third-order correction is needed for low-\(p_{T}\) tracks, since for them a straight line approximation in the R-\(\phi\) plane is not valid anymore. The track is assumed to come from (x, y) = (0, 0) for the fit. To increase the speed of the track fit, in both the barrel and end-caps, the drift-time information is neglected. This degrades the transverse momentum resolution, especially for high-\(p_{T}\) tracks.
+
+The use of drift-time information would need computing of the drift-time in the pre-processing, transmission of the information, conversion from time to distance and possibly resolving of the left-right ambiguity.
+
+After the fit, the threshold, \(p_{T}^{rec}>0.5\) GeV, is re-applied.
+
+Figure 4: **LUT and hash table for association of track candidate and corresponding straws**.
+
+## 4 End-cap Algorithm
+
+The end-caps of the TRT do not measure \(p_{T}\), they measure only \(p_{L}\). Only the measurement of \(\eta\), illustrated in Figure 5, allows the calculation of \(p_{T}\). For this calculation, the beginning and the end of the track are needed, which could be done by splitting the end-caps into several overlapping parts. A different solution was chosen in this note (track splitting and 3-D maximum finder).
+
+The track finding and the track fitting in the end-cap make use of the assumption that the particles originate from (x, y, z) = (0, 0, 0).
+
+The end-cap algorithm is optimised in terms of execution time for a **full scan** at **low luminosity**, but also for a **RoI-guided scan** at **low or high luminosity**. The case of a full scan at high luminosity is discussed in section 4.5. The quality of the algorithm is optimised exclusively for low luminosity.
+
+For the end-caps there is only one LUT defined. This means that the algorithm does not introduce additional overlapping zones. This is important, since:
+
+* For each overlapping region there is either more computing needed, because hit straws have to be considered twice, or there is a loss of signal efficiency or background rejection.
+* Multiple reconstructed tracks have to be eliminated in subsequent steps.
+
+### Initial Track Finding
+
+In the end-caps, the Hough Transform is done from z - \(\phi\) space to \(\phi\) - 1/\(p_{L}\) space, with a LUT of dimension \(\phi\times 1/p_{L}=1152\)\(\times\) 80. The roads are overlapping, the road width (in \(\phi\)) is, for each plane, 2 \(\pi\) / (number of straws in this plane). A 192 fold symmetry in the LUT is used to reduce the size of the LUT. In this way, the straw-ordered LUT stores only 4 straws per plane for \(|z|<280\) cm and 3 straws per plane for \(|z|>280\) cm. The bin-ordered LUT stores 6 bundles with different \(\phi\) at z = 209.65 cm and 80 pre-defined 1/\(p_{L}\).
+
+Rotating the end-caps by \(2\pi/192\), the detector and the roads are invariant, but shifted by:
+
+* 768 / 192 = 4 straws in the planes with \(|z|<280\) cm* 576 / 192 = 3 straws in the planes with \(|z|>280\) cm
+* 1152 / 192 = 6 pre-defined roads in the bin-ordered LUT
+
+A symmetric LUT does not necessarily introduce overlaps. The LUT for the end-caps is implemented not to introduce overlaps. The symmetry of the LUT is fully transparent for the algorithm in this end-cap implementation.
+
+Bins exceeding a threshold of 20 active straws are retained as potential track candidates. Since only one LUT is used for the whole end-cap volume, different \(1/p_{T}\) tracks are mixed in the same \(1/p_{L}\) bin. In the barrel, a bundle of pre-defined roads for different slopes have a common point at R = 0.8252 m. This common point, where a bundle of \(1/p_{L}\) slopes intersect in the end-cap, is chosen to be at z = 209.65 cm. But since the tracks in the end-caps do not cross the whole z-range of the end-cap, there are different scenarios for the local maximum finding (see Figure 6 for two different muons with identical energy and charge) depending on \(\eta\) of the track, which is not yet measured. For this reason, a rigorous maximum finding
+
+Figure 6: **Histograms of single muons with different \(\eta\) in the end-cap TRT**_A histogram of a single muon in the central part of the end-cap looks very similar to the histogram of a single muon in the barrel, as shown in Figure 2. This means that the filled histogram bins are at roughly identical \(\phi\). Note that the above shown muons differ neither in the energy nor in the charge, but in \(\eta\). In both cases a local maximum finding with respect to the 8 neighbouring bins in both dimensions \(\phi\) and \(1/p_{L}\) is not able to select only one bin. To select only one bin, the maximum finding has to take the \(\eta\) value into account and adapt the comparison area in \(\phi\) and \(1/p_{L}\) with respect to \(\eta\)._
+
+cannot be applied after the initial track finding. A detail of a typical histogram of a B-physics event is shown in Figure 7. This example will be used to illustrate the following algorithm steps.
+
+### Threshold and 2-D Maximum Finding
+
+After the initial track finding, a threshold filter is applied, selecting all tracks with \(>\) 20 active straws. The result of the threshold filter is illustrated in Figure 8(a).
+
+At this stage, tracks of different \(p_{T}\) are superimposed in the same bin, and \(p_{T}\) is not known. It can be seen from Figure 8(a) that a 2-D filter to select the correct bin with the generated track, must operate over a large area in \(\phi\) - \(1/p_{L}\) space. Furthermore, bins with erroneously superimposed track fractions might be selected instead of the correct tracks.
+
+Nevertheless, for reasons of speed, a 2-D maximum finding is applied at this stage. Bins exceeding the threshold must be a local maximum with respect to the 8 neighbouring bins in both dimensions \(\phi\) and \(1/p_{L}\). The result is once again shown for the example event from B-physics in Figure 8(b). It would be nice to get rid of this step, because the 2-D maximum finding can eliminate good track candidates which are surrounded by erroneously merged tracks. In principle, one can just leave out this step and obtain at least as good results, because this functionality can be taken over by the subsequent steps. This step is only introduced to improve the overall timing behaviour of the algorithm, because it reduces the number of tracks which have to undergo the time-consuming track splitting by a factor of \(\thickspace\)2. The
+
+Figure 7: **Detail of typical histogram of a B-physics event**.
+
+2-D maximum finding is done for the tracks exceeding the threshold "on the fly" together with the threshold filter.
+
+### Track Splitting
+
+The next step is a track splitting similar to the one for the barrel. The track splitting step divides a track candidate into two if 12 consecutive planes in z have no hits. The resulting track segments still exceeding the threshold of 20 hits are retained as track candidates. Apart from removing hits incorrectly assigned and splitting tracks that have been merged, this step defines a start and an end of the track. This is crucial for the end-cap, because without this information it is impossible to estimate \(\eta\). And without \(\eta\) it is impossible to calculate \(p_{T}\) from \(p_{L}\). The calculation of \(p_{T}\) in the end-cap is explained in Figure 5 and [5]. The B-physics example event after the track splitting is shown in Figure 9(a). The track splitting step reduces the number of track candidates by a factor of \(\sim\)5.
+
+### 3-D Maximum Finding and Fit
+
+The final selection is a 3-D maximum finding utilising the \(\eta\) information produced in the track splitting step. Depending on the reconstructed \(\eta\), an appropriate shape of the 3-D maximum finding is applied, taking into account the \(\eta\), \(\phi\) and \(p_{L}\) of the track candidates. In this way, only spatially closely tracks are competing in the maximum finding. The B-physics example event after this step is shown in Figure 9(b). The 3-D maximum finding step reduces the number of track candidates by a factor of \(\sim\)3.
+
+Figure 8: **Same B-physics event as for Figure 7 after threshold cut and after 2-D maximum finding.**
+
+Tracks are then fitted as straight lines in z-\(\phi\). To increase the speed of the track fit, the drift-time information is neglected. This affects particularly the transverse momentum resolution for high-\(p_{T}\) tracks.
+
+In order to maintain efficiency in the transition region from barrel to end-cap, the threshold on the number of hits on a track candidate must be lowered, this leads to an increase in the number of fake candidates. Optimisation of the algorithm in this region is an area of ongoing study. In the region at \(\eta>2.2\) the reconstruction quality falls off, due to the decreasing magnetic path length of the particles in the TRT.
+
+### High Luminosity Outlook
+
+Figure 3 shows that single tracks increase histogram counters over the full \(p_{T}\) range from -0.5 GeV to + 0.5 GeV. This is valid for barrel and end-cap histograms. In the end-cap with 224 potential hit straws (all roads have 224 corresponding straws) in the histogram counters, an average event has 5-10 hits from tracks crossing the road of a given bin, as shown in Figure 7(b). At high luminosity, this value becomes \(\approx\) 70 with huge statistical fluctuations. This means, that the 2-D maximum finding as described in 4.2 becomes impossible, because it is **impossible** to apply a sensible threshold.
+
+The only way out would be to apply directly after the histogramming step a track separation and 3-D maximum finding. But this would result in a track separation
+
+Figure 9: **Same B-physics event as for Figure 7 after track splitting and after 3-D maximum finding.**
+
+step with \(\sim\)1 second execution time for the end-caps at 400 MHz CPU frequency, not including the histogramming time.
+
+In conclusion, the method presented here for the end-cap is not practical for a fast execution of a full scan at high luminosity, though it works. A different approach might be to treat the end-cap in several partitions with all the inherent problems of multiple track reconstruction and duplication of work in terms of execution speed.
+
+Therefore, the execution of the full scan at high luminosity would create a huge rise in execution time, significantly larger than the rise in occupancy of about a factor of 10.
+
+All results presented below are for low luminosity B-physics. The impact of higher luminosities on the algorithm will be studied in more detail.
+
+## 5 Reduction of Track Candidates
+
+After the histogramming step and the application of the threshold on the number of hit straws in a bin for selecting track candidates, there are several hundred up to several thousand initial track candidates in typical B-physics events including pile-up. Therefore, the steps described above have been introduced, to reduce this number to ideally one track candidate per generated track. The number of track candidates obtained per reconstructed track with \(p_{T}^{gen}>0.5\) GeV is shown in Figure 15. This means, only the generated tracks which have been reconstructed at least once, are included in the Figure. Table 5 shows the power of the different algorithm steps in terms of rejecting multiple reconstructed tracks and fake tracks.
+
+## 6 Data Samples and Detector Geometry
+
+For the evaluation of the execution time and for studies of the track reconstruction efficiency, of multiple reconstructed tracks, of erroneously reconstructed tracks and of the electron identification capability, **fully simulated**\(bB_{d}^{0}X\rightarrow\mu J/\psi(e^{+}e^{-})K_{s}^{0}X^{\prime}\)**events with minimum bias pile-up** (3.2 pile-up events on average) from tape Y00347 have been used. The interaction point was smeared in both the longitudinal and transverse directions. The \(p_{T}\) distribution of the simulated tracks is shown as an inlay in Figure 14(a). Most of the simulated tracks are not shown, because their \(p_{T}\) is below 0.5 GeV.
+
+For the measurement of single track efficiencies, \(\phi\) resolution and \(1/p_{T}\) resolution, single 6 GeV \(\mu^{-}\), 1.5 GeV \(\pi^{-}\) and 1.0 GeV \(e^{-}\), all without pile-up, have been used.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline
+**Algorithm Step** & **Barrel** & **End-caps** \\ \hline \hline Barrel: Local Maximum Finding & 10 & 2 \\ End-caps: 2-D Maximum Finding & 2 & 5 \\ \hline Track Splitting & 2 & 3 \\ \hline Barrel: Final Selection & \(<\) 2 & 3 \\ End-caps: 3-D Maximum Finding & 2 & 3 \\ \hline \end{tabular}
+\end{table}
+Table 1: **Reduction factors on the number of track candidates obtained by the different algorithm steps**The geometry used in this study to describe the TRT is from DICE 97_6.
+
+Typical B-physics events at low luminosity have several dozens of tracks, most of which are pions. The same is true for the added pile-up, therefore most tracks in the following "all-particle" plots are from pions.
+
+## 7 Benchmarking
+
+For the benchmarking of the execution times of the xKalman package a profiling was done. This code is written in Fortran. The given time corresponds to the track reconstruction in the TRT. Neither the time spent in the SCT nor the time for the combined TRT and SCT analysis is taken into account. At a later stage of the studies, also combined TRT and SCT studies will be carried out.
+
+The Enable algorithm was fully implemented in C++ for the benchmarking on standard processors. The most time-demanding parts of this algorithm are also implemented in VHDL to run on the FPGA processor Enable++. A more detailed description of this implementation can be found in [8]. The Enable++ times are evaluated as described in [9]. This means, that two FPGA computing boards, both containing 16 FPGAs in the computing core, are used. The times are compared in Table 7. There are new ideas of how to combine the initial track finding step
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline
+**Detector part** & **xKalman** & **LUT-based** & **LUT-based** \\  & 400 MHz Alpha & 400 MHz Alpha & 50 MHz FP GaAs \\ \hline \hline Barrel & **-** & 38 ms & 0.42 ms \\ End-caps & **-** & 125 ms & 1.20 ms \\ \hline \hline
+**Whole TRT** & \multirow{2}{*}{900 ms} & \multirow{2}{*}{163 ms} & \multirow{2}{*}{1.62 ms} \\ (Barrel + End-caps) & & & \\ \hline \end{tabular}
+\end{table}
+Table 2: **Benchmarking of TRT full scan with different hardware and software, for B-physics events including pile-up at low luminosity.**
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline
+**Algorithm Step** & **Barrel** & **End-caps** \\  & 400 MHz Alpha & 400 MHz Alpha \\ \hline \hline Initial Track Finding & 28 ms & 84 ms \\ \hline Barrel: Threshold and Local Max. Finding & \multirow{2}{*}{6.0 ms} & \multirow{2}{*}{8.0 ms} \\ End-caps: Threshold and 2-D Max. Finding & & \\ \hline Track Splitting & 2.8 ms & 27 ms \\ \hline Barrel: Final Selection and Fit & \multirow{2}{*}{1.0 ms} & \multirow{2}{*}{6.0 ms} \\ End-caps: 3-D Maximum Finding and Fit & & \\ \hline \hline
+**Full Algorithm** & 38 ms & 125 ms \\ \hline \end{tabular}
+\end{table}
+Table 3: **Execution time breakdown for the C++ implementation of the TRT full scan, for B-physics events including pile-up at low luminosity.**with the track splitting step in the FPGA implementation, which will be tested on Enable++ this summer.
+
+A breakdown of the execution times for the different algorithm steps is done for the LUT implementation in C++ and shown in Table 7.
+
+## 8 Single Track Performance
+
+In this chapter, the properties of single tracks are examined. In considering single tracks, the results obtained represent an idealisation of what can be expected under normal LHC operating conditions.
+
+Frequently, muons are used for studies of track parameter resolutions since they only incur ionisation losses and multiple scattering. Hadrons suffer from secondary interactions in addition. The effect of these interactions can be to stop the incident track, so that it may prove impossible to reconstruct the track all together. However, in the absence of secondary interactions, the distributions of its reconstructed parameters are similar to those of a muon. Electrons, finally, are prone to lose a significant fraction of their energy through bremsstrahlung emission, since the amount of material in the Inner Detector is large.
+
+For the different particle types, various momenta were chosen, to examine the dependence of the performance over the complete range of momenta of interest for physics. Electrons with \(p_{T}^{gen}=1\) GeV and pions with \(p_{T}^{gen}=1.5\) GeV have the lowest momentum which should still be reconstructed with high efficiency. The muons with \(p_{T}^{gen}=6\) GeV are at the momentum threshold of the LVL1 trigger and therefore of special interest.
+
+### Track Reconstruction Efficiency
+
+The reconstruction efficiencies for single 6 GeV muons, 1.5 GeV pions and 1.0 GeV electrons are shown in Figure 10(a). The efficiency for muons is close to 100 % except in the region \(\eta\approx 0\) where there is a loss of efficiency of \(\sim\)10 %. This is due to the fact that the track search is performed separately in the -z and +z halves of the barrel. The efficiency will have to be improved in this region by lowering the threshold on the number of hits at the cost of an increase in fake rate, or, better, by combining the results obtained from the -z and +z halves of the barrel TRT.
+
+The efficiencies for reconstructing single tracks in the barrel are shown in Figure 10(b) as a function of the \(p_{T}\) threshold applied. For pions and muons there is a sharp threshold rise. For 6 GeV muons an overall efficiency of 97 % can be obtained for \(p_{T}^{rec}>0.85\) GeV. For 1.5 GeV pions an overall efficiency of 94 % can be obtained for \(p_{T}^{rec}>1.35\) GeV. The threshold is less sharp for electrons due to the effect of bremsstrahlung energy loss. In order to obtain an efficiency of 80 % for 1.0 GeV electrons a 0.7 GeV threshold must be applied. This efficiency rises to 87 % if the threshold is reduced to 0.5 GeV.
+
+### \(\phi\) - Resolution
+
+As mentioned in chapter 2, the track candidates from the TRT define regions for the SCT/pixels to refine the track measurement. Therefore, the \(\phi\) resolution obtained from the TRT will be directly correlated to the CPU time required for the SCT/pixels.
+
+To obtain the \(\phi\) resolution, \(\phi_{0}^{gen}\) was compared to \(\phi_{0}^{rec}\), which is the azimuthal angle reconstructed from TRT data with the assumption that tracks originated at (x, y) = (0, 0). Both \(\phi_{0}^{gen}\) and \(\phi_{0}^{rec}\) are given at the origin.
+
+The \(\phi\) resolution is limited by physics processes, the detector measurement accuracy and the reconstruction program. If only the TRT is used, the strictest constraint should be the multiple scattering limit. The reconstructed \(\phi\) resolution for 1.5 GeV pions (Figure 12(a)) roughly corresponds to multiple scattering. For 6 GeV muons, as shown in Figure 11(a), the \(\phi\) resolution is already dominated by the detector accuracy.
+
+For electrons, as shown in Figure 13(a), an asymmetric tail due to bremsstrahlung is observed, containing 20 % of electrons with \(\Delta\phi>0.02\). The direction of this one-sided tail results from the assumption in the initial track finding that the tracks point to the vertex in the transverse plane. This results in a strong correlation between the \(\phi\) and the \(1/p_{T}\) reconstruction, as shown in Figure 13. Obviously, the \(\phi\) resolution can be improved by using the drift-time information in the TRT.
+
+### \(1/p_{t}\) - Resolution
+
+The \(1/p_{T}\) resolution of the algorithm directly influences the trigger rates due to the \(p_{T}\) thresholds usually applied and is therefore an important parameter. The reconstruction efficiency versus \(p_{T}\) threshold applied is shown in Figure 10(b).
+
+The \(1/p_{T}\) resolution of the LUT algorithm is worse than that of the complete Inner Detector reconstruction. The reasons are:
+
+* the information from SCT and Pixels is not used in the trigger algorithm described here;
+
+Figure 10: **LUT single particle performance**.
+
+Figure 11: **LUT single muon reconstruction**.
+
+Figure 12: **LUT single pion reconstruction**.
+
+* the TRT drift-time information is not used in this present FPGA study, in order to evaluate the worst-case TRT resolution in case it would provide a huge hardware economy in LVL2 not to use the drift-time information. The omission of the drift-time particularly degrades the transverse momentum resolution for high-\(p_{T}\) tracks;
+* significant multiple scattering in the material between the interaction point and the TRT.
+
+The \(1/p_{T}\) distributions shown for single tracks can be compared to the detector resolution (TRT without drift-time). Figures 11(b), 12(b) and 13(b) show the \(1/p_{T}\) distributions for single 6 GeV muons, 1.5 GeV pions and 1.0 GeV electrons respectively. The shifts of a few MeV are due to ionisation losses of the particles. The electron resolution is significantly worse due to bremsstrahlung. The 6 GeV muon resolution could be significantly improved using the drift-time information, which is more important for transverse momenta above \(\sim\)5 GeV.
+
+### \(\eta\) - Resolution
+
+Both the barrel and the end-cap TRT measure primarily in two dimensions. In the barrel, the information on the third dimension has as total uncertainty the straw half-length, i.e. \(\sim\)75 cm, which leads to a very coarse \(\eta\) resolution. Both in the barrel/end-cap transition region and in the end-cap the \(\eta\) resolution is much better. Nevertheless, some information can also be obtained in the barrel as described in section 3.4.
+
+Figure 13: **LUT single electron reconstruction**.
+
+B-Physics Performance
+
+For a comparison of the LUT-based algorithm (from now on simply called LUT) with the reference algorithm xKalman, identical data sets were used for both algorithms. The data samples are described in chapter 6. The Figures of sections 9.1, 9.2 and 9.3 below show the LUT results, and the comparison with xKalman is made in the corresponding text. The cuts applied in this study are:
+
+* \(|\eta|<0.7\)2, this excludes tracks traversing the barrel/end-cap transition region and tracks in the end-caps. Footnote 2: In all Figures \(\eta\) stands for \(\eta^{gen}\).
+* only the particles with a point of origin within a 1 cm transverse distance from the interaction point were considered. This is due to the fact that the majority of B-hadrons will decay at radius of \(<1\) cm and that there is no trigger on neutral strange secondary hadrons.
+
+### Track Reconstruction Efficiency
+
+The reconstructed track candidate is associated with the generated particle with which it shares the largest number of active straws. Multiple reconstructed tracks do not affect the track reconstruction efficiency. As a consequence, the efficiency is defined to be at maximum 1. Figure 14 shows the track reconstruction efficiency for B-physics events with LUT as a function of \(p_{T}\) and \(\eta\). For tracks with \(p_{T}^{gen}>1\)
+
+Figure 14: **LUT track reconstruction efficiency and spectrum of all generated tracks**.
+
+GeV an efficiency of \(>90\) % is reached. This is a favourable result, also in comparison with xKalman using TRT and SCT and resulting in a very similar efficiency distribution. It should be mentioned that the introduction of the SCT/pixel step cannot raise the efficiency, since there are no new track candidates defined in the SCT/pixel system in LVL2.
+
+### Multiple Reconstructed Tracks and Fake Tracks
+
+After the track reconstruction the number of track candidates with \(p_{T}^{\,rec}\geq 0.5\) GeV is 34 % larger than the number of reconstructed tracks with \(p_{T}^{\,gen}\geq 0.5\) GeV. This effect has two sources:
+
+* First, a fraction of the tracks are multiple reconstructed with slightly different hit combinations. The multiplicity of reconstructed tracks per generated charged particle with \(p_{T}>0.5\) GeV, that have been reconstructed at least once, is shown as a function of \(p_{T}\) and \(\eta\) in Figure 15. By definition, this track multiplicity is \(\geq 1\). The fraction \(>1\) shows the average number of double tracks in this \(p_{T}\) range. The contribution of multiple reconstructed tracks with \(p_{T}^{\,rec}\geq 0.5\) GeV is 18 %.
+* Secondly, a 16 % contribution arises from particles with \(p_{T}^{\,gen}<0.5\) GeV, as shown in Figure 16(a). These particles are very numerous in the fully simulated \(bB_{d}^{0}X\rightarrow\mu J/\psi(e^{+}e^{-})K_{s}^{0}X^{\prime}\) events with pile-up, as shown in Figure 14(a).
+
+The classification is done by a comparison of the reconstructed tracks with the simulated tracks at the level of the hit straws. Each reconstructed track consisting of different simulated tracks is assigned to the simulated track with the highest
+
+Figure 15: **LUT track reconstruction multiplicity**.
+
+number of common hits. If the reconstructed track is assigned to a simulated track with \(p_{T}<0.5\) GeV, it is labelled as a **fake track**. If it is assigned to a track with \(p_{T}\geq 0.5\) GeV which is already reconstructed, it is a **multiple reconstructed track**.
+
+To compare this result with xKalman, a completely analogical analysis was done. Figures 15 and 16(a) show that the LUT algorithm (only using the TRT) reconstructs 34 % more tracks than simulated. This value can be compared to that obtained with xKalman, which reconstructs 20 % more tracks (using SCT/pixels and TRT ).
+
+### Electron Identification
+
+The electron identification capability of the TRT is used e.g. to select \(J/\psi(e^{+}e^{-})\). This electron identification depends critically on "pure" tracks, because the typical threshold of recognising an electron is at \(\approx 10\) % TR (Transition Radiation) hits. In particular, an erroneous mixing of electron and pion track segments will degrade the electron identification capability. Figure 16(b) shows the electron identification capability for the LUT algorithm. The identification probability for electrons with \(R_{1}>0.1\) is 90 %, with a rejection factor against hadrons of 6.7. This result, valid for all tracks fulfilling the cuts in B-physics events, is comparable to the result obtained with xKalman.
+
+Figure 16: **LUT ”fake” tracks and electron identification capability**.
+
+## 10 Conclusions
+
+* The algorithm presented in this note is the fastest existing implementation of the TRT full scan using general-purpose processors.
+* A considerable further speed-up was obtained by porting time-critical algorithm parts to FPGAs [8], which is possible because the algorithm is well-suited for FPGAs.
+* The results of the algorithm quality studies are comparable those of xKalman, where only TRT information is used (pattern recognition).
+* The impact of these results on the B-physics selection at LVL2 has to be studied in more detail. This will be done combining the TRT track reconstruction results with the SCT/pixel information.
+* A treatment of the end-cap TRT as a whole, rather than in slices, is recommended at low luminosity. For a full scan at high luminosity, the algorithm should be optimised differently, and above all the 2-D maximum finding should be eliminated. This change will slow down the algorithm considerably.
+* Studies in the barrel/end-cap transition region show that tracks from the barrel and the end-caps have to be merged to reduce the number of multiple reconstructed tracks in this region, while preserving a high efficiency. The same conclusion applies to the region near \(\eta\) = 0, where tracks need to be reconstructed by combining the -z and +z halves of the barrel TRT.
+
+## References
+
+* [1]_ATLAS Trigger Performance Status Report_, ATLAS Trigger Performance Community, CERN /LHCC 98-15, 30 June 1998.
+* A second generation FPGA processor for ATLAS_, H.Hoegl et al, ATLAS DAQ-note-026, 5 December 1994.
+* [3]_A Hybrid Approach for the ATLAS Level-2 Trigger_, A.Kugel et al, Proceedings of the Third Workshop on Electronics for LHC Experiments, London, CERN /LHCC 97-60, 21 October 1997.
+* [4]_ATLAS Level-2 Trigger Demonstrator A Activity Report Part 1: Overview and Summary_, A.Kugel et al, ATLAS DAQ-note-08 5, 26 March 1998.
+* [5]_Description of Global Pattern Recognition Program (xKalman)_, I. Gavrilenko, ATLAS INDET-note-165, April 1996.
+* [6]_ATLAS Inner Detector Technical Design Report_, ATLAS Inner Detector Community, CERN /LHCC 97-16, 30 April 1997.
+* [7]_The Data Analysis BriefBook_, R.K.Bock, W.Krischer, ISBN 3-540-64119-X, Springer Verlag, 1998
+* [8]_ATLAS Level-2 Trigger Demonstrator A Activity Report Part 2: Demonstrator Results_, A.Kugel et al, ATLAS DAQ-note-084, 26 March 1998.
+* [9]_ATLAS Level-2 Trigger Demonstrator A Activity Report Part 3: Paper Model_, A.Kugel et al, ATLAS DAQ-note-101, 2 June 1998.

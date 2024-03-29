@@ -1,0 +1,161 @@
+**Definition of "Raw Data Objects" for the MDT Chambers of the Muon Spectrometer**
+
+**Authors: K. Assamagan, P. Bagnaia, M. Biglietti, A. Di Mattia,**
+
+**S. Falciano, M. Grothe, S. Rosati**
+
+Keywords: On-line Off-line, RDO, MDT, Converters, Muon, HLT, PESA
+
+**Abstract**
+
+This note describes the Raw Data Objects (RDOs) defined for the MDT chambers of the Muon Spectrometer. The RDOs are derived from the ByteStream Data Format provided by the MDT readout electronics and are based on the needs of the High Level muon Trigger algorithms and the off-line muon Reconstruction programs. A description of the ByteStream-to-RDO and RDO-to-ByteStream Converters is also reported.
+
+Introduction
+
+On-line trigger algorithms, on-line monitoring tasks and off-line reconstruction programs share the need of accessing event data in a format suitable to the task they have to accomplish. Recently a significant effort has been carried out in order to establish a common Event Data Model (EDM) between on-line and off-line software. This will help enormously the re-use of off-line code for the Event Filter and, if applicable, will set a homogeneous development of event data handling software between on-line and off-line environments.
+
+A boost to this common model has been given by the new Physics and Event Selection Architecture (PESA) software [1] where the EDM covers all data entities in the event and their relationship. Examples of data entities are the Raw Data in ByteStream format originated from detector Read Out Drivers (RODs), the Level-1 (LVL1) Trigger Results and all other reconstruction entities such as the detailed Results of the Level-2 Trigger (LVL2) and of the Event Filter (EF). The EDM is therefore the mean of communication of the various software packages to exchange event information.
+
+The HLT Selection Software of PESA defines an EDM software package which contains sub-packages representing the various data classes needed by the full selection process. Among these are sub-packages handling with : Raw Data in ByteStream format produced by the DAQ Read Out System (ROS) and the LVL1 system (or their emulation); Raw Data Objects (RDOs) derived from the Raw Data sent by the Read Out Buffers (ROBs) converted for the purpose of further processing. Conversion packages are then necessary to go from one type of data to another. For instance data unpacking algorithms are necessary to convert Raw Data into Raw Data Objects (RDOs), data reduction algorithms can perform tasks such as zero suppression on RDOs thus producing another type of RDOs and so on, data preparation algorithms applied to RDOs can even perform calibration tasks.
+
+This paper reports on a first definition of the "bare" and "prepared" Raw Data Objects (RDOs) for the MDT chambers of the Muon Spectrometer. It also describes the software packages developed to carry on the data conversion tasks, their implementation and performance. The RDOs and the Converters are of immediate use for the HLT algorithms, which include an off- line reconstruction program as EF code, running in the new PESA framework.
+
+## 2 MDT ByteStream Raw Data
+
+ByteStream Raw Data are produced by the ATLAS detector or its simulation. Data have the format provided by the ROB as defined by the DAQ Group [2] and with the same envelope for all sub-detectors. ByteStream Raw Data are usually organized as a set of hierarchical fragments where the bottom levels, up to the ROD fragment, are defined by the sub-detector Group.
+
+The MDT ByteStream Raw Data format reflects the format produced by the full MDT readout chain, that is the ATLAS Muon TDC (AMT, [3]), the Chamber Service Module (CSM, [4]) and the Muon Read Out Driver (MROD, [5]). The hierarchical structure of the data relies on the fact that an MROD accepts 6 CSM links (plus two extra links from Extension board if needed) and each CSM link multiplexes a maximum of 18 TDC links into a single output link. Thus an MROD may contain upto 6 (or 8) CSM data blocks, each one formed by a maximum number of 18 TDC data blocklets with headers and trailers.
+
+Data sent to the DAQ by an MROD represent a so called Trigger Tower, that is the grouping of six MDT chambers (within a standard sector) belonging to a defined geometrical region (e.g. a cone with an extent \(\Delta\eta\) and \(\Delta\phi\)). This data organization is particularly useful to the High Level Trigger algorithms which need fast access to the data and, as for the LVL2, require access only to limited portions of the detector, such as Regions of Interest indicated by the LVL1.
+
+A detailed description of the MDT ByteStream Raw Data format can be found in reference [5]. On-line and off-line numbering schemes and conventions relevant to this paper can be found in [5] and [6].
+
+## 3 Definition of Raw Data Objects
+
+Raw Data Objects are aggregated into collections corresponding to adjacent readout channels within the detector. These collections reside in an IdentifiableContainer (IDC) with Identifier labels corresponding to the unit of aggregation which is, for most sub-detectors, the DetectorElement and the Identifier label is its off-line Identifier (or an Identifier derived from it for internal use). For the MDTs the DetectorElement is a single MDT chamber made of two multilayers. The IDCs are inherited by the STL (Standard Template Library) container which can be implemented either as a DataVector or as a List (with different performance in memory access time, memory occupancy, etc.).
+
+The definition of the RDOs for the MDT has to take into account the organization of the MDT readout, i.e. the data format of the MROD, and the requirements of the LVL2 and EF algorithms. The ByteStream conversion has been implemented for two types of RDOs: the "bare" RDOs, which are intended as an object representation of the ByteStream Raw Data, which can be used by the MuFast Level-2 algorithm [7, 8], and the "prepared" RDOs, which are intended to contain more information than what is needed by the Level-2 algorithm. The "prepared" RDOs are the input to the EF algorithm, MOORE [11]. In the offline language, the "prepared" RDOs are also called Reconstruction Input Objects (RIOs).
+
+### Bare Raw Data Objects
+
+The "bare" Raw Data Objects are organized according to the scheme shown in Figure 1. The classes defined in the scheme and implementing the "bare" RDOs are the following:
+
+* **MdtCsmContainer**: is a class inheriting from the Athena base class IdentifiableContainer and used as a container to handle the MDT data collections in the Transient Event Store. An istance of this class is created and stored in the Event Store at the initialization of the ByteStream conversion service.
+
+* **MdtCsm**: this class inherits from the DataVector base class and holds, as private data members, an online identifier (consisting of Subdetector Id, MROD Id and CSM Id as defined in [6]), and a chamber offline identifier (as defined in [9]). The class hosts all AMT hits from a single MDT chamber.
+* **MdtAmtHit**: this class contains all the data words from a single channel of an AMT (one channel corresponds to one MDT tube). The time measurement of the first hit in the tube is decoded, while all other 32-bit data words, if present, are stored undecoded in a vector, to eventually allow an offline decoding on-demand. These additional undecoded data words, while not essential for the reconstruction, might contain important informations regarding, for example, the data quality, or eventual error flags present in the data flow. As described in detail in reference [3], the AMT can be operated in two possible readout schemes: single-measurement, where leading- and trailing-edge of the time information signal are stored in two different data words; combined measurements, where the leading edge time and the pulse width information are stored in a single 32-bit data word. The possibility of storing the information obtained in both readout schemes has been implemented in the RDOs, as well as in the ByteStream encoding and decoding.
+
+To summarize, the granularity of the data collections that are stored in the Transient Event Store, corresponds to an MDT chamber. All data words present in the ByteStream are stored in the RDOs, except headers and footers, which are only used during the decoding to check the consistency of the data. More details on the bare RDOs can be found in Appendix A.
+
+### "Prepared" Raw Data Objects
+
+The scheme followed by the prepared RDOs is pretty equivalent to that of the bare RDOs; the hierarchical structure of the classes implementing the prepared RDOs is summarized in Figure 21. The classes implementing the prepared RDOs are the input for the EF and offline reconstruction algorithm MOORE [11], and are:
+
+Footnote 1: The prepared RDOs have actually been the fi rst ones to be implemented in Athena. Therefore they have been taken as an example also for the design of the ”bare”RDOs.
+
+* **MdtDigitContainer**: the IdentifiableContainer for storing the collections in the Transient Event Store.
+* **MdtDigitCollection**: is a DataVector of MdtDigits with an offline identifier of the MDT Detector Element which the collection is corresponding to.
+* **MdtDigit**: is a contained object with a measured quantity (TDC counts) and an offline identifier of the MDT tube.
+
+Data Converters
+
+Several Converters have been foreseen for the HLT software and the offline reconstruction and simulation. The overall picture for the MDT Converters is illustrated in Figure 3. The conversion from ByteStream to "bare" RDOs and to "prepared" RDOs is essentially needed by LVL2 algorithms and EF/reconstruction software respectively. The conversion from simulated data, such as ZEBRA digits, to "prepared" RDOs is also useful to test the EF/reconstruction program. Another set of Converters performing the opposite functions is also needed.
+
+In the present state of the software only the Converters labelled by 1, 3, 4, 5 and the Encoder have been developed. The missing one, labelled as 2, is not essential but it will be implemented soon.
+
+### Implementation and test
+
+The task of the ByteStream Converters is to convert the raw data in the ByteStream format (32-bit data words hold by the ROBs) to RDOs that can be used by the HLT algorithms. The conversion is carried out on demand for the collections needed by the algorithms : an algorithm (for example MuFast in the case of the Barrel Level-2 trigger for the Muon Spectrometer) receives from the HLT Steering a Region of Interest (RoI) Data Object, and asks the IDC for the data belonging to the collection in that region. The task of identifying the set of data collections corresponding to a given \(\Delta\eta\)-\(\Delta\phi\) region is accomplished by the Region Selector [10] : this tool returns a list of identifiers, given an \(\Delta\eta\)-\(\Delta\phi\) range, for each kind of ATLAS sub-detector.
+
+The ByteStream Converter looks in the ROBs for the data collection that has been asked for, it decodes the data belonging to that collection, builds the hierarchical structure of RDOs and stores the collection in the IDC. At this point there are two ways to go:
+
+* decode also all the remaining collections belonging to the selected ROBs, and store them as MdtCsmContainer in the Transient Event Store;
+* decode and store only the collection that has been requested by the algorithm.
+
+In the former approach, subsequent requests for the collections of the ROBs will be addressed to the Event Store, while in the latter approach the Converter will look in the ROB ByteStream for each collection that will be requested. In the case of the Muon ByteStream Converters, for the convertion to both bare and prepared RDOs, the latter approach has been chosen.
+
+The task of producing raw events in the ATLAS data format [2] is accomplished as well by a different type of Converter. The production can start from any type of physics events simulated in the ATLAS detector. The digits resulting from the detector simulation are stored in ZEBRA banks, and converted into prepared RDOs. An Athena algorithm creates then the "bare" RDOs starting from the "prepared" ones. At this step the online identifiers of the data collections (MdtCsm) and of the digits (MdtAmtHit) have to be derived from the offline identifiers stored in the prepared RDOs. To this purpose, the Athena service which maps the two sets of identifiers is used; a detailed description of this service can be found in [6].
+
+The conversion from the 32-bit integer "bare" RDOs in ByteStream format is realised through a ROD "encoder", which transforms the set of collections and digits of all RODs having data into a ByteStream, according to the MROD format described in [5].
+
+Before the conversion, an Ntuple is filled with the contents of the "bare" RDOs which have been converted into a Byte-Stream.
+
+The conversion from ByteStream to RDOs is performed through ROD "decoders", which decode all the data from the collection which has been requested by the Converter. The Converter stores then the collection in the container which has been created in the Transient Event Store at the Converter initialization step.
+
+Two Converters have been written and tested: one for the conversion ByteStream\(\rightarrow\)"bare" RDOs, the other one for the conversion ByteStream\(\rightarrow\)"prepared" RDOs. Each of the Converters has a corresponding ROD decoder, which fills objects either in the MdtCsmContainer or in the MdtDigitContainer.
+
+Mapping between the online identifiers in the ByteStream and the offline identifiers is realised at this step through the same Athena service used at the encoding step and described in [6].
+
+The same Athena algorithm used at the step of the ByteStream creation fills then the Ntuple with all the informations contained in the bare RDOs. A second Athena algorithm has been realised to fill an Ntuple with the information contained in the prepared RDOs. The comparison between the Ntuple filled at the ByteStream creation step, and this Ntuple filled after creating the RDOs by reading the same ByteStream file, allows a consistency check for the whole process of encoding and decoding.
+
+### Timing of the Converters
+
+The measurement of the CPU time needed to access the ROB data, decode the raw 32-bits data words of the ByteStream, and build the corresponding objects in the Transient Event Store, is a crucial test for the HLT selection software. Timing measurements of the Converters have been made explicitely for the LVL2 trigger environment. Here, as described in the previous sections, the decoding is on-demand, i.e. only the data from the collections of the RoI identified by the LVL1 are decoded. A RoI corresponds to a 0.2x0.2 \(\Delta\eta\)x\(\Delta\phi\) region. The number of collections present in a RoI affects the data preparation time, as expected. In average, the number of collections in each RoI is 6.8, and can vary up to 14 collections; only RoI in the barrel muon spectrometer (i.e. at \(|\eta|<1.2\)) have been taken into account in this study. The distribution of the number of collections per RoI is shown in Figure 4.
+
+The result of the timing tests of the MDT ByteStream Converter to RDOs is shown in Figure 5. Here it is reported only the distribution of the time needed for the data access. The test has been performed on data samples with single muons having \(p_{T}=100\) GeV and background events pileup at high luminosity (i.e. \({\cal L}=10^{34}{\rm cm}^{-2}{\rm s}^{-1}\)). A safety factor of 5 in the background simulation takes into account all the uncertainties.
+
+It is worthwhile to note that the timing for the Converter from ByteStream to "bare" RDOs is essentially similar to the one for the Converter from ByteStream to "prepared" RDOs.
+
+### Test tools, Templates, Code repository
+
+The code implementing the conversion from the ByteStream format to the RDOs, and the RDOs themselves, can be found in the ATLAS CVS repository. The Converters and the decoders are implemented in the Athena package:
+
+_offline/MuonSpectrometer/MuonCnv/MuonByteStream_
+
+which contains also the classes implementing the MDT read-out format. The algorithms needed for constructing the RDOs starting from Zebra digits, and those used for testing the conversion process are located in the package:
+
+_offline/MuonSpectrometer/MuonCnv/MuonByteStreamCnvTest_.
+
+In particular:
+
+* **ZebraToMdtRDO**: creates "bare" RDOs from the prepared RDOs resulting from the Zebra digits Converter;
+* **ReadMdtRDO**: fills the Ntuple for the "bare" RDOs;
+* **ReadMdtDigit**: fills the Ntuple for the prepared RDOs.
+
+The classes implementing both "bare" and "prepared" RDOs are in the package
+
+_offline/MuonSpectrometer/MuonDigitContainer_,
+
+which is the repository for all classes implementing the Muon Event Data Model.
+
+A set of Athena jobOptions allowing to run the Converters and the corresponding test-
+
+algorithms can be found in the _share directory_ of the MuonByteStream and MuonByteStreamCnvTest packages.
+
+## 5 Acknowledgements
+
+We would like to thank Jim Shank for the useful discussions and continuous support. We also thank Hong Ma whose software development has been essential to derive the implementation described in this paper.
+
+## Appendix A UML representation of RDO classes
+
+A set of UML diagrams describing the implementation of the "bare" RDOs is reported in Figures 6, 7 and 8.
+
+## References
+
+* [1] Analysis and Conceptual Design of the HLT Selection Software, PESA Software Group, ATL-SOFT-2002-006.
+* [2] The raw event format in the ATLAS Trigger & DAQ, C.Bee et al., CERN ATLAS note ATL-DAQ-98-129, [http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/DAQ/](http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/DAQ/) daq.html
+* [3] AMT 1 & 2 (ATLAS Muon TDC Version 1 & 2), Yasuo Arai, [http://atlas.kek.jp/tdc/](http://atlas.kek.jp/tdc/) amt2/index.html
+* [4] The Chamber Service Module, J.Chapman et al., [http://umaxp1.physics.lsa.umich.edu/](http://umaxp1.physics.lsa.umich.edu/) -chapman/atlas/
+* [5] The MROD data format and the towering partitioning of the MDT chambers, T.A.M.Wijnen, University of Nijmegen note HEN-434 and CERN ATLAS note ATL-COM-MUON-2003-011.
+* [6] On-line versus Off-line Identifiers for the MDT Chambers of the Muon Spectrometer, P.Bagnaia et al., CERN ATLAS note ATL-COM-MUON-2003-017.
+* [7] A muon trigger algorithm for Level-2 feature extraction, A. Di Mattia et al., CERN ATLAS note ATL-DAQ-2000-036.
+* [8] The implementation of the MuFast algorithm in the new PESA framework, A. Di Mattia et al., CERN ATLAS note ATL-DAQ-2003-024.
+* [9] A Hierarchical Software Identifier Scheme for the ATLAS Muon Spectrometer, K.Assamagan et al., CERN ATLAS note ATL-COM-MUON-2002-019, Version 2.0, http://muondoc/home/cern.ch/muondoc/software/Database/ The ATLAS DAQ, HLT and DCS Technical Design Report, Trigger/DAQ Collaboration, in preparation.
+* [10] Region-of-Interest Selection for ATLAS High Level Trigger and Offline Software Environments, A.G.Mello et al., CERN ATLAS note ATL-COM-DAQ-2003-005 and ATLAS note ATL-COM-SOFT-2003-002, 24 March 2003.
+* [11] MOORE as Event Filter in the ATLAS HLT, The MOORE Group, ATL-COM-DAQ-2003-009.
+
+Figure 1: Hierachical structure of the MDT bare RDOs.
+
+Figure 2: Hierachical structure of the MDT ”prepared” RDOs.
+
+Figure 4: Distribution of the number of collections (i.e. MDT chambers) per RoI.
+
+Figure 3: Types of Converters needed by HLT, reconstruction and simulation software.
+
+Figure 5: Timing tests of the MDT data access: the upper plot shows the distribution of the time needed to decode the data of a RoI. The central plot shows number of MDT hits in a RoI as a function of the data preparation time. The lower plot shows the distribution of the average time needed to access a single collection of the RoI. The data samples used for the tests are single muons \(p_{T}=100\) GeV, with pileup at high luminosity, with a safety factor of 5.
+
+Figure 6: UML diagram for the class MdtCsmContainer
+
+Figure 7: UML diagram for the class MdtCsm
+
+Figure 8: UML diagram for the class MdtAmtHit

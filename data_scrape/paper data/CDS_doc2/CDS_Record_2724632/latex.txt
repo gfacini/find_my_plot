@@ -1,0 +1,209 @@
+[MISSING_PAGE_EMPTY:1]
+
+###### Contents
+
+* 1 Introduction
+* 2 ATLAS Calorimeter
+* 3 Simulations
+* 4 Methods
+	* 4.1 Topo-clusters and Topo-Cluster Images
+	* 4.2 Neural Network Architectures
+* 5 Results
+	* 5.1 Particle Classification
+	* 5.2 Visualizing Classifier Information
+	* 5.3 Energy Regression
+	* 5.4 Combined Classification and Regression
+* 6 Conclusion
+
+## 1 Introduction
+
+A core property of the ATLAS calorimeter for hadronic calibration is the detector response to single particles. As pions are the most abundant particle produced in \(pp\) collisions at the Large Hadron Collider (LHC), it is essential to characterize the calorimeter response to both charged (\(\pi^{\pm}\)) and neutral (\(\pi^{0}\)) pions. Neutral pions decay promptly to photon pairs with compact showers that are mostly captured by the ATLAS electromagnetic calorimeter, while charged pions have more irregular showers that often require the dense material in the ATLAS hadronic calorimeter to be stopped. Classifying \(\pi^{\pm}\) from \(\pi^{0}\) showers is an essential part of the "local cell weighting" (LCW) [1] procedure used to calibrate the topologically connected calorimeter-cell clusters used as input to reconstructed jets [2, 3]. Furthermore, determining the energy response of pions is an integral part of both the LCW procedure as well as the ATLAS particle flow algorithm [4, 5].
+
+The methods used for pion classification and energy calibration in ATLAS have thus far used traditional methods based on a small number of calorimeter observables. Advanced machine learning methods for hadronic final states [6] have been shown to improve performance for other tasks in ATLAS, including pile-up mitigation [7], jet calibrations [8, 9], calorimeter simulation [10], jet tagging [11, 12, 13, 14, 15], background estimation [16], and anomaly detection [17]. It is therefore natural to consider the application of similar techniques to the lowest-level aspect of hadronic final state calibration associated with single pion showers. A variety of studies using simplified detector geometries have investigated the use of deep learning for pion classification and energy calibration [18, 19, 20].
+
+This note explores deep learning tools for pion showers in the context of the complex ATLAS detector geometry. In particular, the various layers of the ATLAS calorimeter are represented as pixelated images and used for classifying \(\pi^{\pm}\) and \(\pi^{0}\) as well as predicting the pion energy. The classification and energy determination performance is compared with the LCW technique and studied as a function of the pion energy. In order to provide the best comparison to the LCW technique and to develop an understandingof the information available in the calorimeter system, only inputs from the ATLAS calorimeters are considered, and tracks from the Inner Detector are not utilized. A variety of methods are studied, including fully connected neural networks and convolutional neural networks (CNNs). Recent reviews of machine learning for high energy physics can be found in Refs. [6; 21; 22; 23; 24; 25].
+
+This note is organized as follows. The ATLAS calorimeter is briefly reviewed in Sec. 2 and simulations of the calorimeter used for training deep learning classifiers are described in Sec. 3. Section 4 introduces the deep learning methods and the numerical results are presented in Sec. 5. The note ends with conclusions and future outlook in Sec. 6.
+
+## 2 ATLAS Calorimeter
+
+The ATLAS detector [26] is a multipurpose particle detector with a forward/backward-symmetric cylindrical geometry. The detector has a nearly \(4\pi\) coverage in solid angle and consists of an inner tracking detector, electromagnetic (EM) and hadronic calorimeters, and a muon spectrometer. The calorimeter system covers the pseudorapidity2 range \(|\eta|<4.9\). Within the region \(|\eta|<3.2\), EM calorimetry is provided by barrel and endcap high-granularity lead/liquid-argon (LAr) detectors, with an additional thin LAr presampler covering \(|\eta|<1.8\), to correct for energy loss in material upstream of the detectors. Hadronic calorimetry is provided by the steel/scintillator-tile detector, segmented into three barrel structures within \(|\eta|<1.7\), and two copper/LAr hadronic endcap calorimeters which cover \(1.5<|\eta|<3.2\). The solid angle coverage is completed with forward copper/LAr and tungsten/LAr calorimeter modules covering \(3.1<|\eta|<4.9\), which are optimized for EM and hadronic measurements respectively.
+
+Footnote 2: ATLAS uses a right-handed coordinate system with its origin at the nominal interaction point (IP) in the center of the detector and the z-axis along the beam pipe. The x-axis points from the IP to the center of the LHC ring, and the y-axis points upward. Polar coordinates \((r,\phi)\) are used in the transverse plane, \(\phi\) being the azimuthal angle around the beam pipe. The pseudorapidity is defined in terms of the polar angle \(\theta\) as \(\eta=-\ln\tan(\theta/2)\).
+
+For this study, only the central barrel of the detector is considered, with \(|\eta|<0.7\). In this region, there are four layers of the EM calorimeter and three layers of the hadronic calorimeter. In particular, the innermost EM calorimeter layer is a presampler with \(\Delta\eta\times\Delta\phi=0.025\times 0.1\) that has no lead absorber in order to account for the energy loss in the inner detector, solenoid, and cryostat wall. The presampler layer is not used in the following results. The first sampling layer of the EM calorimeter (EMB1) has fine strips in \(\eta\) with \(\Delta\eta\times\Delta\phi=0.003125\times(\pi/32)\). The second layer (EMB2) has square arrays with \(\Delta\eta\times\Delta\phi=0.025\times(\pi/128)\) and the third EM layer (EMB3) has rectangular arrays with \(\Delta\eta\times\Delta\phi=0.05\times(\pi/128)\). Most of the energy is deposited in the second sampling layer, with \(\approx 16\) radiation lengths (\(X_{0}\)) compared with \(\approx 2X_{0}\) before the presampler, \(\approx 4X_{0}\) in the first sampling layer, and \(\approx 2X_{0}\) in the last sampling layer. The inner two layers of the tile calorimeter (Tile0 and Tile1, respectively) have angular dimensions \(\Delta\eta\times\Delta\phi=0.1\times(\pi/32)\) while the third layer (Tile2) has \(\Delta\eta\times\Delta\phi=0.2\times(\pi/32)\). As with the EM calorimeter, the second hadronic sampling layer is the most absorbent, with nuclear interaction lengths of \(\approx 1.5,\approx 4\), and \(\approx 2\lambda\) for Tile0, Tile1, and Tile2, respectively. The geometry is summarized in Table 1.
+
+## 3 Simulations
+
+In this preliminary investigation, single pion showers are simulated in the ATLAS calorimeter. These samples use the full ATLAS simulation [27] based on Geant4 [28]. Single \(\pi^{0}\) and \(\pi^{\pm}\) particles are generatedstarting from the origin of the detector with the logarithm of their energies in units of GeV sampled uniformly between 0.2 GeV and 2000 GeV as the energy response varies slowly with energy. The showers are distributed uniformly at random within \(|\eta|<0.7\). The simulation employs the FTFP_BERT physics list [29], i.e. uses the Geant4 Bertini-style cascade [30; 31; 32] to simulate hadron-nucleus interactions at low incident hadron energies, and the Fritiof parton string model [33; 34] at higher energies, followed by the Geant4 precompound model to de-excite the nucleus. The neutral pions decay promptly into photon pairs and are therefore mostly captured by the EM calorimeter while the charged pions travel deeper into the calorimeter. The longitudinal and lateral shower profile for both types of pions depend on their energy.
+
+The samples are produced without pile-up (multiple simultaneous \(pp\) collisions), and are simulated using conditions corresponding to the data-taking of 2018. In particular, this specifies the noise thresholds associated with the formation of the calorimeter signal as clusters of topologically connected calorimeter cell signals [1].
+
+## 4 Methods
+
+### Topo-clusters and Topo-Cluster Images
+
+The object of study for this note are topological clusters [1] formed from the cells of the calorimeter. These _topo-clusters_ are three-dimensional objects that represent local particle showers in the detector. The energy measurements of the calorimeter, and therefore the raw energy of the topo-clusters, are calibrated to the electromagnetic scale. Topo-clusters corresponding to electromagnetic showers are therefore expected to have an energy measurement that is close to the true deposited energy, while hadronic showers are generally expected to under-predict the true deposited energy due to the non-compensating signal formation in the calorimeter. The true energy is defined by the sum of all energy deposits, as defined by the GEANT4 simulation, within the physical extent of the topo-cluster.
+
+Single particles can produce more than one topo-cluster when showering in the calorimeter. The particular representation of the shower in terms of number of topo-clusters depends on the nature of the underlying force (electromagnetic or strong force) driving the shower development. In particular, the intrinsic electromagnetic sub-showers and the potentially macroscopic distance between two inelastic hadronic interactions in hadronic showers can lead to several topo-clusters produced by an incoming charged pion.
+
+\begin{table}
+\begin{tabular}{c|c|c|c} Calorimeter Layer & \(\Delta\eta\) Granularity & \(\Delta\phi\) Granularity & Interaction Lengths \\ \hline EMB1 & \(0.025/8=0.003125\) & \(\pi/32\approx 0.1\) & \(\approx 4X_{0}\) \\ EMB2 & 0.025 & \(\pi/128\approx 0.025\) & \(\approx 16X_{0}\) \\ EMB3 & 0.05 & \(\pi/128\approx 0.025\) & \(\approx 2X_{0}\) \\ Tile0 & 0.1 & \(\pi/32\approx 0.1\) & \(\approx 1.5\lambda\) \\ Tile1 & 0.1 & \(\pi/32\approx 0.1\) & \(\approx 4\lambda\) \\ Tile2 & 0.2 & \(\pi/32\approx 0.1\) & \(\approx 2\lambda\) \\ \end{tabular}
+\end{table}
+Table 1: A summary of the calorimeter geometry used in these studies. The granularity of each layer in \(\Delta\eta\) and \(\Delta\phi\) is provided, as well as the depth of the calorimeter layer measured by radiation lengths (\(X_{0}\)) interaction lengths (\(\lambda\)) as appropriate for the type of calorimeter.
+
+For the purpose of the classification and calibration by regression discussed in this note, all clusters generated by a given incident pion are labeled according to the nature of this particle (\(\pi^{0}\) or \(\pi^{\pm}\)).
+
+The LCW calibration [1] has two steps. First, the topo-clusters is classified as electromagnetic or hadronic in origin by the likelihood \(\mathcal{P}^{\rm EM}_{\rm clus}\). This classifier is calculated as a binned likelihood ratio between \(\pi^{0}\) and \(\pi^{\pm}\) using the cluster energy, the cluster \(\eta\), the longitudinal depth, and the average cell signal density. Second, a hadronic calibration employing cell signal weighting is applied, where the weights principally depend on the cluster energy and location. The \(\mathcal{P}^{\rm EM}_{\rm clus}\) and the energy calibration serve as the baseline algorithms for the classification and regression tasks, respectively, studied in this note. Note that the LCW method also includes an energy correction for energy missed outside of the topo-cluster and for dead material in front of the calorimeter; these steps are not addressed in this note, and so the LCW calibration procedure shown here includes only the hadronic calibration previously described.
+
+The energy regressions used in the current LCW calibration as well as the ones studied here take as input the reconstructed energy and target the true energy. This procedure has a known prior-dependence that is circumvented with a procedure called numerical inversion (see e.g. Ref. [35]). Numerical inversion has been adapted to the context of neural networks [8, 9], but for a direct comparison with existing methods, this is not investigated further in this note.
+
+To determine the utility of deep learning techniques, which distinguish themselves from older strategies by their ability to process large numbers of correlated inputs, each cell of a topo-cluster is treated as a potential input. Cells in a given sampling layer are projected into a two-dimensional image in the \((\eta,\phi)\) plane with extent \(0.4\times 0.4\) centered on the entire topo-cluster's centroid. Cells are only considered if they have energy greater than zero, and are excluded if they contain less than 1% of the energy of the cluster in order to suppress noise. Cells are only included in the image for a particular topo-cluster if they are a part of that topo-cluster (including shared cells), so cells from neighboring topo-clusters are ignored. Cells outside of the \(0.4\times 0.4\) window are ignored, where the cell barycenter is used to check this condition. After these selections, \(\approx 95\%\) of the energy of topo-clusters is included in the produced images. The full granularity of each layer of the calorimeter is preserved. In the EMB1 this corresponds to \(128\times 4\), in the EMB2 to \(16\times 16\), in the EMB3 to \(8\times 16\), in the Tile0 to \(4\times 4\), in the Tile1 to \(4\times 4\), and in Tile2 to \(2\times 4\). The presampler is not considered. A single particle can produce multiple showers, and therefore multiple topo-clusters in a single event; for this reason, all topo-clusters in an event are included and each one is separately considered for the classification and regression tasks.
+
+To better understand the shapes of showers in the calorimeter, Figure 1 shows the 'average' \(\pi^{0}\) and \(\pi^{+}\) image for the EM calorimeter layers in a particular bin of cluster energy. The average images are normalized per layer to better visualize the shower profiles in each layer. The entire topo-cluster's centroid is placed at the (0,0) bin, which produces an obvious asymmetry especially in the low granularity layers.
+
+Figure 2 show the average differences between topo-clusters originating from \(\pi^{0}\) and \(\pi^{+}\) events. The figure is produced by taking the difference of \(\pi^{0}\) and \(\pi^{+}\) for each pair of figures in each row of Figure 1. Positive regions indicate areas more likely to correspond to energy deposits originating from electromagnetic showers, while negative regions indicate regions more likely to correspond to energy deposits from hadronic showers. The figure shows that electromagnetic showers are more focused to the central few cells of the topo-cluster, while hadronic showers are more likely in the outer regions. The shape of these figures depends on the cluster energy, as the depth of the shower and which layers will contain energy deposits depends on the cluster energy, but the observed features are generally consistent across a range of energies. The differences between the showers elucidated by these figures are what the deep learning techniques
+
+utilize to form classifiers. The lower granularity of the tile calorimeters makes their images less striking, but the longitudinal energy profile information provided by the calorimeter is still of use to classifiers.
+
+### Neural Network Architectures
+
+Several classes of deep learning architectures are studied. All models were implemented in Keras [36] with the Tensorflow backend [37] and trained using3 the crossentropy loss for classifiers, and the mean-squared error loss for regressions, with the Adam [38] optimizer.
+
+Footnote 3: For input data \(\{x_{i}\}_{i=1}^{N}\) with labels/targets \(\{y_{i}\}_{i=1}^{N}\), the cross entropy loss is \(-\sum_{i=1}^{N}y_{i}\log(f(x_{i}))-(1-y_{i})\log(1-f(x_{i}))\) and the mean-squared error loss is \(\sum_{i=1}^{N}(f(x_{i})-y_{i})^{2}\).
+
+For all models, the cell information was provided normalized to the total cluster energy unless otherwise specified. For the classifier models, no additional features were provided. For the regression models, the energy and \(\eta\) of the cluster were provided as additional inputs, unless otherwise specified. For the regression models, the regression target was the log of the true energy, scaled and standardized so that the mean is set to 0 and the width of the sample set to 1.
+
+#### 4.2.1 Merged Deep Fully Connected Network (DNN)
+
+In this model, images are unraveled into one-dimensional vectors.
+
+For the classifier, each calorimeter layer is considered as a separate input to the model, using the full detector granularity. Three hidden layers, interspersed with dropout layers [39],4 follow each input layer. The outputs of the six independent architectures are then concatenated into a single layer, which is followed by additional hidden and dropout layers. The rectified linear unit (ReLU) activation function is used in all intermediate layers5, and a sigmoid is used as the final activation. Figure 3 shows a diagram of the DNN classifier model.
+
+Footnote 4: All dropout fractions in this note are set to 0.2.
+
+Footnote 5: The ReLU function is ReLU\((x)=x\) for \(x\geq 0\) and 0 otherwise.
+
+For the regression, a slightly different architecture is employed. All cells from the topo-cluster are concatenated into a single vector of dimension 752. The cells are then scaled and normalized such that the ensemble's mean is zero and the root-mean-square is 1. The cluster energy and \(\eta\), each independently scaled and normalized, are used as two additional inputs. Three hidden layers are utilized, each with the ReLU activation function, and a linear function (i.e. no non-linear component) is used as the final activation. Figure 4 shows a diagram of the DNN regression model.
+
+#### 4.2.2 Convolutional Neural Network (CNN)
+
+The entirety of the two-dimensional images are used as inputs to the model. The layers of the calorimeter can be thought of as color channels of traditional image classification problems. Due to the dramatically varying geometry of the detector, several different groupings of images were considered.
+
+For the classifier, the chosen model considers the EMB1 layer, due to its extremely fine segmentation in \(\eta\), separately. The EMB2 and EMB3 layers are considered together with shared convolutional filters, where the EMB3 image has been up-scaled to the granularity of the EMB2 layer. The tile layers are then all Figure 1: Average images for \(\pi^{0}\) (left) and \(\pi^{+}\) (right) samples. The top row shows images in EMB1, the middle in EMB2, and the bottom in EMB3. The cluster energy used to select these clusters is the EM scale energy.
+
+Figure 2: The difference between average images composed of the \(\pi^{0}\) and \(\pi^{+}\) samples. Average images are created by summing the pixels of each image and dividing by the number of clusters. The three electromagnetic calorimeter layers, (a) EMB1, (b) EMB2, (c) EMB3, are shown. The cluster energy used to select these clusters is the EM scale energy.
+
+Figure 4: A sketch of the DNN regression model. For simplicity, dropout layers are not displayed.
+
+Figure 3: A sketch of the DNN classifier model. For simplicity, dropout layers are not displayed.
+
+considered together, upscaled where appropriate to the granularity of the Tile0 layer. Each input layer is followed by convolutional layers and then finally fully connected layers prior to the final activation, which is a sigmoid. Figure 5 shows a diagram of the CNN classifier model.
+
+For the regression, again a slightly different architecture is chosen. The selected model considers one input image where all six calorimeter layers are scaled to the EMB2 granularity (\(16\times 16\)). One convolutional layer, with filter size \(4\times 4\), is followed by a flattening layer and two dense layers interspersed with dropout layers. To take advantage of the finer granularity of the EMB1 layer, this is considered as a second input, flattened into a vector similarly as to the DNN architectures. Three hidden layers interspersed with dropout layers are used. Finally, the cluster energy and \(\eta\) are provided as additional inputs and are processed with three hidden layers. These three architectures are then concatenated, and a dense layer follows. The final activation is linear. Figure 6 shows a diagram of the CNN regression model.
+
+Figure 5: A sketch of the CNN classifier model. For simplicity, dropout layers are not displayed.
+
+#### 4.2.3 DenseNet
+
+Densely Connected Convolutional Networks (DenseNets) [40] were introduced as an elegant solution to maximize information flow by reducing the path from input to output, in order to counter the vanishing gradient problem in very deep convolutional networks. DenseNets devise connections such that every layer receives as inputs the concatenated feature maps from every previous layer, and contributes its feature maps to every subsequent layer. These redundant connections favor feature reuse and persistence, to the point that the last classification layer will have at its disposal all of the features built by all previous layers in the network, therefore gaining access to different levels of feature representation.
+
+For both the classification and regression tasks, a DenseNet is constructed with three sets of inputs: an EMB1 image at full EMB1 granularity, a two-channel image of the EMB2 and EMB3 layers at EMB2 granularity, and a three-channel image of all tile layers at Tile0 granularity. This is similar to the architecture of the CNN classifier described above. For each DenseNet, 13 layers are used and the output is then flattened and followed by a dense layer. Finally, these three architectures are concatenated and followed by a dense layer. Dropout layers are interspersed throughout. The classification uses a sigmoid final activation, and the regression uses a tanh function (with the output scaled to be between -5 and 5). Figure 7 shows a diagram of the DenseNet model, where the Dense block is described in Ref. [40].
+
+For the classification problem, the inputs are normalized so that each cell represents the fraction of energy that the cell contains from the entire topo-cluster. For the regression problem, the cell values are re-scaled to the total cluster energy, and then the logarithm of that value is used. The energy is provided directly in the images in order for this information to propagate most effectively within the DenseNet.
+
+Figure 6: A sketch of the CNN regression model. For simplicity, dropout layers are not displayed.
+
+## 5 Results
+
+### Particle Classification
+
+Figure 8 shows the performance of the classifier models. The \(\pi^{0}\) rejection (defined as the inverse of the \(\pi^{0}\) selection efficiency) is shown as a function of the \(\pi^{+}\) selection efficiency. Each of the networks significantly outperforms the \(\mathcal{P}^{\text{EM}}_{\text{clus}}\) classifier. For example, at a fixed \(\pi^{+}\) efficiency of 90%, the simplest flat network has a factor of \(\approx 5\) times better background rejection, while the DenseNet and CNN architectures have \(\approx 8\) times better background rejection.
+
+Figure 9 shows the performance of the CNN classifier in bins of energy. In particular, Figure 9(a) shows that the classifier performs increasingly better at higher energies. Figure 9(b) show the ratio of the \(\pi^{0}\) rejection of the CNN compared to the \(\mathcal{P}^{\text{EM}}_{\text{clus}}\) likelihood. At higher energies and higher \(\pi^{+}\) efficiencies, the CNN classifier outperforms \(\mathcal{P}^{\text{EM}}_{\text{clus}}\) likelihood by a factor of \(\approx 100\) in \(\pi^{0}\) rejection. These figures show that while the neural network was not explicitly trained with energy as an input, the shower shape's dependence on energy is sufficient to provide effective separation at all energies. Though not shown, the DNN and DenseNet classifiers show similar dependence on the cluster energy.
+
+Figure 7: A sketch of the DenseNet model used for both classification and regression. For simplicity, dropout layers are not displayed. The Dense block is a representation of the 13 layers of the DenseNet, and is described in Ref [40].
+
+Figure 8: The charged pion efficiency vs neutral pion rejection of the neural network models and \(\mathcal{P}^{\rm EM}_{\rm clus}\). The bottom panel shows the ratio of the \(\pi^{0}\) rejection of the NN models compared to the \(\pi^{0}\) rejection of \(\mathcal{P}^{\rm EM}_{\rm clus}\).
+
+## 6 Conclusion
+
+Figure 9: The ratio of the charged pion efficiency vs neutral pion rejection of the CNN classifier compared to the \(\mathcal{P}^{\mathrm{EM}}_{\mathrm{clus}}\) likelihood, in bins of cluster energy. The cluster energy used for the selection is the EM scale energy.
+
+### Visualizing Classifier Information
+
+To understand the features the models are learning, Figures 10 and 11 show the Pearson linear correlation coefficient between each pixel in respectively a \(\pi^{0}\) and \(\pi^{+}\) sample, and the CNN classifier. A positive value indicates that adding more energy in that pixel makes the shower more indicative of the sample being tested (\(\pi^{0}\) in Figure 10 and \(\pi^{+}\) in Figure 11). In Figure 10 several expected features are observable: pixels at the center are more correlated to the electromagnetic shower of \(\pi^{0}\)'s, while additional intensity at the edges of the cluster are anti-correlated with \(\pi^{0}\). Figure 11 shows a more complicated structure. The strong correlation of all cells in Figure 11(b) can be understood to indicate that in this energy bin nearly all cells at this calorimeter depth are more indicative of a hadronic than electromagnetic shower. The two-sided features in Figure 11(a) can indicate that higher pixel intensity on the side containing the cluster center (defined to be at positive \(\Delta\phi\)) is anti-correlated to hadronic showers.
+
+### Energy Regression
+
+The main goal of the regression problem is to correctly predict the true energy deposited in the topo-cluster, for the entire range of true energy deposited in the topo-cluster. This can be quantified by measuring the response, \(\mathcal{R}=E_{\text{measured}}/E_{\text{true}}\), as a function of \(E_{\text{true}}\).
+
+The regression models described below are trained separately on \(\pi^{0}\) and \(\pi^{+}\) samples. The choice to use dedicated regression algorithms is motivated by the strong performance of the classification algorithm, which ensures that after classification the appropriate regression model can be chosen to calibrate the specific topo-cluster in question.
+
+Figure 12 shows the results of the various energy calibration strategies for a sample of \(\pi^{+}\). In this figure, the ratio of the energy of the topo-cluster, reconstructed with a variety of approaches, compared to the true energy, is shown as a function of true energy.
+
+Figure 10: The pearson linear correlation coefficient between each pixel in a \(\pi^{0}\) sample and the CNN classifier model, for the EMB1 and EMB2 layers. The cluster energy used for the selection is the EM scale energy.
+
+The EM scale for \(\pi^{+}\), in Figure 12(a), shows the characteristic under-calibration at moderate and high values of true energy, caused by the non-compensation of the ATLAS calorimeters. At true energy below 1 GeV, Figure 12(a) shows an over-calibration, which is caused by two factors. First, there is a selection bias due to topo-cluster noise thresholds, which means that on average topo-clusters with high response are more likely to be formed than topo-clusters with low response, especially near the noise threshold. Secondly, at low energy, charged pions deposit energy in the calorimeter almost entirely via direct ionization, similarly to a muon or minimum-ionizing particle (MIP) [41]. This 'MIP' energy deposit corresponds to a different response than the EM scale.
+
+Figure 12(b) shows the response of \(\pi^{+}\) at the LCW scale. The response shows a significant improvement at high energy and is restored to unity, showing that the LCW calibration is performing one of its primary goals in correcting for energy missed due to calorimeter non-compensation. While the energy response is correctly restored to unity at high values of true energy, at low values the LCW calibration significantly over-predicts the energy deposited by charged pions.
+
+Figures 12(c), 12(d), and 12(e) show the results of the DNN, CNN, and DenseNet energy regressions for \(\pi^{+}\). All three perform extremely well, and restore the response to nearly the true energy scale for amost the full energy range considered. The non-closure observed at low energy in Figures 12(a) and 12(b) is also substantially reduced by all the regressions.
+
+Figure 13 shows the results of the various energy calibration strategies, now for a sample of \(\pi^{0}\). Again, the ratio of the energy of the topo-cluster, reconstructed with a variety of approaches, compared to the true energy, is shown as a function of true energy.
+
+While the EM scale is expected to undermasure the true energy of charged pions, it is expected to accurately measure the energy of neutral pions as they form electromagnetic showers. Figure 13(a) shows that the energies of neutral pions are largely correctly measured at the EM scale, though at low energies there is an over-calibration caused partly by the noise thresholds in topo-clustering. Figure 13(b) shows that the \(\pi^{0}\) energy scale is essentially unchanged when using the LCW calibration, but some degradation
+
+Figure 11: The pearson linear correlation coefficient between each pixel in a \(\pi^{+}\) sample and the CNN classifier model, for the EMB2 and EMB3 layers. The cluster energy used for the selection is the EM scale energy.
+
+Figure 12: The ratio between the reconstructed and true energy, as a function of true energy, for a \(\pi^{+}\) sample. The EM scale is shown in (a), the LCW in (b), the DNN regression in (c), the CNN regression in (d), and the DenseNet regression in (e). The median of the reconstructed over true energy is overlayed on each figure.
+
+in performance is observed due to misclassification of \(\pi^{0}\). This degradation motivates the use of more sophisticated classification algorithms.
+
+Figures 13(c), 13(d), and 13(e) show the results of the DNN, CNN, and DenseNet energy regressions for \(\pi^{0}\). Once again all three perform extremely well, and correctly reconstruct the energy for a wide range of true energy. In particular, the non-closure at low true energy is substantially improved by all methods.
+
+The results of Figures 12 and 13 are summarized in Figure 14, which shows the median of the response as a function of the true energy for the various calibration schemes, for both \(\pi^{+}\) and \(\pi^{0}\) samples. From this figure, the DNN approach seems to have the most stable and correct energy measurement for the widest range of true energy.
+
+Finally, the resolution of the energy measurement is another important metric. An ideal calibration would use the fluctuations of the shower shape to better predict the energy, thereby reducing the resolution. This resolution can be quantified by the inter-quantile range (68%) of the response function. The IQR is used because of its improved robustness to non-Gaussian shapes. Traditionally, the IQR is also divided by the response itself to reduce the effects of varying levels of non-closure between methods and the bias this could impose on the resolution. The half-width of the IQR is used.
+
+Figure 15 shows the half-width IQR over median of the response as a function of the true energy for four different calibration techniques: the EM, LC, DNN, and CNN models, for both \(\pi^{+}\) and \(\pi^{0}\) samples.
+
+For \(\pi^{+}\), the LCW calibration shows improved resolution compared to the EM scale at high energy, as expected due to the improved hadronic energy calibration model. The DNN architectures show significantly improved resolution compared to the EM and LCW schemes for nearly the full energy range, only showing a slightly worse performance at extremely high true energy compared to the LCW calibration. The CNN and DenseNet approaches show a comparable or slightly improved resolution to the EM calibration at a wide range of energies, but improve on the LCW method only at extremely low true energies.
+
+For \(\pi^{0}\), the LCW and EM calibrations show similar performance, as expected because of the LCW calibration's focus on mainly hadronic calibrations. The DNN, CNN, and DenseNet architectures all show significantly improved resolution at low to medium true energy. The CNN architecture shows comparable resolution to the LCW and EM techniques at high energy, while the DNN and DenseNet shows slightly higher resolution.
+
+### Combined Classification and Regression
+
+One test of the classification and regression methods presented in this note is to apply them to a mixed sample of \(\pi^{0}\) and \(\pi^{\pm}\), which can approximate the performance of the method when applied to jets. To prepare such a sample, \(\pi^{0}\), \(\pi^{+}\), and \(\pi^{-}\) were mixed together in a \(1:1:1\) ratio evenly as a function of cluster energy. This ratio was chosen to roughly correspond to the expected distribution in jets as predicted by isospin symmetry. As the CNN classifier performed best in Section 5.1 and the DNN regression performed best in Section 5.3, they are the methods selected for this test. The \(\pi^{+}\) or \(\pi^{0}\) DNN regression is applied depending on the results of the CNN classification. In particular, a cut of 0.615, corresponding to the maximum likelihood value of the classifier, is used to determine which regression to apply. This corresponds to a correct classification of 95% of \(\pi^{\pm}\) and 95% of \(\pi^{0}\).
+
+The energy response in the mixed samples is shown in Figure 16. The EM scale, shown in Figure 16(a), shows an under-calibration at high energies, as expected from the large fraction of \(\pi^{\pm}\) in the mixed sample.
+
+Figure 13: The ratio between the reconstructed and true energy, as a function of true energy, for a \(\pi^{0}\) sample. The EM scale is shown in (a), the LCW in (b), the DNN regression in (c), the CNN regression in (d), and the DenseNet regression in (e). The median of the reconstructed over true energy is overlayed on each figure.
+
+Figure 14: The median response as a function of the true energy, for \(\pi^{+}\) (a) and \(\pi^{0}\) (b), for the EM, LC, and deep learning regression calibration schemes.
+
+Figure 15: The half-width IQR over median of the response as a function of the true energy, for \(\pi^{+}\) (left) and \(\pi^{0}\) (right), for the EM, LC, and deep learning regression calibration schemes.
+
+The LCW calibration, in Figure 16(b), shows a response near unity at high values of true energy, but also displays an over-correction of the energy at lower values of true energy. The combined CNN classifier and DNN regression, shown in Figure 16(c), shows a consistent response at unity for nearly the entire true energy range. The high performance of the CNN classification ensures that the correct energy regression is applied and that there is no performance degradation in a mixed sample.
+
+Finally, Figure 17 shows the response (a) and resolution (b) in the mixed sample for the EM, LC, and combined CNN classifier and DNN regression. The response is significantly improved over the full true energy range, and the resolution is similarly improved over a wide range of energies by the combined classifier and regression method.
+
+Figure 16: The ratio between the reconstructed and true energy, as a function of true energy, for a mixed sample of \(\pi^{0}\) and \(\pi^{\pm}\). The EM scale is shown in (a), the LCW in (b), and the result of the CNN classifier combined with the DNN regression in (c). The median of the reconstructed over true energy is overlayed on each figure.
+
+Figure 17: The response as a function of true energy (a), and the half-width IQR over median of the response as a function of the true energy (b), in a mixed sample of \(\pi^{0}\) and \(\pi^{\pm}\). The EM, LC, and a combined CNN classifier and DNN regression technique are compared.
+
+## 6 Conclusion
+
+This note has presented a study of deep learning-based calorimeter-cell cluster classification and energy estimation techniques. Several of these approaches significantly outperform the traditional methods as they are able to take into account more information contained in the longitudinal and transverse shower shapes through the complex and highly segmented ATLAS calorimeter. In particular, a DNN, a CNN, and the DenseNet architectures are able to significantly improve the classification of topo-clusters originating from electromagnetic or hadronic showers. All the architectures are also able to significantly improve the energy scale and energy resolution for classified topo-clusters, particularly at low energies. Further work will be required to optimize fully the hyperparameters of the models, and to extend these methods to non-isolated calorimeter showers, to extend the \(|\eta|\) range to the full calorimeter, and to combine calorimeter with tracking information. The work presented in this note is a significant step towards fully exploiting the rich structure of the ATLAS calorimeter for low-level hadronic calibration.
+
+## References
+
+* [1] ATLAS Collaboration, _Topological cell clustering in the ATLAS calorimeters and its performance in LHC Run 1_, Eur. Phys. J. C **77** (2017) 490, arXiv: 1603.02934 [hep-ex] (cit. on pp. 2, 4, 5).
+* [2] ATLAS Collaboration, _In situ calibration of large-radius jet energy and mass in \(13\) TeV proton-proton collisions with the ATLAS detector_, Eur. Phys. J. C **79** (2019) 135, arXiv: 1807.09477 [hep-ex] (cit. on p. 2).
+* [3] ATLAS Collaboration, _Performance of jet substructure techniques for large-R jets in proton-proton collisions at \(\sqrt{s}=7\) TeV using the ATLAS detector_, JHEP **09** (2013) 076, arXiv: 1306.4945 [hep-ex] (cit. on p. 2).
+* [4] ATLAS Collaboration, _Jet reconstruction and performance using particle flow with the ATLAS Detector_, Eur. Phys. J. C **77** (2017) 466, arXiv: 1703.10485 [hep-ex] (cit. on p. 2).
+* [5] ATLAS Collaboration, _A measurement of the calorimeter response to single hadrons and determination of the jet energy scale uncertainty using LHC Run-1 pp-collision data with the ATLAS detector_, Eur. Phys. J. C **77** (2017) 26, arXiv: 1607.08842 [hep-ex] (cit. on p. 2).
+* [6] A. J. Larkoski, I. Moult, and B. Nachman, _Jet Substructure at the Large Hadron Collider: A Review of Recent Advances in Theory and Machine Learning_, Phys. Rept. **841** (2020) 1, arXiv: 1709.04464 [hep-ph] (cit. on pp. 2, 3).
+* [7] ATLAS Collaboration, _Convolutional Neural Networks with Event Images for Pileup Mitigation in \(E_{T}^{miss}\) reconstruction with the ATLAS Detector_, ATL-PHYS-PUB-2019-028, 2019, url: [https://cds.cern.ch/record/2684070](https://cds.cern.ch/record/2684070) (cit. on p. 2).
+* [8] ATLAS Collaboration, _Generalized Numerical Inversion: A Neutral Network Approach to Jet Calibration_, ATL-PHYS-PUB-2018-013, 2018, url: [https://cds.cern.ch/record/2630972](https://cds.cern.ch/record/2630972) (cit. on pp. 2, 5).
+* [9] ATLAS Collaboration, _Simultaneous Jet Energy and Mass Calibrations with Neural Networks_, ATL-PHYS-PUB-2020-001, 2020, url: [https://cds.cern.ch/record/2706189](https://cds.cern.ch/record/2706189) (cit. on pp. 2, 5).

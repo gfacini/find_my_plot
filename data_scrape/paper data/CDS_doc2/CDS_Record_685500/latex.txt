@@ -1,0 +1,400 @@
+ATL-SOFT-2003-007
+
+ATL-COM-MUON-2003-012
+
+Version 2.0
+
+2 October 2003
+
+**Track Reconstruction**
+
+**in the ATLAS Muon Spectrometer**
+
+**with MOORE**
+
+D. Adams\({}^{\,\ast}\), K. Assamagan\({}^{\,\ast}\), M. Biglietti\({}^{\,\ast}\), G. Carlino\({}^{\,\ast}\), G. Cataldi\({}^{\,\ast}\), F. Conventi\({}^{\,\ast}\), A. Farilla\({}^{\,\ast}\), Y. Fisyak\({}^{\,\ast}\), S. Goldfarb\({}^{\,\ast}\), E. Gorini\({}^{\,\ast}\), T. Lagouri\({}^{\,\ast}\), K. Mair\({}^{\,\ast}\), L. Merola\({}^{\,\ast}\), A. Nairz\({}^{\,\ast}\), A. Poppleton\({}^{\,\ast}\), M. Primavera\({}^{\,\ast}\), S. Rosati\({}^{\,\ast}\), J. Shank\({}^{\,\ast}\), S. Spagnolo\({}^{\,\ast}\), L. Spogli\({}^{\,\ast}\), G. Stavropoulos\({}^{\,\ast}\), M. Verducci\({}^{\,\ast}\), T. Wenaus\({}^{\,\ast}\).
+
+\({}^{a}\) Brookhaven National Laboratory (BNL), \({}^{\,\ast}\) INFN and University of Napoli "Federico II", \({}^{\,\ast}\) INFN and University of Lecce, \({}^{\,\ast}\) INFN and University of RomaTre "E. Amaldi", \({}^{\,\ast}\) University of Michigan, \({}^{\,\ast}\) Aristotle University of Thessalonki, \({}^{\,\ast}\) European Organization for Nuclear Research (CERN), \({}^{\,\ast}\) Boston University, \({}^{\,\ast}\) INFN - Laboratori Nazionali di Frascati, \({}^{\,\ast}\) U.C.Berkeley.
+
+**Abstract**
+
+MOORE (Muon Object Oriented REconstruction) is a software package for track reconstruction in the ATLAS Muon Spectrometer, developed in C++ in the ATHENA framework according to modern Object Oriented design principles.
+
+This paper describes the MOORE structure and the reconstruction steps, including all the developments that led recently to the use of MOORE in the reconstruction of Data Challenge events, both for physics studies and for a first estimation of its performance as Event Filter, in preparation for the High Level Trigger Technical Design Report. Efficiency and resolution as a function of both \(\eta\) and \(P_{T}\) have been estimated with samples of single muons of fixed \(P_{T}\) in the range 3 GeV to 1 TeV. Preliminary results from test beam application (H8 setup) and from reconstruction of simulated \(Z\rightarrow\mu\mu\) and \(H\rightarrow\mu\mu\mu\mu\) are also shown.
+
+Introduction
+
+Events with high momentum muons in the final state are among the most promising and robust signature of 'new physics" at LHC. The ATLAS Muon Spectrometer [1] has been designed to achieve momentum measurement with high efficiency and good resolution over a wide range of transverse momentum, pseudorapidity and azimuthal angle, while simultaneously providing stand-alone triggering capability. Momentum measurement is performed via the magnetic deflection of muon tracks in a system of three large superconducting air-core toroid magnets instrumented with trigger chambers and high precision tracking chambers (see Figures 1 and 2). The magnet configuration provides a field that is mostly orthogonal to the muon trajectories, while minimizing the degradation of resolution due to multiple scattering.
+
+Over most of the pseudorapidity range, a precision measurement of the track coordinates in the principal bending direction of the magnetic field is provided by Monitored Drift Tubes (MDTs). At large pseudorapidity (\(2.0<|\eta|<2.7\)) and close to the interaction point, Cathode Strips Chambers (CSCs) with higher granularity are used to sustain the demanding rate and background conditions.
+
+Trigger signals are provided by Resistive Plate Chambers (RPCs) in the barrel region (\(|\eta|<1.0\)) and by Thin Gap Chambers (TGCs) in the region \(1.0<|\eta|<2.4\). The trigger chambers provide a "second-coordinate" of muon tracks, orthogonal to the coordinate provided by the precision chambers, in a direction approximately parallel to the magnetic field lines, allowing reconstruction of tracks in three dimensions. All muon detectors are arranged in three layers at different radii in the barrel and at different z positions in the endcaps.
+
+The MOORE design was driven by the goal of performing track reconstruction in a highly modular way, with the highest possible efficiency in all the pseudorapidity range covered by the Muon Spectrometer and with the best possible resolution needed for muon identification in ATLAS.
+
+Detailed studies performed with the FORTRAN program, Muonbox, for the Physics Technical Design Report [2] have indeed shown the capability of the Muon spectrometer to reconstruct muon tracks with an efficiency \(>95\%\) for \(P_{T}>10\) GeV in nearly the entire pseudorapidity range and that the momentum resolution is better than 5% over 80% of the phase space for a wide range of \(P_{T}\) (roughly from 10 to 300 GeV).
+
+The MOORE structure is modular with a set of algorithms based on data objects that can be shared by different types of algorithms. It was designed to take full advantage of the ATLAS ATHENA offline framework and, in particular, adhere to the separation of data-like objects from algorithmic objects. Thanks to its modularity, it could be very easily adapted both as Event Filter in the High Level Trigger environment and for the reconstruction of test beam data. For the track fit itself MOORE relies on the package developed for the Inner Detector (iPatRec) [3]. The performances on single muon events and on physics channels have been estimated both for track reconstruction only in the Muon Spectrometer with MOORE and extrapolating the track to the vertex with the package MUID (Muon Identification) [4].
+
+[MISSING_PAGE_EMPTY:3]
+
+The MOORE Pattern Recognition and Track Reconstruction Approach
+
+### MOORE Structure
+
+In the ATLAS offline software package hierarchy, MOORE is a container of three packages: MooEvent, MooAlgs, and MooStatistics. The software is organized so that classes defining data objects are clearly separated from classes implementing the reconstruction algorithms. The only link between algorithms are the data objects: packages are organized in such a way that algorithms depend on data objects but data objects do not depend on algorithms. Figure 3 shows a schematic view of the structure of the MOORE packages:
+
+* **MooEvent** defines the data objects used by MOORE. Four groups of data objects can be distinguished: 1. **Hit** data objects: These are objects which are produced after a local reconstruction in each detector technology by converting the Raw Data Objects to quantities ready to be used by the track fitter. For example, in the MDTs a hit is produced after converting the TDC time measurement to a space coordinate. In the CSCs the hit is produced after applying the appropriate clusterization methods to the digits. Four classes are implemented, _MooMdtHit, MooCscHit, MooRpcHit, MooTgcHit_, one for each detector technology. All of them inherit from _MooMuonHit_, which carries the common information to all four detector-specific classes. The CSC clusterization is performed by a separate package (MuonDetRec) whose output is stored in the Transient Data Store to be accessed by MOORE [ see Appendix 8.1 for more detailed CSC clusterization].
+
+Figure 3: _A schematic view of the MOORE structure._
+
+2. **Segment** data objects: This kind of objects is produced after a local pattern recognition at the detector module level. For example _MooCScSegments_ are produced locally in one CSC detector module, and represent the segment of the track which crossed that specific module (equivalently for _MooMdtSegment_). _MooCscSegment_ and _MooMdtSegment_ inherit from _MooRZSegment_ which carries the common information to those two detector-specific classes. _RZSegmentCombination_ implements a data object which represents a combination of various _MooRZSegments_. A _PhiSegment_ represents a track segment in the x-y plane.
+3. **Track** data objects: _MooiPatTrack_ is the data object which describes a reconstructed track (see 2.2 for more details). _MooiPatTrack_ inherits from _iPatTrack_[3] and adds to it Muon Spectrometer specific variables.
+4. **Container** data objects: These are objects that contain the data objects of the previous two groups. The container objects are stored in the Transient Data Stored (TDS) to be used by the MOORE algorithms or by other analysis algorithms (_PhiSegmentContainer, CrudeCscSegmentContainer, CrudeMdtSegmentContainer, MooRoadContainer, MooTrackContainer_).
+5. **MooAlgs.** Two kind of algorithmic classes can be found (explained in more detail in 2.2): 1. **ATHENA Top-algorithms** which perform the basic reconstruction steps (_MooMakePhiSegments, MooMakeCrudeRZSegments, MooMakeRoods, MooMakeTracks_). Each algorithm retrieves, from the TDS, data objects created by the previous module and builds data objects that are recorded again in the TDS and are available for the algorithm that follows. 2. **ATHENA Services and Utility classes.** These are utility classes which are used by the previous ATHENA Top-algorithm classes. They are implemented either as ATHENA Services (_MooMdtDigitToHitSvc, MooMdtSegmentMaker_), or as normal classes which have to be instantiated every time they are needed (_MooHisto, MooLineFitter, MooTrackPurifer, MooTrackSelector, RZSegmentCombinationMaker, MooiPatTrackConstructor, MooiPatFitter, MooUtilities_).
+6. **MooStatistics** is a collection of modules to fill blocks of variables in the combined reconstruction ntuple. In particular the MooMakeNtupleKINE fills the kinematic variables, at generator level, of the muons in Monte Carlo events and MooMakeNtuple adds entries corresponding to the reconstructed tracks (_MooMakeNtuple, MooMakeNtupleKINE_).
+
+### MOORE Pattern Recognition and Track Reconstruction Algorithms
+
+#### 2.2.1 ATHENA Top-algorithms
+
+All the classes of this kind implement the three standard ATHENA methods, _initialize, execute_ and _finalize_.
+
+In the _initialize_ method (called once per run) the magnetic field map and the information concerning the description of the detectors (both the geometry and the materials) are loaded. The magnetic field map is loaded through an ATHENA service, while the description of the detector geometry is available through the package MuonDetDescr[5], which accesses the basic parameters defined in the AMDB database [6], either from the ZEBRA banks or from ASCII file or, in the future, from the NOVA database. A standard ATHENA service providing the detailed description of the dead material not associated to the detectors (toroids, vessels, etc) is not yet available. We have therefore developed a tool to parametrize such material in order to treat it properly in the track fit (see Section 3).
+
+In the _finalize_ method (called once per run) a message is printed notifying the user that the corresponding algorithm has been executed successfully.
+
+In the _execute_ method (called once per event) the corresponding algorithm is implemented. For each event, Muon digit collections from RPCs, TGCs, MDTs and CSCs are retrieved from the TDS. Starting from release 5.2.0 (January 2003) MOORE uses the New Event Data Model [7]. Several parameters used in each algorithm can be changed at run-time via JobOptions file (see Appendix 8.2), thus allowing for a flexible control of the running conditions.
+
+* _MooMakePhiSegments._ In MOORE, the pattern recognition starts by building the track in the x-y plane. The bending power of the toroidal magnetic field in the x-y plane is negligible almost everywhere in the detector, so a track can be approximated as a straight line. Starting from the RPC/TGC/CSC \(\phi\)-strips we build _PhiSegments_, which are essentially vectors of digits measuring the \(\phi\)-coordinate. A \(\phi\)-histogram is filled with all the measured coordinates, using the histogramming method described in _MooHisto_ in 2.2.2. Measurements from a muon track tend to populate the same \(\phi\)-bin, so a PhiSegment is built by collecting digits from a bin which has a number of entries above a defined threshold (JobOptions parameter _phi_histo_thr_).
+* _MooMakeCrudeRZSegments._ The tracks which cross the ATLAS Muon Spectrometer bend on the RZ-plane (perpendicular to the x-y plane). In this plane it is not possible to apply a histogramming method, like in the x-y plane, over the whole detector. Nevertheless, locally in every detector module (MDT or CSC) a "crude" pattern recognition can be applied assuming the tracks to be straight lines and approximating the measurements of that detector in a "crude" way. For example, segments within one MDT module are reconstructed as straight lines, using the tube radii to approximate the hit positions. The histogramming method described in _MooHisto_ in 2.2.2 is used to fill a histogram with the \(\theta\)-coordinate of the tube centers. A histogram is produced for each MDT module with fired tubes in an event. Digits belonging to bins with number of entries above a given threshold (JobOptions parameter _theta_histo_thr_) are grouped into a "crude" RZ-segment (either MDT or CSC). These segments are expected to be "refined" by the later phases of the pattern recognition.
+* _MooMakeRoads_ The next step in the pattern recognition process of MOORE is the reconstruction of the tracks in the MuonSpectrometer layers which provide trigger measurements. _MooMakeRoads_ loops over all _PhiSegments_, produced by _MooMakePhiSegments_. For each _PhiSegment_, it then loops over all the "crude" RZ-segments produced by _MooMakeCrudeRZSegments_. For each "crude" RZ-segment, which is in the vicinity of the chambers that produced the _PhiSegment_, performs the pattern recognition process which is explained in _MooMdtSegment-Maker_ of 2.2.2, and creates "fine" RZ-segments. _RZSegmentCombinationMaker_ follows (see 2.2.2), and creates combinations of these "fine" RZ-segments. With the help of the _MooiPatTrackConstructor_ (see 2.2.2), the hits, which form the _PhiSegment_ under investigation, and those forming the "fine" RZ-segment are combined to a "road", which is a _MooiPatTrack_ object. If a road contains hits from at least two muon layers it is fitted with _MooiPatFitter_ and is accepted if the fit is succesful (\(\chi^{2}<chi2\_cut\) assigned in the JobOptions file). A road contain ing hits from only one layer is accepted without fitting it. One-layer roads are merged if near in \(\theta\) and \(\phi\). The merged road is accepted if fitted successfully, otherwise the two one-layer roads are kept for further processing.
+* _MooMakeTracks_ This is the last phase of the pattern recognition and reconstruction procedure which produces the final reconstructed tracks to be used for analysis. The tracks produced by MOORE are _MooiPatTrack_ objects, with their parameters expressed at their first measured point in terms of perigee parameters, namely: \(a0\), \(z0\), \(\phi\), \(cot\theta\), \(Q/p_{T}\) ( see Appendix 8.3 for a definition of these parameters). _MooMakeTracks_ loops over all the roads, produced by _MooMakeRoads_, and by following a procedure very similar to _MooMakeRoads_, assigns to each road the hits from layers without trigger chambers (e.g. BIL). After having assigned hits from all the muon layers in a track, the method described in Section 3 is applied, which allocates scattering centers along each track, thus allowing the track fit to take into account energy loss and Coulomb scattering effects. The last step in MooMakeTracks is trying to reject, from a track, hits with high residuals, if any. The rejection of the hits contributing to the \(\chi^{2}\) above a given threshold allows one to purge the track of hits that are either incorrectly assigned to the track in the pattern recognition procedure, or are affected by a large uncertainty in the measured drift distance, leading to a spoiled local spatial resolution.
+
+#### 2.2.2 ATHENA Services and Utility Classes
+
+* _MooHisto_ is a histogramming class, which can construct a histogram from its bin width, maximum and minimum values. A histogram created in this way has the form of a map as defined in the Standard C\(++\) Library (std::map) [8] with its key-element being the bin number and its value-element being a vector as defined in the Standard C\(++\) Library (std::vector) [8] of the objects filling that bin. At filling time the contents of the bin, corresponding to the value of the input object, are incremented by adding the object to the corresponding vector. To avoid binning effects the contents of the adjacent bins are also incremented. The class implements also methods to find the bins of a histogram with a number of entries above a given threshold.
+* _MooMdtDigitToHitSvc_ is an ATHENA service to convert a MDT time measurement into a drift distance, applying corrections for the propagation time along the wire, the time of flight and the Lorentz angle. The r-t relation, currently implemented, is a linear one for all the MDT tubes. It will be replaced by a realistic r-t relation when data, simulated with such a kind of r-t relation, will be provided.
+* _MooLineFitter_ is fitting a straight line to a vector of _MooMdtHits_ on a plane perpedicular to the MDT tubes. This class was originally developed within the AMBER package [9] and it was extended to work on endcap MDT chambers.
+* _MooMdtSegmentMaker_ contains the algorithm, used by MOORE, to perform pattern-recognition locally in one MDT module. For each pair of MDT hits (one in each multilayer), the four tangential lines are found (see Figure 4 ). A segment is then built adding one by one all the hits having a residual distance from the line smaller than a given cut. The selected MDT hits are fitted with _MooLineFitter_ and the segment is kept if it is successfully fitted, it has a number of hits above a cut and points to the interaction vertex.
+
+* _RZSegmentCombinationMaker_ takes a vector of _RZSegments_ (_Mdt_ or _CscSegments_) and constructs _RZSegmentCombinations_, taking care that the combination contains only one segment from a specific chamber.
+* _MooiPatTrackConstructor_ includes methods which transform a set of hits to a _MooiPatTrack_.
+* _MooiPatFitter_ is an interface to the iPatFitter [3] classes, needed to fit _MooiPatTracks_.
+* _MooTrackSelector_ implements methods that choose between two _MooiPatTracks_ with common hits, according to various criteria (number of hits, fit-quality, etc.).
+* _MooTrackPurifier_ implements the method for rejecting hits with high \(\chi^{2}\) contribution to a track, as explained in _MooMakeTracks_ of 2.2.1.
+* _MooUtilities_ includes methods to find the common (or different) hits between two _MooiPatTracks_.
+
+### Track Propagation to the Vertex and Combination with the Inner Detector Reconstruction
+
+The reconstructed objects produced by MOORE are tracks whose parameters are expressed at the first measured point inside the Muon Spectrometer. A full event reconstruction requires the extrapolation of the track parameters to the vertex. To accomplish this task the MuonIdentification (MUID) package is used. It is a C\(++\)/Object-Oriented package, working within the ATHENA framework.
+
+The purpose of MUID consists in combining tracks found in the Muon Spectrometer with the corresponding Inner Detector track, reconstructed by the iPatRec package [3], taking into account the calorimeter information, in order to provide the best estimate of the kinematic parameters of the muons at their production vertex.
+
+The first step is the extrapolation of tracks from the Muon Spectrometer to the vertex region, in order to have a set of track parameters comparable to those from the Inner Detector reconstruction. In this step, MUID accesses to the MOORE track and propagates it through the magnetic field in order
+
+Figure 4: _Pattern recognition in the MDTs._
+
+to obtain the track parameters and their associated covariance matrix at the point of closest approach to the beam intersection. The multiple scattering in the Calorimeters is parametrized with a set of scattering planes; the muon energy loss is evaluated either from the calorimeters measurements or from a parametrization as a function of \(\eta\) and the muon momentum. This first step allows one to use MOORE plus MUID as a standalone package for the Muon reconstruction and is referred as _MUID StandAlone mode_.
+
+In the next step, Inner Detector and Muon tracks are matched by forming a \(\chi^{2}\) with five degrees of freedom from the parameter differences and summed covariance. A combined fit is performed for all combinations with a \(\chi^{2}\) probability above a certain cut. When no match satisfies this criterion, a combined fit is attempted for the best match within the road around the muon track. Tracks are combined using hits from the two subdetectors which were found and used separately by the standalone reconstruction programs. All the matches to the Inner Detector giving a satisfactory combined fit are retained as identified muons. In the following results obtained using this method are referred as _MUID Combined mode_.
+
+## 3 Treatment of the Inert Material in the Track Fit
+
+### Fit Refinements
+
+The tracks successfully reconstructed undergo a final processing step which aims at refining the determination of the track parameters. This is accomplished by taking into account in a second fit the effects of multiple scattering and energy loss along the track and by rejecting the hits with large residuals, if any.
+
+The rejection of the hits contributing to the \(\chi^{2}\) above a given threshold allows one to clean up the track from hits that are either incorrectly assigned to the track in the pattern recognition procedure, or affected by a large uncertainty in the measured drift distance, leading to a spoiled local spatial resolution. The hit rejection can be performed only after a proper evaluation of all the uncertainties affecting the track reconstruction.
+
+Although the air core structure of the toroidal magnetic field has been designed to minimize the material traversed by the muons and, hence, the degradation of momentum resolution, the magnet coils, the vacuum vessels, the material of the muon detectors, various supporting and stiffening structures represent local high density regions in the muon spectrometer where multiple scattering and energy loss are not negligible. The impact of the material in the tracking performances is clearly shown by the distributions of the pulls on the track parameters that deviate from expected values when inert material is neglected in the track fit.
+
+Ideally, these effects should be accounted in the fit on the basis of the actual trajectory of each muon. In fact, one could follow the trajectory and allow for kinks in the track and energy loss precisely, and only in the case of the impact of the muon with a relevant amount of inert material. The fit package, iPatRec, has the built-in flexibility to assign to the track special hits, called "scatterers", which are defined by a position in space, a thickness, expressed in terms of number of radiation lengths and a loss of energy. At the location of each _scatterer_ the fitting procedure determines the scattering angle, in three dimensions, which best accommodates the measurements along the track, according to the \(\rm T_{X_{0}}\) assigned to the scattering center. At the same time, the momentum is corrected for the energy lost in the material described by the _scatterer_. This allows one to account for the material crossed by the track at the cost of two extra free parameters (the director cosines of the scattering angle) per scattering center. The procedure, however, requires a detailed description of all the active and inert material in the spectrometer. The geometry model currently implemented in ATHENA describes the size, shape, position and materials of all the detectors but it does not yet provide a description of the magnet system and of the supporting structures.
+
+### Description of the Inert Material
+
+An approximated treatment of the inert material can be obtained by parameterizing the amount of material on the muon path in terms of the properties relevant from the point of view of the tracking: i.e. thickness crossed in units of radiation lengths and \(\mathrm{dE/dx}\). In order to correct the bias in the track reconstruction, the parametrization must be defined on a grid of granularity, in \(\eta\times\phi\times s\) (\(s\) being the path length), adequate to follow the main structures in the distribution of the material in the muon spectrometer. The pulls of the track parameters can be used as a monitor of the correctness of the material parametrization. The procedure is based on the balance of accuracy and average performances and implies an iterative optimization of the parametrization and, possibly, of the segmentation of the material map. It should be pointed out, moreover, that this data driven approach will provide a tool to cross check the accurate modeling of the materials in the apparatus when real data will be available.
+
+A first implementation of the parametrization of the inert material is available in MOORE since release 6.0.4. It is based on a grid \(\eta\times\phi\times s\) consisting of 1152 bins in the barrel region and 504 bins in each endcap. The segmentation in \(\phi\) follows the eight-fold structure of the toroid (figure 5 left): 8 bins cover the large sectors, where the material distribution is rather uniform; 8 smaller bins correspond to the regions of the barrel toroid coils; finally 16 bins cover the regions in the small sectors in between the coils and the adjacent large sectors on both sides. The segmentation in \(\eta\) is uniform in \(\cot\,\theta\) in the barrel with 12 bins overall and it follows roughly the arrangement of detectors and materials in the endcaps (figure right 5).
+
+Finally, three regions are distinguished along the trajectory path, the first going from the outer edge of the calorimeter to the end of the innermost layer of the muon spectrometer; here the second region starts and extends up to the end of the middle layer of muon chambers; the last region extends from this point to the end of the outer layer of the spectrometer. For a typical track crossing all three
+
+Figure 5: _Segmentation in \(\phi\) (left) and in \(\eta\) in the endcaps (right)._
+
+stations, 5 scattering centers are added to the track; they are located at the entrance of each layer and at the exit of the inner and of the middle layer. The first two share evenly the total average material thickness, expressed in terms of number of radiation lengths (and therefore indicated with \(\rm T\,_{X_{0}}\) in the following) and the total energy loss estimated for the bin \((\eta_{\rm track},\phi_{\rm track},inner)\), where the \(\eta_{\rm track}\) and \(\phi_{\rm track}\) bins are chosen according to the track parameters at the entrance of the muon spectrometer. The third and fourth scatterers share the amount of material assigned to the bin \((\eta_{\rm\,track},\phi_{\rm\,track},\mbox{{\it midle}})\) and the last scatterer accounts for the material in the outer section of the same \((\eta,\phi)\) bin.
+
+The average \(\rm T\,_{X_{0}}\) and energy loss in each bin of the map have been estimated by means of utilities of Muonbox [10]. This package relies upon an internal description of the geometry of inert and active materials based on the AMDB database [6]. Therefore, it is possible to follow any track in the spectrometer and record the points where inert material, of a given thickness and composition, is crossed. The energy loss depends on the muon momentum; a suitable approximation, at the energies involved in ATLAS, consists of a constant term, \(\rm E1_{0}\), and a term proportional to the muon total momentum, with coefficient \(\rm E1_{1}\). The average \(\rm T\,_{X_{0}},\rm E1_{0}\) and \(\rm E1_{1}\) in the bins of the map have been computed by propagating a large sample of high momentum muon tracks in the spectrometer, adding for each track all the contributions belonging to a given bin and averaging over the sample.
+
+In fig.6 the distributions of the pulls on the track curvature obtained after refitting the tracks with scattering centers assigned according to the parametrization of the inert material are compared with the pulls obtained when only the material of the muon detectors, available from the geometry service in ATHENA, is taken into account in the scattering centers. Although the parametrization is not yet optimized a relevant improvement in the quality of the fit is achieved.
+
+The distributions of the track parameter pulls, binned according to the segmentation of the parametrization, deviate from a normal behavior at low momenta in specific regions of the muon spectrometer, indicating the need to optimize the estimated average \(\rm T\,_{X_{0}}\) and energy loss. Figures 7 and 8 show a few examples of pull parameters.
+
+Figure 6: _Pulls of the track curvature for muons with \(p_{T}=6\ GeV\) (left) and \(p_{T}=20\ GeV\) (right). The black histogram, the statistics and the Gaussian fit parameters refer to a track fit including multiple scattering and energy loss effects as described in the parametrization of the inert materials in the spectrometer; the red histogram are obtained on the same event sample by taking into account in the fit only the effects of the material in the muon detectors._
+
+Figure 8: _The mean (top) and the sigma (bottom) of a Gaussian fit to the pull distributions for the parameter \(\phi\) on a sample of muons with \(p_{T}=6\;GeV\), selected according to the cot \(\theta\) of the track (12 slices of equal size cover the barrel \(-1.2<cot\;\theta<1.2\)); slice 1 to 6 cover the half barrel at \(z<0\) (the numbering increases with increasing \(z\)) and slices 7 to 12 cover the half barrel at \(z>0\). Tracks traversing different \(\phi\) sectors are grouped together but selected according to the region in the sector: (stars for \(A\), circles for B1, crosses for \(C\), dots for B2, labelling according to fig. 5)._
+
+Figure 7: _The mean (top) and the sigma (bottom) of a Gaussian fit to the pull distributions for the parameter \(a_{0}\) (transverse distance of closest approach) on a sample of muons with \(p_{T}=200\;GeV\) in the barrel, selected according to the \(\phi\) of the track. 8 sectors, corresponding to the 8-fold structure of the barrel toroid, are distinguished and numbered in order of increasing \(\phi\). In each sector the different markers identify the regions labelled \(A\), B1, \(C\), B2 in fig. 5 (stars for \(A\), circles for B1, crosses for \(C\), dots for B2)._
+
+MOORE Performance
+
+### Single Muon Events
+
+The performance of MOORE reconstruction has been extensively tested with single muon samples of fixed transverse momentum simulated for the Data Challenge 1. In order to test the robustness of the code nearly \(10^{6}\) events, in the energy range from 3 GeV up to 1 TeV, have been successfully processed.
+
+On smaller data samples (20000 events for each energy point) the full reconstruction chain has been executed, namely:
+
+* the reconstruction in the Muon Spectrometer alone (MOORE)
+* the extrapolation to the vertex of the track found in the Muon Spectrometer (MUID Standalone)
+* the reconstruction in the Inner Detector (iPatRec)
+* the combination of the track found in the Muon Spectrometer and in the Inner Detector (MUID Combined)
+
+Most of the plots shown in this section have been made in the four cases just described. The global efficiency as a function of \(P_{T}\) is shown in figure 9.
+
+The efficiency as a function of \(\eta\) is shown in figure 10 for 6 GeV muons and for 20 GeV muons.
+
+The decrease of the efficiency for \(\eta>2\), expecially in the case of low \(P_{T}\) muons, is due to known problems in the simulation of the CSC digitization and to a preliminary clusterization procedure in the reconstruction which still requires optimization. These problems should be solved in the next major ATLAS software release.
+
+The efficiency is rather uniform in the \(\phi\) coordinate, as shown in figure 11.
+
+The resolution on \(1/P_{T}\) for 6 GeV muons and for 300 GeV muo
+
+Figure 9: _Global efficiency as a function of \(P_{T}\) for MOORE, MUID Standalone, iPatRec and MUID Combined._
+
+Figure 11: _Efficiency as a function of \(\phi\) for 50 GeV muons._
+
+Figure 10: _Efficiency as a function of \(\eta\) for 6 GeV muons (left) and for 20 GeV muons (right)._
+
+Figure 12: _Resolution on \(1/P_{T}\) for 6 GeV muons (the top four plots) and for 300 GeV muons (the down four plots) for MOORE, MUID Standalone, iPatRec, and MUID Combined._
+
+The global resolution on \(1/P_{T}\) as a function of \(P_{T}\) is shown in figure 13. The resolution on \(1/P_{T}\) as a function of \(\eta\) for 6 GeV muons and for 20 GeV muons is shown in figure 14.
+
+The worsening of the resolution in the region \(1.0<\eta<1.5\), especially for low energy muons, is due to the shape of the magnetic field, which is highly inhomogeneous in the transition region. An optimization of the steps in the track fit in this region, which should improve the reconstruction efficiency, is not yet implemented.
+
+The resolution on \(1/P_{T}\) as a function of \(\phi\) for 6 GeV muons and for 100 GeV muons is shown in figure 15.
+
+Figure 14: _Resolution on \(1/P_{T}\) as a function of \(\eta\) for 6 GeV muons (left) and for 20 GeV muons (right)._
+
+Figure 13: _Global resolution on \(1/P_{T}\) as a function of \(P_{T}\): at low momenta the resolution is dominated by the Inner Detector while at high momenta it is dominated by the Muon Spectrometer._
+
+The distribution of the pulls of \(1/P_{T}\) for 20 GeV muons is shown in figure 16.
+
+The distribution of the pulls of \(1/P_{T}\) vs \(\eta\) for 5 GeV muons and for 20 GeV muons is shown in figure 17.
+
+Figure 16: _Distribution of the pulls of \(1/P_{T}\) for 20 GeV muons._
+
+Figure 15: _Resolution on \(1/P_{T}\) as a function of \(\phi\) for 6 GeV muons (left) and for 100 GeV muons (right)._
+
+All the distributions in this section show a rather good agreement with the performance obtained with Muonbox and STACO for the Physics Technical Design Report [2].
+
+The timing performance of MOORE and MUID Standalone (in optimized mode) have been evaluated on a 2.4 GHz, 1GB (RAM memory), 512 kB (Cache memory) machine with samples of single muon events of fixed p\({}_{T}\). The execution time is rather flat on the whole p\({}_{T}\) range, and when averaged on the entire \(\eta\) range, it never exceeds 100ms per event. Figure 18 shows the distribution of the execution time for 20 GeV and 300 GeV muons. The average execution time obtained when 95% of the events is retained, discarding the 5% of events with the longest execution time, is shown in Table 1.
+
+Figure 17: _Distribution of the pulls of \(1/P_{T}\) for 5 GeV muons (left) and for 20 GeV muons (right)._
+
+Figure 18: _Distribution of the execution time for 20 GeV (a) and 300 GeV (b) muons in the whole \(\eta\) range._
+
+The average execution time as a function of p\({}_{T}\) and for the three cases (only barrel, only endcaps, barrel+endcaps) is shown in figure 19, for events reconstructed within 1 second, corresponding to \(\approx\) 98 % of the whole sample.
+
+A more detailed description of the MOORE timing can be found in [11].
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline
+**Sample (GeV/c)** & \multicolumn{2}{|c|}{**Time (msec)**} \\  & **Average (rms)** \\ \hline
+8 & 82 (42) \\ \hline
+20 & 66 (26) \\ \hline
+50 & 65 (29) \\ \hline
+100 & 74 (37) \\ \hline
+300 & 83 (64) \\ \hline \end{tabular}
+\end{table}
+Table 1: Average time execution for MOORE plus MUID Stadalone when 95% of the events is retained, discarding the 5% of events with the longest execution time.
+
+Figure 19: _Average execution time as a function of \(p_{T}\) for events reconstructed within 1 second (\(\approx\) 98% of the whole sample)._
+
+### Single Muon Events with Background
+
+The effect of the presence of the background generated by the radiation in the cavern on the reconstruction with MOORE has been studied by using single muon simulated samples with \(p_{T}\,=\,100\,\,GeV\), produced for the Data Challenge 1. As soon as simulated data sets are available, the analysis will be performed on samples with different \(p_{T}\) values, in order to understand the dependence of the results on the muon energy. The single muon events have been reconstructed in the Muon Spectrometer alone in three different conditions:
+
+* a) no pile-up was superimposed in the event;
+* b) a pile-up corresponding to the amount of background estimated to be present in the cavern at high luminosity \(L=10^{34}\,cm^{-2}\,s^{-1}\) ("nominal" pile-up) was superimposed in the event;
+* c) a pile-up corresponding to 2 times the nominal one ("safety factor 2" pile-up) was superimposed in the event;
+* d) a pile-up corresponding to 5 times the nominal one ("safety factor 5" pile-up) was superimposed in the event.
+
+In Fig. 20 and in Fig. 21 the total number of Phi hits on RPC and the number of segments in Phi reconstructed by the pattern recognition in the event are shown for the four cases a), b) c) and d), as an example of the different levels of the detector occupancy and of the increased degree of complexity for the tracking.
+
+Figure 20: Total number of Phi hits on RPC in events with no pile-up (upper left), nominal pile-up (upper right), safety factor 2 pile-up (lower left), safety factor 5 pile-up (lower right).
+
+Although the track multiplicity per event (only events in \(|\eta|<2\). have been considered) increases with the background level (see Fig. 22), suitable quality requirements allow one to identify the reconstructed track corresponding to the simulated muon.
+
+Figure 21: Total number of segments reconstructed in Phi in events with no pile-up (upper left), nominal pile-up (upper right), safety factor 2 pile-up (lower left), safety factor 5 pile-up (lower right).
+
+Figure 22: Reconstructed track multiplicity in events with no pile-up (upper left), nominal pile-up (upper right), safety factor 2 pile-up (lower left), safety factor 5 pile-up (lower right).
+
+For this track, the \(\chi^{2}\), the average number of associated hits, both on trigger and precision chambers, and the momentum resolution is not drammaticaly deteriorated by the background presence. This can be observed in Fig. 23, where the fit of the resolution on \(1/p_{T}\) in the four cases provides similar results on the width of the "core" distributions.
+
+The single muon efficiency has been evaluated by imposing different cuts on the number of standard deviation (\(\sigma\)) of the \(p_{T}^{\,rec}-p_{T}^{\,gen}\) distribution, and results are shown in Fig. 24, from which one observes a few percent loss of efficiency when a cut at 3\(\sigma\), 5\(\sigma\) or 10\(\sigma\) is applied, suggesting that the population of the longer tails in the distribution increases with the background. Efficiency is mainly lost because of tracks that fail the MOORE reconstruction. In some cases (increasing with the background and \(<10\%\) of the events rejected by the cut on \(p_{T}\) resolution), the track identification selected a wrong segment, while there was another segment in the event with a reconstructed \(p_{T}\) within 3 \(\sigma\). This suggests that for these cases, additional information from the extrapolation to the vertex (MUID Standalone) could aid recognition of the muon.
+
+Figure 23: \(1/p_{T}\) resolution of the identif ed muon track in events with no pile-up (upper left), nominal pile-up (upper right), safety factor 2 pile-up (lower left), safety factor 5 pile-up (lower right).
+
+### Z\(\rightarrow\mu\mu\)
+
+The very precise measurement of the Z Boson mass performed at e\({}^{+}\)e\({}^{-}\) colliders and the copious production of Z\(\rightarrow\mu\mu\) events in ATLAS provide a powerful tool to set the absolute momentum scale of the muon spectrometer.
+
+Thanks to the abundant production of Z bosons (about 30000 events per day at low luminosity), from the known Z mass we will be able to measure other particle masses with high precision and have a cross-check between the different subdetectors, allowing the calculation of systematic uncertainties and reducing them as much as possible.
+
+We have processed, with ATLAS Software Release 6.0.2, 5000 Z\(\rightarrow\mu\mu\) events simulated for the Data Challenge 1.
+
+The Z invariant mass has been evaluated with the reconstruction performed only in the Muon Spectrometer with MOORE (no extrapolation to the vertex, see figure 25, top plot) and combining the reconstruction in the Inner Detector and in the Muon Spectrometer with MUID (see figure 25, down plot). No kinematics cuts were applied to the single muons. A Gaussian fit to the mass distribution obtained with MUID gives \(\sigma=2.8\) GeV.
+
+Figure 24: Single muon reconstruction effi ciency as a function of the cut on the number of \(\sigma\)’s of \(p_{T}^{\tau c}-p_{T}^{gen}\).
+
+### H\(\rightarrow\mu\mu\mu\mu\)
+
+The Standard Model (SM) Higgs boson decay H\(\rightarrow\)\(ZZ\,^{*}\rightarrow\mu\,\mu\,\mu\mu\) for m\({}_{H}\)=130 GeV has been studied using the MOORE and MUID reconstruction software in ATLAS Software Release 6.0.3. These events (50 K) were produced for the Data Challenge 1. The Higgs to 4 muons events were generated with release 5.3.0 and afterwards fully simulated with release 6.0.2.[12]. The applied event selection is according to the Physics TDR event selection [2]. The signal reconstruction proceeds by selecting four muons which pass the muon identification criteria followed by the following kinematic cuts:
+
+* Two muons with p\({}_{T}>20\) GeV and \(|\eta|<2.5\) are required for trigger
+* Two additional muons with p\({}_{T}>7\) GeV and \(|\eta|<2.5\) are required
+* One pair of muons of opposite charge is required to have an invariant mass in a window around the Z mass, defined as m\({}_{Z}\)\(\pm\) m \({}_{12}\).
+* The other pair of muons is required to have an invariant mass above a certain threshold defined as m\({}_{23}\) threshold.
+
+The optimised values of the m\({}_{12}\) window and of the m\({}_{34}\) threshold used for the Higgs-boson mass of 130 GeV are 15 GeV and 20 GeV. Furthermore, in this Higgs analysis [13] the kinematic constraint of the Z mass is used, and this improved the mass resolution by about 20%: a Z mass constraint is applied if the mass of the muon pair is inside a window of \(\pm\)6 GeV around the nominal Z-mass. When only the Muon System is used (MUID Standalone) the Higgs mass resolution is \(\sigma\)=2.46 GeV. The combination of the Muon System and Inner Detector measurements (MUID Combined) improves the mass resolution to \(\sigma\)=1.60 GeV. The reconstructed mass distribution for the 130 GeV Higgs decays
+
+Figure 25: _Z Invariant mass obtained with MOORE (top plot) and with MUID (down plot)._
+
+[MISSING_PAGE_FAIL:25]
+
+## 5 MOORE as Event Filter in the High Level Trigger Environment
+
+In the present architecture of the ATLAS High Level Trigger (HLT) [15], at the Event Filter (EF) level a reduction of the trigger rate from \(\sim\)2 KHz to \(\sim\)200 Hz must be achieved. Algorithms running in the EF can access the full event and must accomplish their task with a latency of \(\sim\)1 second. A detailed description of the MOORE implementation for the EF and of its performance can be found in [11], here we will only report the most relevant concepts for a basic understanding. Offline algorithms operating at the EF level must have the possibility to be executed in two different modes [16]:
+
+* in general purpose (or wrapped) mode, where the reconstruction is performed on the whole detector, as done in the offline environment;
+* in seeded mode, where, through the Region Selector [17], the algorithms access only the digits coming from a given Region of Interest.
+
+In the second case, once the digits in a given Region of Interest are available, the reconstruction proceeds exactly as in the offline environment.
+
+At the EF level the Region of Interest found by the LVL2 algorithms (muFast) should be used.
+
+Figure 27: _ATLANTIS visualization of the decay \(H\rightarrow\mu\mu ee(m_{H}=130\) GeV) in X/Y projection (top) and \(\rho\)/Z projection (down)._However at the time this note has been written only the Region of Interest found by LVL1 was available and has been used. The performances of MOORE, when executed in seeded mode, are similar to the ones of the offline version described in Section 4, as can be seen in figure 28 for the _p_\({}_{T}\) resolution.
+
+Since the LVL1 output is presently restricted only to the barrel, the performances of MOORE in seeded mode have been tested only in that region, while the performances in the wrapped mode have been evaluated in the whole pseudorapidity range. A detailed description of the MOORE timing, both in wrapped and seeded mode, can be found in [11].
+
+## 6 Reconstruction of Test Beam Data with MOORE
+
+Important feedback is provided to the MOORE algorithms by their use in the reconstruction of real data collected at the Muon Test Beam in the H8 area. A detailed description of the test beam setup for the year 2002 can be found, for example, in [18]. The barrel setup reproduces in full scale an MROD of the spectrometer with six chambers, two for each station. The endcap setup reproduces a sector of the spectrometer endcap with four of the six MROD chambers fully operational.
+
+The ATHENA package MuonTestBeam has been developed to prepare the test beam data reconstruction with MOORE in the ATHENA framework. The package consists of a conversion service to decode H8-DAQ data and build digits in the new Muon Event Data Model, a set of services providing access to conditions data (e.g. electronic mappings, calibrations), and a set of algorithms for the analysis of the data. This last set of algorithms includes the possibility of filling one or more ntuples (using the ATHENA Combined Ntuple framework) for data analysis.
+
+In addition, the package MuonAsciiDetDescrSource has been developed to initialize the detector description from the AMDB ASCII files used to describe the geometry of the H8 setup. The package provides decoders, one for each technology, capable to initialize the ATHENA MuonDetDescrManager from these ASCII files.
+
+Figure 28: _Resolution on \(p_{T}\) as a function of the generated \(p_{T}\) in \(GeV\) obtained with MOORE and with MUID standalone (seeded mode). (blue: MOORE reconstruction, red: MOORE plus MUID standalone)._
+
+An example of a spectrum of TDC counts obtained from an MDT tube is shown in Figure 29. The gas mixture used is Ar-C02 93%-7%; as can be seen from the drift time spectrum this gas mixture leads to a very non-linear relation between the drift distance and the drift time measured by the TDC.
+
+First tests of the reconstruction of test beam data with MOORE, were performed on the data collected during the Summer of 2002. During this data taking period only MDT chambers were installed in H8. The first reconstruction step consists of building "CrudeRZSegments" in each MDT station. A straight line fit through the drift circles belonging to the crude segments is then performed, to reconstruct track segments in each of the three stations. For this purpose, the MOORE algorithmic classes MooMdtSegmentMaker and MooLineFitter are used. The segments can be used for analyzing the chamber alignment, for checks of the calibration parameters, and for the preparation of the global track reconstruction via MOORE algorithms. An example of the results of the segment fit is shown in Figures 30 and 31. To perform the fits, the calibration constants obtained using the H8 MDT calibration package Calib [19] were used.
+
+A global track fit can be performed making use of the full MOORE reconstruction chain, as described in the previous sections. First preliminary tests were performed on 2002 data, by creating fake RPC or TGC digits to reconstruct crude \(\phi\) segments as first reconstruction step, even in absence of RPC and TGC detectors. The H8 setup for the year 2003 data taking foresees the presence of RPC and TGC chambers along with MDT chambers; this will allow a complete test of the MOORE pattern recognition and track fit, on real data.
+
+The location of the MuonTestBeam package in the ATLAS offline CVS repository is:
+
+_offline/MuonSpectrometer/MuonTestBeam_.
+
+Figure 29: _TDC counts distribution from a single MDT channel. The non-uniformity of the distribution is due to the highly non-linear r-t relation typical of the gas mixture (2002 Muon Test Beam setup)._
+
+Figure 31: _Figure (a) shows the angle of the track segment reconstructed in the BIL station, while (b) shows the track segment angle on the BOL station (2002 Muon Test Beam setup)._
+
+Figure 30: _Figure (a) shows the distribution of the fit residuals for track segments fitted on a BIL chamber. Figure (b) shows the residuals value as a function of the drift time (2002 Muon Test Beam setup)._
+
+Conclusions and Outlook
+
+The MOORE package performs track reconstruction in the Muon Spectrometer both at offline and online levels, as Event Filter in the High Level Trigger framework. Reconstruction performances have been tested both with simulated events from Data Challenge 1 and with real data from the H8 test beam setup. Results obtained so far, both for simulated single muon events and for some physics channels, are in good agreement with those obtained with Muonbox for the Physics TDR. With MOORE it is possible to estimate, for the first time, the performances of the complete "Muon Vertical Slice" (LV1/LV2/LV3) in the High Level Trigger framework. The MOORE modular design is well suited for having more than one reconstruction algorithm implemented for easy comparison. An alternative reconstruction method, based on Kalman filter technique, is indeed presently under development.
+
+## 8 Appendices
+
+### CSC Clusterization
+
+In the inner part of the ATLAS muon spectrometer, cathode strip chambers (CSC) are used in the forward region (\(\eta=2\)-\(2.7\)) to withstand the high hit rates. The CSC are multi-wire proportional chambers with a segmented cathode strip readout. The MDT and the CSC measure track coordinates in the bending plane with high precisions. The CSC are equipped with sets of orthogonal cathode strips which provide information on the non-bending coordinate. The precision coordinate is obtained by measuring the induced charge on the segmented cathode (cathode strips) by the avalanche on the anode wires. The CSC come with two types of modules; two identical modules form a chamber. The internal structure of a module consist of four wire planes with four orthogonal sets of cathode strips. Further details on the internal and external structures of the CSC modules and their layout in the ATLAS muon spectrometer can be found in [1].
+
+#### 8.1.1 Clusterization Algorithms
+
+Before being used in track reconstruction by MOORE, the CSC digits are processed by dedicated clusterization algorithm whose output is stored in the Transient Data Store to be accessed by MOORE. Several algorithms have been employed in test beam to determine the track position in the CSC. These algorithms use different combinations of charges on the strips (clusters) to infer the track coordinates:
+
+* **A weighted center of gravity algorithm** where the cluster position is given as the charge weighted mean of the positions of a few strips around a strip with the highest charge. This method does not work at high rates because of its strong sensitivity to anode-cathode cross-talk [20].
+* **A Gaussian fit method** where the cluster position is obtained as the mean of the Gaussian fit to the charge distribution in the cluster. This method too does not work very well in high rate situations [20].
+* **A ratio algorithm** first determines the position of the strip with the highest charge in the cluster. Then this position is corrected by a function which depends on the ratio of the charge differences between highest charge and the charges of the strips adjacent to highest. The correcting function is obtained from test beam data. This method is shown to be stable in high rate environments [20].
+* **A combined fit algorithm** which uses a double Gaussian fit to charge distribution. The widths of the two Gaussian functions are fixed to their values determined in test beam. First, single Gaussian fits are performed to the right and to the left of the strip with the highest charge to determine the input parameters of the combined fit. A single Gaussian fit is also carried out and one or two possible clusters are found by comparing the results of the combined fit to that of the single Gaussian fit [20].
+
+Only strips with charges above the noise level are used in the clusterization algorithms. The noise level has been studied in test beam and is a user adjustable parameter of the clusterization algorithms.
+
+The determination of the cluster sizes and their positions is done on each of the four planes of the cathode strips which measure the precision coordinate in a CSC module.
+
+#### 8.1.2 Software Organization of the Clusterization Algorithms
+
+The CSC clusterization algorithms can be found in the **ATLAS CVS repository** under **MuonSpectrometer/MuonDetRec**/. At the time of this writing, three sub-packages are stored under the container package **MuonDetRec**.
+
+* **MuonDetCluster**: The cluster class for the CSC (**CscCluster**) is located here. This is a data class of a CSC cluster which is a list of the CSC digits that make that cluster, the local position of the cluster obtained from the clusterization methods described above, the error on this position, and the identifier of the cluster (this is the identifier of the strip with the highest charge in the list). Classes for the weighted average and the combined fitting clusterization methods are also implemented in this package. Eventually, similar classes for RPC and TGC will be implemented in this package.
+* **CcsClusterization**: this package contains an ATHENA algorithm to do the CSC clusterization. It retrieves the container of CSC digits from the Transient Data Store, does the clusterization, and stores the list of clusters in the Transient Data Store where they are picked up during reconstruction. The algorithm has a job option file where the clusterization method can be selected and the noise level on the CSC strips can be changed. Thus far, only the weighted average and the combined fitting algorithms are implemented. The default noise level of 75000 electron equivalent charge has been determined in test beam.
+* **MuonDetPosition**: This sub-package contains a class to calculate the positions of MDT tube, CSC, RPC, TGC strip and TGC wire gang positions in the global reference frame. It also calculates the positions of detector elements. The identifier of the detector element or of the tube, strip or gang is passed to the muon detector description package which knows how to determine local positions and how to apply the transformation matrices to derive the global positions. For the CSC clusterization, the local cluster positions obtained from the clusterization methods described above, are passed to the MuonDetPosition class for the calculation of the corresponding global positions.
+
+### JobOptions Parameters
+
+The location of the MOORE package in the ATLAS offline CVS repository is:
+
+_offline/MuonSpectrometer/MOORE_.
+
+The instructions on how to install and run MOORE can be found on the MOORE Web Page [21].
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline
+**PARAMETER** & **DESCRIPTION** \\ \hline print\_level & general output level threshold (0-4) \\ \hline phi\_histo\_thr & threshold for accepting the contents of a bin in phi-histograms \\ \hline phi\_histo\_bin & phi-histogram bin width \\ \hline theta\_histo\_thr & threshold for accepting the contents of a bin in theta-histograms \\ \hline theta\_histo\_bin & theta-histogram bin width \\ \hline segment\_histo\_thr & threshold for accepting the contents of a bin in segments-histograms \\ \hline segment\_histo\_bin & segment-histogram bin width \\ \hline min\_mdt & minimum number of MDT digit in a RZSegment \\ \hline light\_speed & speed of light (in cm/ns) \\ \hline signal\_speed & speed of signal propagation along the wire(in speed of light units) \\ \hline drift\_velocity & drift velocity used in simulation (in cm/ns) \\ \hline lorentz\_angle & Lorentz angle \\ \hline mdt\_resolution & MDT resolution (in microns) \\ \hline mdt\_resolution\_wire & MDT resolution close to the wire (in microns) \\ \hline mdt\_resolution\_cut & distance from wire below which the mdt\_resolution\_wire applies \\ \hline mdt\_cotheta\_cut & cut in CotTheta for MDT segments \\ \hline delta\_ray\_cut & delta ray cut (in cm) \\ \hline trigger\_digits\_cut & number of strip/gang widths for a z str \\ \hline two\_mult\_cut & minimum number of digits for a 2-multilayer MDTSegment \\ \hline one\_mult\_cut & minimum number of digits for an 1-multilayer MDTSegment \\ \hline chi2\_cut & chi2 cut for fitted track candidate \\ \hline \end{tabular}
+\end{table}
+Table 2: JobOption Parameters
+
+### Description of the MOORE Ntuple
+
+The standard MOORE output consists of a column-wise ntuple, resident in a file and with a location and identifier in this file which can all be defined via jobOptions by calling ATHENA services. Defaults are : "ntuple.hbook" and "CBNT/222"for, respectively, filename and path/ntuple identifier:
+
+NTupleSvc.Output = 'FILE1 DATAFILE='ntuple.hbook' OPT='NEW" ;
+
+CBNT_Athena.NtupleLocID='/FILE1/CBNT/222';
+
+The blocks of variables to be filled in this ATHENA "combined"ntuple can be selected in the jobOptions file. The present default is:
+
+CBNT_Athena.Members = 'CBNT_EventInfo", "MooMakeNtupleKINE", "MooMakeNtuple", which produces a standard output including the following blocks:
+
+* EVENT (this block contains general event information);
+* KINE (for each generated muon, this block contains the "true"kinematic parameters given at different points along the track trajectory);
+* RECO (this block contains relevant variables describing each reconstructed track).
+
+In the KINE block, the maximum number of particles per event to be written in the ntuple (which does not correspond to different generated muons, since the same muon enters more than once in the ntuple) can be defined in the jobOptions via:
+
+MooMakeNtupleKINE.maxNumberofKINE=50;
+
+while the maximum number of reconstructed track segments per event can be set by:
+
+MooiPatNtuple.maxNumberofRECO=500;
+
+The meaning of each variable in the standard ntuple is described below in Table 3.
+
+"Non standard" MOORE output ntuples, containing additional variables for performing dedicated studies (e.g. in the case of using the parametrization of the inert material), are produced by official or private versions of the code, but for the moment have not be considered here.
+
+\begin{table}
+\begin{tabular}{|l|c|c|} \hline Block & Variable & \\ \hline EVENT & Run & Run number of the event \\ \hline EVENT & Event & Event number \\ \hline KINE & nkinemo & number of generated muons (a muon is counted more than once) \\ \hline KINE & xvtkgmo(nkinemo) & \(x\) of the generated muon vertex (cm) \\ \hline KINE & yvtkgmo(nkinemo) & \(y\) of the generated muon vertex (cm) \\ \hline KINE & zvtxgmo(nkinemo) & \(z\) of the generated muon vertex (cm) \\ \hline KINE & phigmo(nkinemo) & \(\phi\) of the generated muon \\ \hline KINE & cothgmo(nkinemo) & \(cot\theta\) of the generated muon \\ \hline KINE & ptigmo(nkinemo) & \(Q/p_{T}\) of the generated muon (\(Q\) has the sign of the muon charge) \\ \hline RECO & nmuonmo & number of reconstructed track segments \\ \hline RECO & trighmo(nmuonmo) & \# of associated trigger hits to the rec. track \\ \hline RECO & phihmo(nmuonmo) & \# of associated trigger \(\phi\) hits to the rec. track \\ \hline RECO & mdhtmo(nmuonmo) & \# of associated MDT hits to the rec. track \\ \hline RECO & statimo(nmuonmo) & \# of station layers fired by the rec. track \\ \hline RECO & statrmo(nmuonmo) & number in [1,7] defining the track reconstruction status \\ \hline  & \multicolumn{2}{|c|}{(for fitted final tracks it’s equal to 7)} \\ \hline RECO & xvtxrmo(nmuonmo) & \(x\) of the reconstructed track vertex (cm) \\ \hline RECO & yvtxrmo(nmuonmo) & \(y\) of the reconstructed track vertex (cm) \\ \hline RECO & zvtxrmo(nmuonmo) & \(z\) of the reconstructed track vertex (cm) \\ \hline RECO & a0romo(nmuonmo) & \(a0\) point of closest approach in the x-y plane \\ \hline RECO & z0romo(nmuonmo) & \(z0\) point of closest approach to the z axis \\ \hline RECO & phirmo(nmuonmo) & \(\phi\) angle \\ \hline RECO & cothrmo(nmuonmo) & \(cot\theta\) \\ \hline RECO & ptirmo(nmuonmo) & \(Q/p_{T}\) of the reconstructed track (\(Q\) has the sign of the muon charge) \\ \hline RECO & chi2mo(nmuonmo) & \(\chi^{2}\) of the reconstructed track from fit \\ \hline RECO & chi2prmo(nmuonmo) & \(\chi^{2}\) probability of the reconstructed track from fit \\ \hline RECO & covrijmo(nmuonmo) & covariance matrix (following the parameter order: \(a0\),\(z0\),\(\phi\),\(cot\theta\),\(Q/p_{T}\)) \\ \hline \end{tabular}
+\end{table}
+Table 3: Contents of the MOORE standard output ntuple
+
+## References
+
+* [1] ATLAS Muon Collaboration, _ATLAS Muon Spectrometer Technical Design Report_, CERN/LHCC 97-22, May 1997
+* [2] TDR, _ATLAS Detector and Physics Performance Technical Design Report_, CERN/LHCC 99-14, 25 May 1999
+* [3] iPatRec Web Page, \([http://atlas.web.cern.ch/Atlas/GROUPS/INNER](http://atlas.web.cern.ch/Atlas/GROUPS/INNER)\_DETECTOR/inner\_detector.html\); R.Clifft, A.Poppleton, _IPATREC: inner detector pattern-recognition and track-fitting_, ATL-SOFT-94-009; ATO-PN-9.- 14 Jun 1994
+* [4] MUID Web Page, \([http://people.na.infn.it/](http://people.na.infn.it/)\simbigliett/MuonId/index.html\)
+* [5] MuonDetDescription Web Page, \([http://muondoc.home.cern.ch/muondoc/software/Database/DetectorDescription/](http://muondoc.home.cern.ch/muondoc/software/Database/DetectorDescription/)\)
+* [6] AMDB Web Page, \([http://atlas.web.cern.ch/Atlas/GROUPS/MUON/AMDB](http://atlas.web.cern.ch/Atlas/GROUPS/MUON/AMDB)\_SIMREC/amdb\_simrec.html\)
+* [7] Event Data Model, \([http://muondoc.home.cern.ch/muondoc/software/Database/Event/](http://muondoc.home.cern.ch/muondoc/software/Database/Event/)\)
+* [8] B.Stroustrup, _The C++ Programming Language_, Addison-Wesley, New Jersey, 1998
+* [9] P.J.Hendriks, _ATLAS Muon Reconstruction from a C++ Perspective_, Ph.D. Thesis
+* [10] MuonBox Web Page \([http://atlas.web.cern.ch/Atlas/GROUPS/MUON/Reconstruction/Muonbox.html](http://atlas.web.cern.ch/Atlas/GROUPS/MUON/Reconstruction/Muonbox.html)\)
+* [11] D. Adams et al. _"MOORE as Event Filter in the ATLAS High Level Trigger"_, ATL-COM-DAQ-2003-020, ATL-SOFT-2003-008.
+* [12] E.Meoni, L.Goossens, A. Nairz, E.Richter-Was _The medium size fully simulated samples filtered for 4 particle level muons (part I)_, ATL-COM-PHYS-2003-018, 2 may 2003.
+* [13] L.La Rotonda, F.Cerutti, E.Meoni _Search for \(H\to\,4\mu\): studies with Atlast-Athena [http://agenda.cern.ch/askArchive.php?base=agendacateg](http://agenda.cern.ch/askArchive.php?base=agendacateg)\(=\)a031321id\(=\)a031321s1t4/transparencies_
+* [14] ATLANTIS Web Page, \([http://cern.ch/atlantis](http://cern.ch/atlantis)\)
+* [15] ATLAS collaboration: _"ATLAS High-Level Triggers, DAQ and DCS Technical Proposal"_, CERN/LHCC 2000-17, 2000.
+* [16] The PESA Software Group (ed. Markus Elsing), _"Analysis and Conceptual Design of the HLT Selection Software"_, ATLAS-TDAQ-2002-004.

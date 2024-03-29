@@ -1,0 +1,212 @@
+The high centre-of-mass energy of the LHC gives rise to dense environments, such as the core of high-\(p_{\mathrm{T}}\) jets, in which the charge clusters left by ionising particles in the silicon sensors of the pixel detector can merge, compromising the tracking and vertexing efficiency. To recover optimal performance, a neural network-based approach is used to separate clusters originating from single and multiple particles and to estimate all hit positions within clusters. This note presents the training strategy employed and a set of benchmark performance measurements on a Monte Carlo sample of high-\(p_{\mathrm{T}}\) dijet events.
+
+## 1 Introduction
+
+The unique operating conditions of the Large Hadron Collider (LHC) [1], which operates at a centre-of-mass energy of \(\sqrt{s}=13\) TeV since 2015, necessitate the development of high-performance track reconstruction techniques. For instance, the high centre-of-mass energy leads to a significant cross-section for very boosted objects, such as high-\(p_{\mathrm{T}}\) jets [2], which give rise to detector regions with high occupancy and small separation between particles, referred to as dense environments.
+
+Closest to the beampipe in the centre of the ATLAS detector [3], a silicon pixel tracking detector is installed, typically providing four precise charged-particle trajectory measurements (space-points) that are crucial for the tracking and vertexing performance. When an ionizing particle passes through a silicon sensor, charge is commonly deposited in more than one pixel for example due to electron-hole diffusion in the silicon bulk, charge drift in the direction of the Lorentz angle (Figure 1 left) due to the 2 T axial magnetic field of the inner detector, and creation of \(\delta\)-rays (Figure 1 right). A precise estimation of the hit position within a given cluster can be obtained using a charge interpolation technique parametrised on the incidence angle of the track candidate and the number of pixel rows and columns containing the cluster. However, in dense environments, where the average separation between particles becomes comparable to the detector granularity, the charge clusters can merge (Figure 1 centre), leading to poor precision in the hit position estimation and degraded track reconstruction performance.
+
+The Monte Carlo (MC) datasets typically used by the ATLAS collaboration include accurate simulation of the charge clustering in the pixel detector sensors [5; 6]. Accordingly, the availability of high-statistics charge-cluster datasets containing a significant fraction of merged clusters motivates the use of machine learning methods to solve the problem. Since the optimal approach requires a non-linear combination of high-dimensional inputs and depends on the orientation of tracks, neural networks are well-suited for this complex problem. Three sets of networks are used to estimate the particle multiplicity, the hit positions, and the associated uncertainties respectively. The resulting algorithm enables the optimal performance allowed by the detector to be nearly recovered in dense environments [4].
+
+Figure 1: Charge sharing [4]. Left: Because of the axial magnetic field of the ATLAS inner detector, the charges drift in the direction of the Lorentz angle. Centre: When distance between charged particle is small, their charge cluster can merge. Right: \(\delta\)-ray.
+
+The algorithm has been initially described in Ref. [4] and is discussed in Refs. [7] and [8] in the broader context of tracking in dense environments. A performance measurement on an early 2015 ATLAS \(p\)-\(p\) dataset is presented in Ref [9]. The robustness of the network with respect to changes in the input variables is studied in Ref. [10]. The overall tracking and vertexing performance for 2015 data is described in Refs [11], [12] and [13]. A data-driven measurement of the inefficiency of tracking in high-\(p_{\mathrm{T}}\) dense environments can be found in Ref. [14], and the reconstruction performance for tracks inside jets has been studied in Ref. [15].
+
+This note presents a technical description of the neural network clustering algorithm, and an updated set of benchmark performance measurements based on the ATLAS MC simulation datasets produced for the 2017 data-taking period. A detailed description of the ATLAS inner detector is provided in Section 2. The use of neural networks in track reconstruction is presented in Section 3, followed by the performance measurements in Section 4.
+
+## 2 The ATLAS inner detector
+
+The ATLAS detector is a multipurpose particle physics detector with a forward-backward symmetric cylindrical geometry and nearly \(4\pi\) coverage in solid angle.1
+
+Footnote 1: ATLAS uses a right-handed coordinate system with its origin at the nominal interaction point in the centre of the detector. The positive \(x\)-axis is defined by the direction from the interaction point to the centre of the LHC ring, with the positive \(y\)-axis pointing upwards, while the beam direction defines the \(z\)-axis. Cylindrical coordinates (\(r,\phi\)) are used in the transverse plane, \(\phi\) being the azimuthal angle around the \(z\)-axis. The pseudorapidity \(\eta\) is defined in terms of the polar angle \(\theta\) by \(\eta=-\ln\tan(\theta/2)\). Rapidity is defined as \(y=0.5\ln[(E+p_{\mathrm{\,z}})/(E-p_{\mathrm{\,z}})]\) where \(E\) denotes the energy and \(p_{\mathrm{\,z}}\) is the component of the momentum along the beam direction.
+
+The inner detector (ID) provides position measurements for charged particles in the range \(|\eta|<2.9\) by combining information from a silicon pixel detector, a silicon microstrip detector (SCT) and a transition radiation tracker (TRT). The ID consists of a cylindrical barrel region (providing full coverage for \(|\eta|<1.5\), with the innermost layer providing measurements up to \(|\eta|<2.9\)) arranged around the beam pipe, and two end-caps. Discs in the end-cap region are placed perpendicular to the beam axis and cover \(1.5<|\eta|<2.5\). Starting from the interaction point, the high-granularity silicon pixel detector segmented in \(r-\phi\) and \(z\) covers the vertex region and typically provides four measurements per track. It includes an innermost layer, the insertable B-layer (IBL) [16; 17], which was added for Run 2. The IBL has a mean radius of 33 mm and a typical IBL pixel has a size of 50 \(\mu\)m by 250 \(\mu\)m in the transverse and longitudinal directions, respectively, with a sensor thickness of 200 \(\mu\)m for planar sensors in the central region and 230 \(\mu\)m for 3D sensors at high \(|\eta|\). For the remaining three layers of the pixel system, located at mean radii of 50.5, 88.5, and 122.5 mm, respectively, a typical pixel has a size of 50 \(\mu\)m by 400 \(\mu\)m in the transverse and longitudinal directions, respectively, with a thickness of 250 \(\mu\)m. The coverage in the end-cap region is enhanced by three discs on either side of the interaction point. The pixel detectors measure time over threshold (ToT) in each individual pixel[18]. ToT is the time the pulse exceeds a given threshold and is proportional to the deposited energy, and therefore can be used to infer the collected charge using dedicated calibrations. The ToT is read-out with 4-bit precision in the IBL and 8-bit in the other layers. This note describes the method used to identify and measure hit positions within charge clusters that comprise one or several pixels.
+
+Charged particle tracks can also leave hits in the silicon microstrip detector and the transition radiation tracker, which are located outside the pixel detector volume. The SCT consists of four double strip layersat radii of 299 mm to 514 mm, complemented by nine discs in each of the end-caps. A typical strip of a barrel SCT sensor has a length of 126 mm and a pitch of 80 \(\mu\)m. On each layer, the strips are parallel to the beam direction on one side and at a stereo angle of 40 mrad on the other. The TRT extends track reconstruction radially up to a radius of 1082 mm for charged particles within \(|\eta|=2.0\) while providing \(r-\phi\) information. The raw timing information from its straw tubes is translated into calibrated drift circles that are matched to track candidates reconstructed from the silicon detectors.
+
+## 3 The clustering neural networks
+
+### Overview
+
+The track reconstruction algorithm in ATLAS comprises track seeding, track finding, ambiguity solving and track fitting stages [8]. In the track seeding phase, initial track candidates are defined as sets of three space-points passing \(p_{\mathrm{T}}\) and impact parameter cuts. A Kalman filter is then employed to iteratively update the track parameters starting from the seeds by incorporating hits from other layers [19].
+
+If at any point during the filtering, more than one space-point on a layer is compatible with the filter's estimate, multiple track candidates are created. As a result, there can be an excess of track candidates and an ambiguity solving stage must be implemented. During this stage, tracks are individually scored according to a number of metrics, including the number of constituent measurements which are used by more than one track (shared clusters); however, in dense environments there can be legitimately-shared clusters that would lead to an unjustified penalty. This problem is solved by a neural network that estimates the charged particle multiplicity of clusters used by more than one track; when such clusters are identified as originating from multiple particles, they are allowed to be shared between the appropriate number of tracks.
+
+In order to perform track fits using shared clusters, position measurements must be assigned to every contained particle. This is done with a set of neural networks that estimate the true local \(x\) and \(y\) positions2 for each particle in a given cluster. This step is also executed for 1-particle clusters since it leads to a more precise estimation than linear interpolation [4]. A final set of neural networks is subsequently used to estimate the associated uncertainties.
+
+Footnote 2: The positions are measured in a frame of reference local to the pixel sensor considered, in which the local \(x\) and \(y\) directions correspond to the transverse and longitudinal directions with respect to the beam line, respectively.
+
+### Training dataset
+
+A dijet MC sample generated with Pythia 8.186 [20] using the A14 set of tuned parameters [21] and the NNPDF2.3LO parton distribution function set [22] is used to produce the training and validation sets. A filter that keeps only truth-level jets with transverse momentum between 1.8 and 2.5 TeV is applied, resulting in a high fraction of multi-particle clusters. Here, jets are constructed using the anti-\(k_{t}\) algorithm with radius parameter \(R=0.6\)[23]. The selected events are then used as inputs to a detailed simulation of the ATLAS detector implemented using the GEANT4 software [6, 24]. The produced events do not contain additional interactions beyond the hard scattering.
+
+For the purpose of this work, truth particles are defined as any particle creating energy deposits ("hits") within a given sensor during the detector simulation and are identified before the charge digitization step.
+
+Whenever two or more hits are adjoining and have compatible starting and/or ending positions, they are merged into a single hit in order to avoid double counting. The truth position of a given hit is defined as the median between its starting and ending position. The particle multiplicity within a cluster is computed by counting the number of hits whose truth positions are compatible with one of the pixels with non-zero ToT value within the cluster.
+
+For each neural network training, 12 (5) million clusters are retained for the training (validation) set. For the network used to estimate the particle multiplicity, clusters from the parent dataset are filtered such that the training dataset is composed of 22%, 26% and 52% of 1, 2 and \(\geq\)3 particle clusters, respectively3. The dataset composition before adjustem is summarized in Table 1. For the position and error neural networks, separate trainings are carried out for 1, 2 and 3 particle clusters (for position and uncertainty estimation, \(>\) 3 particle clusters are treated as 3 particle clusters) and each training dataset consists solely of clusters from the corresponding multiplicity class.
+
+Footnote 3: This fraction was tuned to help the network to properly learn to recognize 3-particle clusters
+
+The neural networks take as input:
+
+* A 7\(\times\)7 digitized charge matrix centred on the charge centroid of the cluster. As the neural networks do not accept matrices as inputs, the charge matrix is flattened into a length 49 vector in row-major order.
+* A length-7 vector of pixel pitches in the local \(y\) direction.
+* A binary variable encoding the inner detector region (endcap or barrel).
+* An integer variable representing the cylinder (barrel) or disc (endcap) number.
+* \(\phi\) and \(\theta\) angles of incidence of the track candidate being scored.
+
+The two angles of incidence are known to significantly improve the performance of the neural network [4]. For example, the angle in the transverse plane is correlated with \(p_{\mathrm{T}}\) and helps identify clusters created by particles within high-\(p_{\mathrm{T}}\) jets. Moreover, these angles in conjunction with the cluster shape place constraints on the probable hit region. Since the neural network's performance is robust with respect to smearing of the angle of incidence [10], the true angle of incidence of the MC-generated particle is currently used as a proxy for the actual track measurements, allowing to create a training dataset independent of track reconstruction.
+
+For the neural networks used to estimate the uncertainty, the position estimates as given by the second set of neural networks are also included as inputs.
+
+\begin{table}
+\begin{tabular}{c c|c c c|c}  & & \multicolumn{3}{c|}{**Multiplicity [\%]**} & \\  & & 1 particle & 2 particles & \(\geq\) 3 particles & **Total** \\ \hline \multirow{3}{*}{**multiplicity**} & IBL & 18.01 & 3.71 & 1.21 & 22.93 \\  & Barrel & 58.61 & 12.62 & 3.85 & 75.08 \\ \cline{1-1}  & Endcap & 1.76 & 0.20 & 0.03 & 1.99 \\ \hline \multirow{3}{*}{**multiplicity**} & total & 78.37 & 16.54 & 5.09 & 100.00 \\ \end{tabular}
+\end{table}
+Table 1: Particle multiplicities within clusters in a dijet sample with a filter restricting the truth-level jet transverse momentum to be between 1.8 and 2.5 TeV.
+
+### Neural networks
+
+A two-hidden-layer neural network formally represents the following mathematical function:
+
+\[h_{i}^{(1)}=\sigma\left(\sum_{j}W_{ij}^{(1)}x_{j}+b_{i}^{(1)}\right) \tag{1}\] \[h_{i}^{(2)}=\sigma\left(\sum_{j}W_{ij}^{(2)}h_{j}^{(1)}+b_{i}^{(2 )}\right)\] (2) \[y_{i}=\phi\left(\sum_{j}W_{ij}^{(3)}h_{j}^{(2)}+b_{i}^{(3)}\right) \tag{3}\]
+
+where \(\mathbf{x}\) and \(\mathbf{y}\) are the input and output vectors, \(W^{(i)}\) and \(b^{(i)}\) are the weight matrix and the bias vector for the \(i\)-th layer which are the learned parameters of the network, and \(\sigma\) and \(\phi\) are the non-linear activation functions for the hidden and output layers respectively (for a thorough introduction to neural networks, see Ref. [25]). For all three network sets, \(\sigma\) is the element-wise sigmoid function4 and \(\phi\) is either sigmoidal or the identity. In the limit of optimal sizes and values of the weight matrices and bias vectors, such networks are known to be universal approximators [26]. The weights and biases are adjusted during the training phase with gradient descent according to the following equations:
+
+Footnote 4: In the context of this work, the sigmoid function is defined as \(1/(1+e^{-2x})\).
+
+\[\mathbf{g}^{(t)}=\nabla_{W,b}\left(L(\mathbf{y}^{true},\mathbf{y }^{NN})+\lambda||W^{(t-1)}||^{2}\right) \tag{4}\] \[W,b^{(t)}=W,b^{(t-1)}-\alpha\mathbf{g}^{(t-1)}-\eta\mathbf{g}^{( t)} \tag{5}\]
+
+where \(\mathbf{g}^{(t)}\) is the gradient estimate obtained with the \(t\)-th minibatch5 of data, \(L\) is a surrogate loss function representing a differentiable learning objective, \(\lambda\) is a weight decay parameter which helps avoiding overfitting by penalizing large, fine-tuned values in the weight matrices, \(\alpha\) is a momentum parameter helping the algorithm to navigate around local mimima and saddle points, and \(\eta\) is the learning rate parameter that scales the gradient updates (see Refs. [27, 28] for a review of these hyperparameters and their importance). The gradients are computed with the backpropagation algorithm [29]. The outputs of the network sets used to estimate the particle multiplicity and the hit position uncertainties can be interpreted as probability distributions and therefore the loss used in these cases is the categorical cross-entropy 6. The outputs of the networks used to estimate the hit positions have no such interpretation and thus the mean squared error is used instead. To avoid overfitting, all networks were trained using a patience-based early-stopping strategy. The number of remaining passes through the whole dataset (epochs) is increased by 1.75 for every epoch that sees a loss decrease of at least 0.5% for epochs above the 50th one. The required validation loss is computed on a set-aside slice of the training set comprising 10% of the available statistics.
+
+Footnote 5: During training, the dataset is divided in disjoint subsets, called _minibatches_, on which gradient estimates are computed. This speeds up convergence since many gradient estimates are obtained in each pass over the dataset.
+
+The hyperparameters used are listed in Table 2. An optimization pass using a random search over hyperparameter combinations [30] has shown that these relatively small, shallow networks are a good trade-off between performance and evaluation speed.
+
+#### 3.3.1 Particle multiplicity estimation
+
+Particle multiplicity estimation is achieved by a single neural network which represents a mapping from cluster observables to a length-3 probability vector over the multiplicity classes (1, 2 or 3 or more particles). To transform the probability vector associated to a given cluster into an actual class assignment, a decision rule using the 2 and \(\geq\) 3 particle bins of the probability vector (\(P_{2}\) and \(P_{3}\)) is implemented:
+
+* If \(P_{2}<60\%\) and \(P_{3}<20\%\): classify as 1-particle cluster
+* If \(P_{2}>60\%\) and \(P_{3}<20\%\): classify as 2-particles cluster
+* If \(P_{3}>20\%\): classify as \(\geq\) 3-particles cluster
+
+The chosen thresholds are the ones for which the tradeoff between efficiency of tracking inside jets and production of fake tracks resulting from shared clusters was found to be optimal after a grid scan of possible combinations.
+
+#### 3.3.2 Position and uncertainty estimation
+
+Separate trainings are performed for the 1-, 2- and 3-particles position estimation tasks. The outputs from the resulting networks correspond to the local \(x\) and \(y\) positions of each particle within a given cluster. An example of the position estimation task can be seen in Figure 2.
+
+The track fitting stage additionally requires uncertainties on the measurements while the neural networks yield only point estimates of the positions. To overcome this, another set of neural networks is used to estimate the associated uncertainty. Since Gaussian uncertainties on the positions are assumed, the task of uncertainty estimation is formally defined as learning the variance of each cluster's underlying distribution. However, these distributions are not known a-priori and so this task cannot be implemented using a purely supervised learning target.
+
+\begin{table}
+\begin{tabular}{c c c c}
+**Hyperparameter** & Multiplicity network & Position networks & Uncertainty networks \\ \hline
+**Structure** & (60)-25-20-(3) & (60)-40-20-(2/4/6) & (62/64/66)-15-10-(30/50/60) \\
+**Hidden activation** & Sigmoid & Sigmoid & Sigmoid \\
+**Output activation** & Sigmoid & Identity & Sigmoid \\
+**Learning rate** & 0.08 & 0.04 & 0.3 \\
+**Weight decay** & \(10^{-7}\) & \(10^{-7}\) & \(10^{-6}\) \\
+**Momentum** & 0.4 & 0.3 & 0.7 \\
+**Minibatch size** & 60 & 30 & 50 \\
+**Loss function** & cross-entropy & mean squared error & cross-entropy \\ \end{tabular}
+\end{table}
+Table 2: Hyperparameters used to train the three sets of neural networks. In the Structure row, the numbers in parenthesis denote the input and output layer sizes, with numbers separated by slashes corresponding to different sizes in datasets with 1, 2 or 3 particles per cluster respectively, while the numbers in-between represent the hidden layer sizes.
+
+To solve the problem, the task is re-framed as a residual estimation problem, where the residual is defined as the difference between the position estimate for a given particle in a given direction and its true value. Instead of estimating directly this quantity, the networks attempt to learn its probability distribution. Since the uncertainties are assumed to be normal distributions, the residuals follow gaussian distributions with zero mean. For a population of similar clusters with same true hit position, the distribution of the residuals is the distribution of the estimated positions recentered at the origin. Thus, it is possible to estimate the
+
+Figure 2: Example use cases of the neural networks used to estimate the hit positions for (a)1-particle, (b)2-particle, and (c)3-particle barrel clusters. cluster. The true hit positions are marked by full squares and the neural network estimations are marked by open circles.
+
+uncertainty of the position measurement by taking the root-mean-square (_rms_) of the output distribution over residuals. An example of this task is shown in Figure 3.
+
+This is implemented with a set of 6 neural networks, one for each particle-multiplicity-direction pair. To define a supervised target, the residual range for each particle is first binned symmetrically around zero in 30, 25 and 20 bins for 1-, 2- and 3-particle clusters respectively, and the bins corresponding to each particle's associated residual are set to unity.
+
+Figure 3: Example use case of the neural network used to estimate the uncertainty for a 1-particle IBL cluster. (a)1-particle cluster with true hit position marked by the full square and hit position estimated by the neural network marked by the open circle. The cluster is fed to the two neural networks that estimate the probability distribution of this cluster’s residual in the (b)local \(x\) and (c)vectors respectively. The neural networks output node are directly mapped to bins of the residual distributions, and the _rms_ of these distributions are used as point estimates of the uncertainties. In order to compare the performance in both directions, the residuals and _rms_ values are divided by the pitches (50 \(\mu\)m and 250 \(\mu\)m in the local \(x\) and \(y\) directions respectively).
+
+[MISSING_PAGE_FAIL:10]
+
+Figures 5-9. In particular, Figure 5 shows degraded performance at high \(|\eta|\). This is a consequence of the steep angles of incidence in the local-\(y\) direction in this detector region and the very central \(\eta\) distribution of the very-high \(p_{\mathrm{T}}\) dijet sample used for training, which leads to low statistics in the endcap regions. In the future, this will be mitigated by training on a sample with a flatter \(\eta\) distribution. Figures 5(b)-9(b) show that more optimization is needed for 2-particle clusters to attain efficiencies comparable to the 1- and \(\geq 3\)-particle cases.
+
+Receiver operating characteristic (ROC) curves for the network are presented in Figure 10. Since the network outputs three class probabilities, two of which are independent (the third one being fully determined by the probability sum rule), there is no one to one correspondence between any two given probability bins and so there is an ambiguity on which bin to use when comparing the network's performance on two different multiplicity classes in a pairwise fashion [32]. In consequence, four different pairwise ROC curves are relevant to the decision rule.
+
+Figure 4: Joint distribution of the 2-particle and \(\geq 3\)-particle neural network score, for (a) 1-particle, (b) 2-particle and (c) \(\geq 3\)-particle clusters. The shaded regions highlight the 1-particle cluster classification region.
+
+Figure 5: Probability of classifying (a) 1-particle, (b) 2-particle and (c) \(\geq 3\)-particle clusters as single particle clusters (circles) or multiple particle clusters (squares) as a function of the cluster global \(\eta\).
+
+Figure 6: Probability of classifying (a) 1-particle, (b) 2-particle and (c) \(\geq 3\)-particle clusters as single particle clusters (circles) or multiple particle clusters (squares) as a function of the cluster global \(\phi\).
+
+Figure 7: Probability of classifying (a) 1-particle, (b) 2-particle and (c) \(\geq 3\)-particle clusters as single particle clusters (circles) or multiple particle clusters (squares) as a function of the total cluster size in number of pixels with non-zero ToT values.
+
+Figure 8: Probability of classifying (a) 1-particle, (b) 2-particle and (c) \(\geq 3\)-particle clusters as single particle clusters (circles) or multiple particle clusters (squares) as a function of the cluster extent in the local x direction in number of pixel columns with at least one pixel with non-zero ToT value.
+
+Figure 9: Probability of classifying (a) 1-particle, (b) 2-particle and (c) \(\geq 3\)-particle clusters as single particle clusters (circles) or multiple particle clusters (squares) as a function of the cluster extent in the local Y direction in number of pixel rows with at least one pixel with non-zero ToT value.
+
+Figure 10: Pairwise receiver operating characteristic (ROC) curves for the network used to estimate the particle multiplicity. All figures follow an \(m\) vs \(n\) convention, where \(m\)- and \(n\)-particle clusters are scored according to the \(m\)-particle bin of the network output. The corresponding area-under-curve (AUC) measures the probability that an \(m\)-particle cluster is scored higher than an \(n\)-particle cluster in the \(m\)-particle bin. (a) 1-particle vs 2-particles clusters. (b) 1-particle vs \(\geq\) 3-particle clusters. (c) 2-particles vs 1-particle clusters. (d) 2-particles vs \(\geq\) 3-particle clusters. (e) \(\geq\) 3-particle vs 1-particle clusters. (f) \(\geq\) 3-particle vs 2-particles clusters. The ROC curves are produced separately for clusters in the IBL (solid line), barrel (medium-dashed line) and endcap (long-dashed line) regions. The small-dashed lines corresponds the a random classifier with variable bias and constitutes a universal baseline.
+
+### Position estimation
+
+Residual distributions, where the residual is defined per-particle as the difference between the network-estimated position and the true hit position, are shown in Figure 11. The 1-particle cluster distributions (Figures 11(a) and 11(b)) have non-Gaussian tails, corresponding to 1-particle clusters comprising a single illuminated pixel, for which the residual follows a different distribution. In general, the residual distributions in the endcap regions also exhibit non-Gaussian shapes, an effect that is also related to the centrality in \(\eta\) of the training dataset and to the steep angles of incidence in the local-\(y\) direction in this detector region.
+
+The evolution of the full width at half-maximum of the residual distributions in bins of cluster global \(\eta\) and \(\phi\), cluster total size, and cluster sizes in the local \(x\) and local \(y\) directions can be seen in Figures 12 and 13. As in the case of the multiplicity estimation, Figures 12(a) and 12(b) shows degraded performance at high \(|\eta|\). The width also increases in the local \(y\) direction in the central region since clusters in this region are unlikely to have a significant spread in this direction, as for endcap clusters. This effect can be seen in Figure 13(f). Figures 13(c) and 13(f) show that resolution is still acceptable even when the cluster is only one pixel wide in the measured direction, which indicates that there is enough additional information comprised in the input variables, especially in the cluster shape in the direction orthogonal to the measurment and in the angles of incidence, to constrain the hit region within the pixel in such cases.
+
+Joint residual distributions in the local \(x\) and local \(y\) directions are presented in Figure 14, 15 and 16 for 1-, 2- and 3-particles clusters respectively. These distributions confirm that the measurement in \(x\) and \(y\) are not correlated. The 2- and 3-particles distributions reveal a tendency of the networks to make a mistake in a particular direction with respect to the true hit position, even though the most probable value is still consistent with a near-zero residual. This effect remains to be investigated.
+
+Figure 11: Difference between the neural network position estimation and the true hit position in the (left) local \(x\) and (right) local \(y\) directions for true (a), (b) 1-particle, (c), (d) 2-particles and (e), (f) 3-particles clusters. The distributions are produced separately for clusters in the IBL (square), barrel (circle) and endcap (inverted triangle) regions. All sample means have negligible uncertainties while the full width at half minimum values have relative uncertainties of less than 5%.
+
+Figure 12: Full width at half-maximum of the distribution of the difference between the neural network position estimation and the true hit position in the (left) local \(x\) and (right) local \(y\) directions as a function of the (a),(b) cluster global \(\eta\) and (c),(d) cluster global \(\phi\).
+
+Figure 13: Full width at half-maximum of the distribution of the difference between the neural network position estimation and the true hit position in the (left) local \(x\) and (right) local \(y\) directions as a function of the (a),(b) cluster total size in number of pixels with non-zero ToT values, (c),(d) cluster extent in the local \(x\) direction in number of pixel columns with at least one pixel with non-zero ToT value and (e),(f) cluster extent in the local \(y\) direction in number of pixel rows with at least one pixel with non-zero ToT value.
+
+Figure 14: Joint distribution for the difference between the neural network position estimation and the true hit position in the local \(x\) and local \(y\) directions for true 1-particle clusters in the (a) IBL, (b) barrel and (c) endcap regions.
+
+Figure 15: Joint distribution for the difference between the neural network position estimation and the true hit position in the local \(x\) and local \(y\) directions for true 2-particles clusters in the (a) IBL, (b) barrel and (c) endcap regions.
+
+Figure 16: Joint distribution for the difference between the neural network position estimation and the true hit position in the local \(x\) and local \(y\) directions for true 3-particles clusters in the (a) IBL, (b) barrel and (c) endcap regions.
+
+### Error estimation
+
+The performance of the networks used to estimate the uncertainties on the position estimates are measured with pull distributions, where the pull is defined as the residual divided by the estimated error. If the residual distribution is Gaussian and the error is properly estimated, the pull distribution should be consistent with a normal distribution with zero mean and unit variance. Per-multiplicity-class pull distributions are shown in Figure 17 after application of scaling factors accounting for detector calibration and alignment effects. The means and standard deviations of the pull distributions are obtained by truncated Gaussian fits. In most cases, the distributions are consistent with a mean of zero and unit variance, however further investigation is needed to improve the performance in the cases were the pulls are not consistent with standard normal distributions.
+
+The evolution of the standard deviations (obtained with truncated Gaussian fits) of the pull distributions in bins of cluster global \(\eta\) and \(\phi\), cluster total size, and cluster sizes in the local \(x\) and \(y\) directions can be seen in Figures 18 and 19.
+
+Joint pull distributions in the local \(x\) and local \(y\) directions are presented in Figure 20, 21 and 22 for 1-, 2- and 3-particles clusters respectively.
+
+Figure 17: Difference between the neural network position estimation and the true hit position divided by the estimated uncertainty in the (left) local \(x\) and (right) local \(y\) directions for true (a), (b) 1-particle, (c), (d) 2-particles and (e), (f) 3-particles clusters. The distributions are produced separately for clusters in the IBL (square), barrel (circle) and endcap (inverted triangle) regions. The means and standard deviations are estimated with truncated Gaussian fits and are represented as dashed lines. All means and standard deviations have negligible uncertainties.
+
+Figure 18: Standard deviation of the distribution of the difference between the neural network position estimation and the true hit position divided by the estimated uncertainty in the (left) local \(x\) and (right) local \(y\) directions as a function of the (a),(b) cluster global \(\eta\) and (c),(d) cluster global \(\phi\), obtained with truncated Gaussian fits.
+
+Figure 19: Standard deviation of the distribution of the difference between the neural network position estimation and the true hit position divided by the estimated uncertainty in the (left) local \(x\) and (right) local \(y\) directions as a function of the (a),(b) cluster total size in number of pixels with non-zero ToT values, (c),(d) cluster extent in the local \(x\) direction in number of pixel columns with at least one pixel with non-zero ToT value and (e),(f) cluster extent in the local \(y\) direction in number of pixel rows with at least one pixel with non-zero ToT value, obtained with truncated Gaussian fits.
+
+## 6 Conclusion
+
+Figure 20: Joint distribution for the difference between the neural network position estimation and the true hit position divided by the estimated uncertainty in the local \(x\) and local \(y\) directions for true 1-particle clusters in the (a) IBL, (b) barrel and (c) endcap regions.
+
+Figure 21: Joint distribution for the difference between the neural network position estimation and the true hit position divided by the estimated uncertainty in the local \(x\) and local \(y\) directions for true 2-particles clusters in the (a) IBL, (b) barrel and (c) endcap regions.
+
+## 6 Conclusion
+
+Figure 22: Joint distribution for the difference between the neural network position estimation and the true hit position divided by the estimated uncertainty in the local \(x\) and local \(y\) directions for true 3-particles clusters in the (a) IBL, (b) barrel and (c) endcap regions.
+
+## 5 Conclusion
+
+A technical description as well as a set of benchmark measurements of the neural networks used to estimate the cluster particle multiplicity and hit positions in the pixel detector have been presented. This machine learning algorithm forms the core of the ATLAS strategy for recovering optimal tracking and vertexing performance in dense environments such as the core of high-\(\pt\) jets. Future prospects in this area of track reconstruction include improving the multiplicity-estimation network's capability to recognize 2-particle clusters, improving all 3 network sets performances at high-\(\eta\), and updating the training datasets and network configurations for the upcoming phase II upgrade of the ATLAS detector, in which the current inner detector will be replaced by a new tracker with different pixel depth and pitches.
+
+## References
+
+* [1] L. Evans and P. Bryant, _LHC Machine_, Journal of Instrumentation **3** (2008) S08001.
+* [2] ATLAS Collaboration, _Measurement of inclusive-jet cross-sections in proton-proton collisions at \(\sqrt{s}=13\) TeV centre-of-mass energy with the ATLAS detector_, ATLAS-CONF-2016-092, 2016, url: [https://cds.cern.ch/record/2209210](https://cds.cern.ch/record/2209210).
+* [3] ATLAS Collaboration, _The ATLAS Experiment at the CERN Large Hadron Collider_, J. Instrum. **3** (2008) S08003.
+* [4] ATLAS Collaboration, _A neural network clustering algorithm for the ATLAS silicon pixel detector_, J. Instrum. **9** (2014) P09009, arXiv: 1406.7690 [hep-ex].
+* [5] H. Bichsel, _Straggling in thin silicon detectors_, Reviews of Modern Physics **60** (1988) 663.
+* [6] ATLAS Collaboration, _The ATLAS Simulation Infrastructure_, Eur. Phys. J. **C70** (2010) 823, arXiv: 1005.4568 [physics.ins-det].
+* [7] ATLAS Collaboration, _The Optimization of ATLAS Track Reconstruction in Dense Environments_, ATL-PHYS-PUB-2015-006, 2015, url: [http://cds.cern.ch/record/2002609](http://cds.cern.ch/record/2002609).
+* [8] ATLAS Collaboration, _Performance of the ATLAS Track Reconstruction Algorithms in Dense Environments in LHC run 2_, Eur. Phys. J. **C77** (2017) 673, arXiv: 1704.07983 [hep-ex].
+* [9] ATLAS Collaboration, _Measurement of performance of the pixel neural network clustering algorithm of the ATLAS experiment at \(\sqrt{s}=13\) TeV_, ATL-PHYS-PUB-2015-044, 2015, url: [http://cdsweb.cern.ch/record/2054921](http://cdsweb.cern.ch/record/2054921).
+* [10] ATLAS Collaboration, _Robustness of the Artificial Neural Networks Used for Clustering in the ATLAS Pixel Detector_, ATL-PHYS-PUB-2015-052, url: [https://cds.cern.ch/record/2116350](https://cds.cern.ch/record/2116350).
+* [11] ATLAS Collaboration, _Early Inner Detector Tracking Performance in the 2015 data at \(\sqrt{s}=13\) TeV_, ATL-PHYS-PUB-2015-051, 2015, url: [http://cdsweb.cern.ch/record/2110140](http://cdsweb.cern.ch/record/2110140).
+* [12] ATLAS Collaboration, _Track Reconstruction Performance of the ATLAS Inner Detector at \(\sqrt{s}=13\) TeV_, ATL-PHYS-PUB-2015-018, 2015, url: [http://cdsweb.cern.ch/record/2037683](http://cdsweb.cern.ch/record/2037683).
+* [13] ATLAS Collaboration, _Vertex Reconstruction Performance of the ATLAS Detector at \(\sqrt{s}=13\) TeV_, ATL-PHYS-PUB-2015-026, 2015, url: [http://cdsweb.cern.ch/record/2037717](http://cdsweb.cern.ch/record/2037717).
+* [14] ATLAS Collaboration, _Measurement of track reconstruction inefficiencies in the core of jets via pixel dE/dx with the ATLAS experiment using \(\sqrt{s}=13\) TeV pp collision data_, ATL-PHYS-PUB-2016-007, 2016, url: [http://cds.cern.ch/record/2140460](http://cds.cern.ch/record/2140460).
+* [15]_Modelling of Track Reconstruction Inside Jets with the 2016 ATLAS \(\sqrt{s}=13\) TeV pp dataset_, ATL-PHYS-PUB-2017-016, 2017, url: [https://cds.cern.ch/record/2275639](https://cds.cern.ch/record/2275639).
+* [16] ATLAS Collaboration, _ATLAS Insertable B-Layer Technical Design Report_, ATLAS-TDR-19, 2010, url: [https://cds.cern.ch/record/1291633](https://cds.cern.ch/record/1291633).
+* [17] ATLAS Collaboration, _ATLAS Insertable B-Layer Technical Design Report Addendum_, ATLAS-TDR-19-ADD-1, 2012, url: [https://cds.cern.ch/record/1451888](https://cds.cern.ch/record/1451888).

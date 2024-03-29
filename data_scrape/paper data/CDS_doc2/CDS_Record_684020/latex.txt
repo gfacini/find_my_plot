@@ -1,0 +1,876 @@
+[MISSING_PAGE_FAIL:1]
+
+## 1 Introduction
+
+This note summarizes the status and overall performance of algorithms for the ATLAS \(B\)-physics Higher Level Trigger (**HLT**). The \(B\)-physics selection is initiated by a muon from the LVL1 trigger which is confirmed at LVL2, firstly in the muon detector and then in association with an Inner Detector (**ID**) track. The results of the LVL2 muon selection are summarized here, more details can be found in [1]. The next step is an un-guided search for tracks in the ID. The parameters of these tracks are combined in order to identify characteristic products (e.g. J/\(\Psi\) or \(D_{g}\)) of selected \(B\) meson decays characterised by invariant mass. This has been termed a'semi-exclusive' (rather than 'exclusive') selection since, in general, the full B-meson decay is not reconstructed (an exception is \(B_{d}\to\pi^{+}\pi^{-}\)).
+
+This note focuses on three channels whose selection relies on track reconstruction in the ID. Various candidate track reconstruction algorithms have been assessed for suitability for implementation in the LVL2 trigger and Event Filter, both fast algorithms specific to the trigger (some of which are suitable for implementation on FPGAs) and algorithms taken from offline reconstruction code. A brief description of these algorithms is given and their performance summarized based on measurements of efficiency for signal events which would pass an offline selection, trigger rate and execution time. In addition parameters relevant to data flow and architectural design issues are also provided. In previous work [2],[3],[5],[6], efficiencies and rates were obtained using a modified version of the offline ID reconstruction program xKalman and timing information was limited. In this note, results produced with algorithms developed specifically for the trigger are presented.
+
+The following channels are considered:
+
+* \(B_{d}\to\pi^{+}\pi^{-}\)
+* \(D_{s}\to\phi^{0}(K^{+}K)\pi\)
+* \(1/\Psi\to\mathrm{e}^{+}\mathrm{e}^{-}\)
+
+These channels can be triggered using only the inner detector track information in addition to the LVL1 muon (channels which require additional information from the muon spectrometer or calorimeters are not covered by this note). The selection for these channels has been divided into two stages. The first stage is based on tracks reconstructed by the candidate LVL2 trigger algorithms. Results are also given for a second stage of selection, suitable for the EF, based on tracks reconstructed by the offline ID reconstruction program xKalman. The main aim of this note is to demonstrate a viable \(B\)-physics trigger for these three channels by showing that the candidate algorithms give reasonably high efficiency for signal events, a sufficiently low trigger rate (approaching previous estimates based on offline reconstruction), and an execution time compatible with their intended use. These are the three key parameters in the optimization of the algorithms and trigger selection cuts.
+
+Rates quoted in this note are calculated by measuring the fraction of events that pass the trigger cuts from a sample of \(B\to\mu\)X events with pile-up at low luminosity (\(10^{33}\) cm\({}^{-2}\)s\({}^{-1}\)). This is then normalised to the nominal output rate from the LVL2 muon trigger. This calculation is based on a number of assumptions which will be discussed in more detail in Section 4.
+
+The ATLAS inner detector [2] consists of a **Pixel Detector** nearest the interaction point, a Semi-Conductor Tracker (**SCT**) at intermediate radius and a Transition Radiation Tracker (**TRT**) composed of straw detectors on the outside. The Pixel Detector and micro-strip detectors of the SCT are both constructed from Silicon wafers and are collectively know as the **Si Detector**. TheTRT provides electron identification based on sensitivity to transition radiation. Fast algorithms have been developed to perform un-guided searches for tracks in the TRT or Pixel Detector and to extrapolate these tracks into the Si Detector or SCT respectively.
+
+There are some interesting issues for the HLT architecture arising from the \(B\)-physics trigger. It has been shown that the baseline \(B\)-physics trigger makes requirements on bandwidth for data movement and CPU power that are likely to dominate the LVL2 trigger resources at low luminosity [7]. The optimum boundary between LVL2 and the Event Filter is not yet clear. For the purposes of this note we assume that latency is one of the key differences between LVL2 and EF: LVL2 algorithms must execute in times of the order of 10 ms, while Event Filter algorithms can take longer at around 1 s. Another possible difference is technology. While both LVL2 and EF currently anticipate that commodity computers will be sufficiently performant for on-line processing, the LVL2 trigger also has the option to supplement the processing power using Field Programmable Gate Arrays (**FPGA**). The availability of tracking data for an un-guided track search depends on the bandwidth available to transfer data from the LVL2 Read Out Buffers (**ROB**) to a LVL2 processor. The un-guided search may be initiated in either the Pixel Detector or the TRT. In both cases, the reconstructed tracks are then used as seeds for extrapolation into the other parts of the ID.
+
+## 2 Overview of the \(B\)-physics trigger strategy
+
+The selection of \(B\)-physics events, based on the low-luminosity \(B\)-physics trigger menu, will only be initiated for events in which:
+
+* the LVL1 trigger includes a muon passing the \(\mathrm{p_{T}}\) \(>\) 6 GeV threshold (a MU6 trigger1),
+
+Footnote 1: This nomenclature is described in detail in Chapter 11 of [6].
+
+* the LVL2 trigger confirms the LVL1 muon trigger (creating a trigger).
+
+LVL1 muon triggers define Regions of Interest (**RoI**) to be investigated at LVL2. The precision muon detector and the ID are used at LVL2 to confirm the LVL1 muon triggers based on data from these RoI. If the muon is confirmed, the B-physics selection is initiated by an un-guided track search performed in the ID. This search can reconstruct tracks down to lower \(\mathrm{p_{T}}\) (e.g. \(\mathrm{p_{T}}\)\(>\) 0.5 GeV) than would be possible with LVL1 RoI guidance. These tracks are the objects required by the \(B\)-physics trigger menu, in addition to \(\mathrm{\SIUnitSymbolMicro\SIUnitSymbolMicro 6}\), as the basis of the trigger selections.
+
+The results of previous rate estimates based on studies with offline reconstruction code are shown in Table 1. The rates shown assume that the RoI based confirmation of the muon at LVL2 will reduce the muon rate from the 23 kHz provided by LVL1 to 9 kHz. This assumption is pessimistic, as will be discussed in Section 4. The rates shown in the table include the effect of pile-up at low luminosity. There is little overlap between the trigger items so the total rate is approximately equal to the sum of the rates for the individual triggers.
+
+Figure 1: Logical overview of the \(B\)-physics triggerThe purpose of this note is to address the triggers given in the first three rows on Table 1 and to provide updated rate estimates based on algorithms suitable for the LVL2 trigger. In addition a studies have been made for these channels of the possible reduction in rate that could be achieved at the event filter.
+
+#### ii.2.2 Overview of the B-physics trigger strategy
+
+\begin{table}
+\begin{tabular}{|l|l|l|l|} \hline  & & **Selected \(B\)-decay** & **Rate (Hz)** \\  & **Trigger requirements** & **channels** & **from [6]** \\ \hline Hadron channels & \(D_{s}\rightarrow\phi(K^{+}K)\pi\), & \(B_{s}\to D_{s}\,\pi\), & 190 \\  & 3 hadrons \(\mathrm{p_{T}}>1.5\) GeV, & \(B_{s}\to D_{s}\,a_{I}\) & \\  & loose mass cuts & & \\ \hline  & 2 hadrons \(\mathrm{p_{T}}>4\) GeV, & \(B_{d}\rightarrow\pi\pi\) & 80 \\  & loose mass, angle and \(\mathrm{\sum_{PT}}\) cuts & \(b\overline{b}\rightarrow\mathrm{\mu}B_{d}/J\psi(ee)K^{0}\) & 310 \\  & 2.0 GeV \(<\) m(\(ee\)) \(<\) 3.8 GeV & & \\ \hline  & single \(e\), \(\mathrm{p_{T}}>5\) GeV, identification in TRT+ECAL of electron reconstructed with \(\mathrm{p_{T}}>4\) GeV & \(b\overline{b}\to e\) & 93 \\  & & & [51 from true electrons, \\  & & & 42 from wrongly-identified hadrons] \\ \hline Muon channels & second \(\mathrm{\mu}\) & \(B_{d}\to J/\psi(\mathrm{\mu}\mu)(K/K^{\ast})\), & 170 \\  & (\(\mathrm{p_{T}}>5\) GeV, \(\mathrm{\mu}\mathrm{l}\)) \(<\) 2.5) & \(B_{s}\to J/\psi(\mathrm{\mu}\mu)\phi\), & [80 from \(b/c\), \\  & identification in muon chambers + matching with the Inner Detector & \(B\to K^{0}\mathrm{\mu}\mathrm{\mu}\), _etc._, & 90 from \(K/\pi\)] \\ \hline \end{tabular}
+\end{table}
+Table 1: Summary of B-physics triggers (Table 11-18 from [6]): rates of events satisfying the LVL2 trigger selections applied to events containing one muon with \(\mathrm{p_{T}}\) threshold 6 GeV identified at LVL1 and confirmed at LVL2. These rate estimates are from a study based on tracks reconstructed by a modified version of the offline program xxAlman. An update of this table based on measurements presented in this note is given in Section 8.
+
+## 3 Data-sets
+
+The results presented in this note were produced from data simulated using a full GEANT based simulation of the inner detector using DICE code. The version of the ID design used for the simulation is that described in the section 3 of Ref. [2]1 and corresponds to the code version dice_98_2. The physics simulation was performed by the ATGENB package (version atgenb_98_1) based on PYTHIA. Pile-up of minimum bias events corresponding to low luminosity running (\(10^{33}\) cm\({}^{-2}\)s\({}^{-1}\)) was added to all data-sets. Details of the data-set productions can be found in [4]. The data samples used for the studies presented in this note are as follows:
+
+Footnote 1: There have since been some changes to the details of the design of the ID. The changes are listed in section 8.3.1 of [3]. The detector simulation used for this study includes the effects of inefficiency and noise in the SCT and pixel layers. The effects of miss-alignment were not part of the simulation.
+
+* \(B_{d}\rightarrow\pi^{+}\pi^{-}\)
+* \(B_{s}\to D_{g}\pi\)
+* \(B_{d}\to J/\psi(\mathrm{e}^{+}\mathrm{e}^{\prime})K_{\mathrm{S}}\)
+* \(bb\rightarrow\mu\mathrm{X}\).
+
+In order to save CPU time, the following requirements were applied during event generation:
+
+* Within the PYTHIA generator, the event is forced to have a hard-scattering \(\mathrm{p_{T}}>10\) GeV.
+* The b or \(\overline{\mathrm{b}}\) decay is required to have \(\mathrm{p_{T}}>6\) GeV and \(|\eta|<2.5\) and is forced to decay to a muon with \(\mathrm{p_{T}}>6\) GeV and \(|\eta|<2.4\).
+
+For the signal channels, in addition:
+
+* Both the b and \(\overline{\mathrm{b}}\) quarks are required to have \(\mathrm{p_{T}}>6\) GeV and \(|\eta|<2.5\).
+* The other quark (not forced to a muon) is forced to decay via the signal channel (for the data-sets used in these studies, it is the \(\overline{\mathrm{b}}\) that is forced to decay via the signal channel).
+* All the \(\pi\), K and e products of the signal channel decay have \(\mathrm{p_{T}}>0.5\) GeV for \(\mathrm{B_{s}}\rightarrow\mathrm{D_{s}}\pi\) and \(\mathrm{B_{d}}\rightarrow\mathrm{J/\psi}\) and \(\mathrm{p_{T}}>1\) GeV for \(B_{d}\rightarrow\pi^{+}\pi^{-}\).
+
+The cross-sections for the different final states passing these cuts are given in Table 2. Also given are the corresponding rates at low luminosity.
+
+Details of the data-sets used for the studies reported in this note are given in Table 3.
+
+\begin{table}
+\begin{tabular}{l c c} \hline
+**Process** & **Cross-Section (\(\mu\)b)** & **Rate at \(10^{33}\) cm\({}^{-2}\)s\({}^{-1}\) (Hz)** \\ \hline \(B_{d}\rightarrow\pi^{+}\pi^{-}\) & \(8.4\times 10^{-6}\) & \(8.4\times 10^{-3}\) \\ \(B_{s}\to D_{g}\pi\), & \(1.281\times 10^{-5}\) & \(1.281\times 10^{-2}\) \\ \(D_{s}\rightarrow\phi^{0}(K^{+}K)\pi\) & & \\ \(B_{d}\to J/\psi(\mathrm{e}^{+}\mathrm{e}^{\prime})K_{\mathrm{S}}\) & \(3.8\ (5.1)\times 10^{-6}\) & \(3.8\ (5.1)\times 10^{-3}\) \\ \(bb\rightarrow\mu\mathrm{X}\) & \(1.9\ (2.3)\) & \(1900\ (2300)\) \\ \hline \end{tabular}
+\end{table}
+Table 2: cross-sections and rates for the different final states passing the cuts listed in the text. Figures in brackets are corrected to a lower hard-scattering cut of \(\mathrm{p_{T}}>6\) GeV.
+
+\begin{table}
+\begin{tabular}{|l|l|c|} \hline
+**Sample** & **Tape and file no. in CERN data-store** & **No. events on tape** \\ \hline \(B_{d}\rightarrow\pi^{+}\pi^{-}\) & Y01319 files 1 to 8 [17] & 2000 \\ \hline \(B_{s}\)\(\rightarrow\)\(D_{g}\pi\) & Y24574 files 37,38,53,54 first 500 events per file [18] & 1989 \\ \(D_{g}\rightarrow\phi^{0}(K^{+}K)\pi\) & Y00350 files 1 to 16 [17] & 4000 \\ \hline \(B\rightarrow\mu X\) & Y00347 files 1 to 6 and 9,10 [17] & 1606 \\ \hline \end{tabular}
+\end{table}
+Table 3: The data samples used for the efficiency and rate measurements.
+
+## 4 LVL2 muon trigger
+
+The \(B\)-physics trigger begins at LVL2 with confirmation of any LVL1 muon RoIs. This can be performed in stages, firstly using only muon data, and then by combining muon and ID information. The main background comes from muons with \(\mathrm{p_{T}}\) below the LVL1 threshold of 6 GeV which are nevertheless accepted due to the finite \(\mathrm{p_{T}}\) resolution at LVL1. At LVL2 most of these muons with \(\mathrm{p_{T}}\) below threshold can be rejected thanks to the improved \(\mathrm{p_{T}}\) resolution. The remaining background is mainly muons from decays in flight of pions and kaons. Some rejection of this background is possible by detecting a miss-match between the track measured in the muon system and the ID track.
+
+### Calculation of trigger rates
+
+The rates quoted in this note are calculated by measuring the fraction of events that pass a trigger selection from a sample of \(bb\rightarrow\mu X\) events with pile-up at low luminosity (\(10^{33}\) cm\({}^{\,2}\)s\({}^{\,\text{-1}}\)). This fraction is then converted to a rate based on an assumption of the rate of events passing the \(\mathrm{p_{T}}>6\) GeV threshold of the LVL2 muon trigger.
+
+In previous calculations of B trigger rates [2],[3],[5],[6], a LVL2 muon trigger rate of 9 kHz was estimated assuming a cut on the \(\mathrm{p_{T}}\) of the reconstructed ID track, but without using muon-ID matching cuts. The main contributions to this rate are shown in Table 4. For consistency, the same normalisation is used for the calculation of the rates presented in this note.
+
+The rates derived in this way are somewhat pessimistic for two reasons:
+
+* The contribution from \(\mathrm{K}\)/\(\pi\) decays in flight can be reduced by applying cuts based on the matching of the parameters of the muon and ID track segments.
+* The fractions of events selected by the B trigger selections have been measured for a sample of \(B\rightarrow\mu X\) events which represent only the \(\mathrm{b\text{$\rightarrow$}}\mu\) component of the events passing the LVL2 muon trigger. The tracking trigger rate is dominated by combinatorial background, so it is sensitive to the \(\mathrm{p_{T}}\) spectrum and charged particle multiplicity. The main background process \(\mathrm{K}\)/\(\pi\)\(\rightarrow\)\(\mu\) has a softer charged particle \(\mathrm{p_{T}}\) spectrum than \(\mathrm{b\text{$\rightarrow$}}\mu\) so the trigger rate is likely to be lower than an extrapolation from \(bb\rightarrow\mu X\) alone would suggest.
+
+Recent studies[1] using muon algorithms suitable for the LVL2 trigger in the barrel region (\(\mathrm{\eta}|<1\)) have shown that good rejection can be achieved against muons from \(\mathrm{K}\) and \(\pi\) decays in flight whilst maintaining good efficiency for prompt muons. The efficiency of the muon reconstruction algorithm \(\mathrm{\mu}\)FAST is shown in Figure 2 (top) as a function of muon \(\mathrm{p_{T}}\) for prompt
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline  & \multicolumn{3}{c|}{**Rate (kHz)**} \\
+**Source** & **Barrel** & **End-cap** & **Total** \\ \hline \(\mathrm{K}\)/\(\pi\)\(\rightarrow\)\(\mu\) & 2.4 & 3.2 & 5.6 \\ \hline \(\mathrm{b\text{$\rightarrow$}}\mu\) & 1.0 & 1.3 & 2.3 \\ \hline \(\mathrm{c\text{$\rightarrow$}}\mu\) & 0.5 & 0.6 & 1.1 \\ \hline \hline \multicolumn{3}{|c|}{**Total**} & **3.9** & **5.1** & **9.0** \\ \hline \end{tabular}
+\end{table}
+Table 4: The main contributions to the LVL2 muon rate quoted in Ref. [3].
+
+muons and muons from \(\pi\) and K decay. Also shown, Figure 2 (bottom), is the efficiency for reconstructing and associating a Si track. These studies give a LVL2 muon trigger rate of 2.1kHz in the barrel region cf. the rate of 3.9 kHz given in Table 4. Studies using trigger algorithms have yet to be extended to the forward muon detector. However, measurements using simple trigger-like algorithms within the offline framework suggest that an overall LVL2 muon trigger rate of 5 kHz should be attainable, giving a 45% reduction in the trigger rates quoted in this note.
+
+### Muon guidance to the B trigger
+
+In addition to initiating the \(B\)-physics trigger, the muon information is utilized in the \(B\)-trigger for the following:
+
+* To define the Z co-ordinate of the interaction point that produced the \(b\overline{b}\) pair. This is used by the pixel-scan to reduce the number of hit combinations to be considered.
+
+Figure 2: The efficiency as a function of \(\mathrm{p_{T}}\) for a muon passing the LVL1 selection to be reconstruction by the LVL2 muon algorithm uFAST (top) and for subsequently associating a Si track (bottom). The efficiency is shown for prompt muons and muons from \(\pi\) and K decays.
+
+* For some channels (e.g. \(B_{d}\!\rightarrow\!\pi^{+}\pi^{-}\)), cuts on track positions relative to the trigger muon are made to discriminate against cases where the track and muon are in the same jet.
+
+The LVL2 Rol-guided muon trigger algorithm was not available when the tracking trigger studies in the following sections were carried out. Instead, the MC truth parameters for the highest \(\mathrm{p_{T}}\) muon in the event were used.
+
+For the pixel scan this will not influence the results significantly because the Z vertex position resolution (see [1]) of the LVL2 muon trigger is expected to be much less than the width of the Z-vertex constraint applied in the pixel scan, which is typically 1 cm.
+
+For the cuts on the track position relative to the trigger muon, the resolution of the reconstructed track parameters could be important. This was therefore checked by taking, instead of the MC truth parameters, the reconstructed parameters of the Si track nearest to the muon, using the definition for proximity of \(\Delta R=\sqrt[]{\Delta\phi^{2}+\Delta\eta^{2}}\). For \(B_{d}\!\rightarrow\!\pi^{+}\pi^{-}\) the final trigger efficiency was found to differ by only about 0.2%. No difference was found in the rate. This test uses a pessimistic value for the muon track resolution because the LVL2 Rol-guided muon trigger combines muon spectrometer and ID measurements to give better resolution than the ID alone. So the conclusion is that using the MC truth parameters for the muon does not significantly influence the results.
+
+## 5 LVL2 track search
+
+The track search can be initiated from the outside of the ID using TRT information or from the inside using Pixel data. A **full-scan** is performed to search the entire volume of the TRT or Pixel Detector respectively. The result of the full-scan is a set of tracks the parameters of which form **seeds** for extrapolation into the SCT. For TRT seeds the extrapolation continues into the pixels. For Pixel seeds, the TRT scan is run independently and matching1 between Si and TRT track segments is then performed.
+
+Footnote 1: This matching is not proposed as an optimal tracking solution, but it is the only method available at the time of writing.
+
+The requirements of Inner Detector track reconstruction algorithms for \(B\) physics differ from those for track searches guided by a LVL1 or LVL2 Region of Interest (**RoI**) in that the entire detector volume must be searched and the minimum \(\mathrm{p_{T}}\) for track reconstruction is, in general, much lower in the \(B\)-physics trigger. The requirement to reconstruct invariant mass demands good efficiency and track reconstruction quality. Various candidate algorithms have been assessed for suitability for implementation in the LVL2 trigger and Event Filter. The assessment of performance is based on measurements of efficiency for signal events which would pass an offline selection, trigger rate and execution time. A summary of the selections and their performance are given here.
+
+This section describes the track search which is common to all \(B\)-physics channels. Several Feature EXtraction (**FEX**) algorithms have been developed and tested. A brief description of each algorithm is given below, followed by a summary of their performance in terms of efficiency, speed and track multiplicity. The trigger algorithms and their performance are described more fully elsewhere.
+
+### Algorithms
+
+#### Si Data Preparation
+
+For the results presented in this note, the Si FEX use as input three-dimensional points formed by a data preparation step [16]. Data preparation consists of associating adjacent SCT and pixel hits into clusters and, for the SCT, the association of stereo information from the two module layers. Using geometry information, local two-dimensional points within the SCT and pixel modules are then transformed to three-dimensional points within ATLAS. An advantage of performing stereo association prior to track reconstruction is that the FEX can treat all points in a uniform way, whether they originate from the SCT or pixels, or from a barrel or end-cap geometry. A disadvantage is that hits are required in both SCT stereo layers, with an impact on efficiency.
+
+#### TRT full scan
+
+A histogram is formed by counting hits (active straws) along candidate track trajectories. Tracks are identified as peaks in the histogram. A fit is performed to the selected points to produce track parameters. This method is implemented in the initial stage of XKalman [10] and has beenimplemented in CTrig as the **TRT-XK** FEX. A Look-Up Table (LUT) method has also been developed in which the most time-consuming parts of the code are suitable for implementation on FPGA co-processors [9]. This has been implemented as the **TRT-LUT** FEX.
+
+#### Pixel full scan
+
+This algorithm uses only information from the Pixel Detector. The input data are the pixel cluster positions produced by a separate data preparation step [16]. In the first step of the full-scan algorithm, clusters are combined in pairs. All combinations are tested of one cluster per layer in the inner two planes of the barrel and in two of the end-cap planes. A pair is retained if the trajectory extrapolation inwards passes within a given distance of the interaction point. A track is formed if a hit is found close to the extrapolated track into the third layer barrel layer or in one of the outer pixel end-cap layers. In both cases the extrapolation is linear.
+
+The value chosen for the cut on the distance of the extrapolated track from the interaction point in the R-\(\phi\) plane determines the minimum \(\mathrm{p_{T}}\) of the search. Since this cut affects the number of hit-pairs that are extrapolated to the third layer, a tighter cut (higher \(\mathrm{p_{T}}\) threshold) will reduce the execution time for the pixel-scan. This cut, together with the cut on the distance of the hit on the third layer from the extrapolated track, provides a pre-selection based on \(\mathrm{p_{T}}\). In this note results are given both for a pre-selection designed to be efficient for tracks with \(\mathrm{p_{T}}>0.5\) GeV and for a pre-selection designed to be efficient for tracks with \(\mathrm{p_{T}}>1\) GeV.
+
+The interaction point is well constrained in the transverse plane by the beam geometry, but the has a large spread along the beam direction (\(\mathrm{\sigma_{Z}=6.1\ cm}\)). As a result, without external guidance, only a very loose cut can be applied to the distance in the Z direction of the extrapolated track from the interaction point. Guidance from the LVL2 muon trigger can be used to determine the Z position of the interaction point. This information can be used to pre-select those hit-pairs with tracks which extrapolate back to within a small window in Z. This eliminates tracks which are not from either the primary interaction point or the \(B\)-decay vertex. For the results presented here, rather than using the reconstructed muon track, the true trajectory of the muon has been used. In this note, results are presented for three cases:
+
+* no muon guidance;
+* a window around the Z intercept of the muon trajectory of \(\mathrm{\Delta Z=0.4\ cm}\);
+* a window around the Z intercept of the muon trajectory of \(\mathrm{\Delta Z=1.0\ cm}\);
+
+More details of the pixel-scan algorithm can be found in [12].
+
+#### Si Kalman Filter
+
+This FEX is based on a Kalman filter algorithm [8]. A track search may be initiated by either an external or internal seed. For the purposes of the \(B\)-physics trigger, the Si-Kalman FEX uses either pixel or TRT tracks as external seeds in **pixel-seeded** or **TRT-seeded** mode respectively. The track segment is extended by adding nearby hits layer by layer. The algorithm takes into account multiple scattering. There are also options to correct for bremsstrahlung energy loss and to use a magnetic field map in the case of departure from an ideal solenoidal field, however this functionality has not been used for the results presented in this note. More details can be found in [11]. A cut may be applied to the number of hits for a TRT track to be considered as a valid seed. For results presented in this note, at least 19 (10) hits are required on a track found by the TRT-LUT (TRT-XK) FEX respectively.
+
+### Si Hough Transform
+
+This algorithm is based on a FEX used for the electron trigger guided by a calorimeter RoI. It has been modified to use TRT tracks as seeds and to extend the track search down to low \(\mathrm{p_{T}}\). This algorithm has been used for an initial evaluation of the \(\mathrm{D_{s}\to\phi(K^{+}K^{-})\pi}\) trigger reported in [13]. Subsequent studies based on the Si-Kalman FEX have given much better performance, and it is these results that are included in this note.
+
+#### Si Tree
+
+This algorithm associates locally related hits in the SCT using an alternative, 'link-and-tree', method [14]. The results of a separate study for the \(B_{d}\to\pi^{+}\pi^{-}\) channel can be found in [15]. This algorithm shows a slight improvement over the Si Kalman Filter in terms of rate and efficiency for this channel, with about half the execution time. The performance has yet to be evaluated for the other channels, which are more demanding in terms of pattern recognition.
+
+#### Si to TRT Association
+
+In the case of a pixel seed, it would be beneficial to continue the extrapolation of the track from the Si into the TRT in order to improve the track parameter resolution and benefit from the electron identification capability of the TRT. Electron identification is crucial for the \(\mathrm{J/\Psi\to e^{+}e^{-}}\) trigger in order to reduce the combinatorial background from hadron tracks. Such an extension of the track would be possible using a modification of the Si Kalman filter FEX, or using the tree algorithm. However, currently no trigger code exists to perform this extrapolation. Instead, for the results presented in this note, an independent TRT full-scan has been performed and the SI and TRT track segments associated in a separate step. The association algorithm proceeds by, for each Si track in turn, extrapolating the Si track to the radius (TRT barrel) or Z (TRT end-cap) of the inner-most hit on each TRT track segment and calculating the \(\Delta\phi\) between the extrapolated track and the TRT straw position. The TRT track with the smallest value of \(|\Delta\phi|<0.02\) Rad is chosen and associated to the Si track. If no TRT track is found satisfying \(|\Delta\phi|<0.02\) Rad, no TRT track is associated to the Si track segment. The same TRT track may be associated to more than one Si track.
+
+### Performance
+
+The performance of the track reconstruction algorithms has been characterised in terms of the efficiencies to find charged muons, pions, kaons and electrons in typical \(B\)-physics events and the execution times for \(B\to\mu\)X events with pile-up. An important consideration affecting reconstruction efficiency and execution time is whether or not tracks are allowed to share hits. This is illustrated for the channels \(\mathrm{J/\Psi\to e^{+}e^{-}}\) and \(D_{s}\to\phi^{0}(K^{+}K)\pi\). Also important is the quality of the reconstructed track parameters. A measure of this is the width of reconstructed invariant mass peaks. Results are shown for the \(B_{d}\) mass reconstructed in \(B_{d}\to\pi^{+}\pi^{-}\) events and the \(D_{s}\) and \(\phi\) masses reconstructed in \(D_{s}\to\phi^{0}(K^{+}K)\pi\).
+
+#### 5.2.1 Muon reconstruction
+
+The efficiency for the ID to reconstruct the highest \(\mathrm{p_{T}}\) muon in \(B\to\,\upmu\)X events with pile-up is shown in Figure 3 using the TRT-LUT scan (top) and TRT-XK scan (bottom) to seed the Si-Kalman FEX. The efficiency is show as a function of \(\mathrm{p_{T}}\) (left) and \(\mathrm{\left|\eta\right|}\) (right). For both the TRT-LUT and TRT-XK scan, the mean efficiency to reconstruct a muon (\(\mathrm{p_{T}}\)? 6 GeV) is 98%. The muon is reconstructed in the Si from a TRT-LUT or TRT-XK seed with a mean efficiency of 87% in both cases.These efficiencies have been determined by associating each track segment in the Pixels and SCT to the particle which contributed the majority of hits. The track segment is said to be due to this particle. A particle is defined to be found if there is a reconstructed track associated to it. In some cases, when there is a high density of tracks, it is possible that track segments in the SCT and Pixel Detectors are due to different particles. This would cause errors in the param
+
+Figure 3: Efficiency to reconstruct the highest \(\mathrm{p_{T}}\) muon (\(p_{\mathrm{T}}^{\mathrm{true}}\)? 6 GeV) in \(B\to\,\upmu\)X events with pile-up using a TRT-LUT scan (top) and a TRT-XK scan (bottom) to seed the Si-kalman FEX. Efficiencies for the TRT to reconstruct the muon are shown as a function of \(\mathrm{p_{T}}\) (left) and \(\mathrm{\left|\eta\right|}\) (right). Also shown are the efficiencies for the Si to reconstruct the muon from a TRT seed and for both the TRT seed and the Si track to be associated to the same particle.
+
+[MISSING_PAGE_FAIL:15]
+
+the muon in the Si and to associate a TRT-LUT (TRT-XK) track is 91% (90%, respectively). The efficiency for the Si and TRT-LUT (TRT-XK) track to both be associated to the muon is 82% (85%, respectively). Thus the efficiency for complete ID reconstruction of the muon (same particle in Si and TRT) is 3% (1%) higher for TRT-LUT (TRT-XK) seeded reconstruction than for pixel seed-ed reconstruction. However, when only Si information is sufficient, pixel-seeded reconstruction offers 9% higher efficiency for muon reconstruction. The mean efficiencies are summarized in Table 5.
+
+The lower Si reconstruction efficiency for TRT-seeded compared to pixel-seeded reconstruction is due to the fact that the pixel scan gives better guidance to the Si-Kalman FEX. This is especially true for tracks in two small regions at \(|\eta|=0\) and \(|\eta|\sim 0.85\) corresponding, respectively, to the
+
+Figure 5: Efficiency for the Pixel scan and Si-Kalman algorithms to reconstruct tracks due to charged pions from decays with decays with \(p_{\mathrm{T}}^{\mathrm{true}}>1\) GeV versus generated (left) and \(|\eta|\) (right).
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|} \cline{3-6} \multicolumn{1}{c|}{} & \multicolumn{1}{c|}{\(\mu\)**from**\(B\to\mu\)**X**} & \multicolumn{1}{c|}{\(\pi\)**from**\(B_{d}\to\pi^{*}\pi^{-}\)**} & \multicolumn{1}{c|}{\(\mathrm{e}\)**from**\(B_{d}\to\bar{\mu}\nu(\mathrm{e^{+}e^{-}})K_{\mathrm{S}}\)**} \\ \multicolumn{1}{c|}{} & \multicolumn{1}{c|}{\(p_{\mathrm{T}}^{\mathrm{true}}>6\)**GeV**} & \multicolumn{1}{c|}{\(p_{\mathrm{T}}^{\mathrm{true}}>1.0\)**GeV**} & \multicolumn{1}{c|}{\(p_{\mathrm{T}}^{\mathrm{true}}>1.0\)**GeV**} \\ \hline \multirow{3}{*}{**TRT-LUT**} & Pixel-scan & 97 & 94 & 95 \\  & SCT from pixel seed & 96 & 90 & 90 \\ \cline{2-6}  & \multirow{3}{*}{Si with associated TRT} & TRT-LUT & TRT-XK & TRT-LUT & TRT-XK \\ \cline{2-6}  & & 91 & 90 & 85 & 83 [70] & 83 [70] \\ \cline{2-6}  & Si and TRT same particle & 82 & 85 & 76 & 79 & 73 [66] & 76 [68] \\ \hline \multirow{3}{*}{**TRT-LUT**} & TRT-LUT & TRT-XK & TRT-LUT & TRT-XK & TRT-LUT & TRT-XK \\ \cline{2-6}  & TRT-scan & 98 & 98 & 88 & 88 & 93 & 92 \\ \cline{1-1} \cline{2-6}  & Si from TRT seed & 87 & 87 & 83 & 86 & 83 [76] & 85 [76] \\ \cline{1-1} \cline{2-6}  & Si and TRT same particle & 85 & 86 & 79 & 82 & 80 [74] & 83 [74] \\ \hline \end{tabular}
+\end{table}
+Table 5: The mean efficiencies for \(\mu\), \(\pi\) and \(\mathrm{e}\) in B-physics events with pile-up at low luminosity. For electrons, the figures in brackets are for tracks identified as electrons on the basis of TRT information. The pixel scan results are for a threshold of 0.5 GeV and a \(\mathrm{\Delta}z<1\)cm.
+
+break in the TRT barrel straws at Z = 0 and the transition from barrel to end-cap geometry. The hits from a track traversing one of these regions may be divided between the two halves of the TRT barrel or between the barrel and end-cap. In this case, only part of the particle track may be reconstructed, or separate track segments may be found in the two detector parts. At present, no attempt is made to merge these segments and so tracks in these regions have a reduced number of hits. In addition, a reduced number of straws are traversed by a particle from the interaction point which crosses from TRT barrel to end-cap due to the service gap. The threshold on the number of TRT hits required to form a track has been reduced in this transition region, which has the effect of maintaining the TRT efficiency. However the quality of the reconstructed tracks is degraded, especially in the case of the TRT-LUT FEX, with the result that these tracks do not seed the Si FEX very effectively. As a result, the efficiency for tracks to be reconstructed in the Si is reduced in the TRT transition region, especially for TRT-LUT seeded searches, and at the centre of the TRT barrel. At present only three hits per TRT track are used to seed the Si-Kalman search. It may be possible to improve the quality of the seed by using information from all hits.
+
+#### 4.2.5 LVZ track search
+
+Figure 6: Track reconstruction efficiency by the TRT scan and Si-Kalman algorithms for charged pions from decays with \(P_{\mathrm{T}}^{\mathrm{true}}>1\) GeV versus generated \(P_{\mathrm{T}}\) (left) and \(|n|\) (right). Results are shown for the TRT-LUT FEX (top) and the TRT-XK FEX (bottom).
+
+#### 5.2.2 Pion reconstruction
+
+The efficiency for the pixel-scan to reconstruct pions with \(\mathrm{p_{T}}\) > 1 GeV from the decay \(B_{d}\) \(\rightarrow\)\(\pi^{+}\)\(\pi^{-}\) is shown in Figure 5 as a function of the pion \(\mathrm{p_{T}}\) (left) and \(|\) \(\eta\) \(|\) (right) for events with pile-up at low luminosity. The average track reconstruction efficiency is 93%. The overall efficiency for pions to be reconstructed in the SCT by the Kalman FEX seeded by the pixel-scan is an average of 90%. Also shown in Figure 5 is the efficiency when both track segments are required to be due to the same particle. It can be seen that in almost all cases the Pixel and SCT track segments are from the same track.
+
+Figure 6 shows corresponding plots of efficiency to find charged pions (\(\mathrm{p_{T}}\) > 1 GeV) from \(B_{d}\) \(\rightarrow\)\(\pi^{+}\)\(\pi^{-}\) versus \(\mathrm{p_{T}}\) (left) and \(|\)\(\eta\) (right) for track searches initiated by the TRT-LUT FEX (top) and the TRT-XK FEX (bottom). For both TRT scans, the average efficiency to reconstruct pion tracks (\(\mathrm{p_{T}}\) > 1 GeV) is 88%. The efficiency for pion reconstruction by the Si-Kalman FEX seeded by a TRT-LUT (TRT-XK) scan is 83% (86% respectively) i.e. 7% (4%) lower than for pixel-seeded reconstruction. The Si-Kalman track is due to the same particle as the seed track in an average of 95% of cases. The efficiencies are summarized in Table 5.
+
+The lower efficiency for TRT-seeded compared to pixel-seeded reconstruction is partly due to interactions in the ID material inside the TRT which cause a lower efficiency for pion reconstruction in the TRT and partly to the fact that the pixel scan gives better guidance to the Si-Kalman FEX, as discussed in the previous section.
+
+#### 5.2.3 Kaon Reconstruction
+
+The efficiencies to reconstruct kaons (\(p_{\mathrm{T}}^{\mathrm{true}}\) > 0.5 GeV) from \(D_{\mathrm{s}}\) \(\rightarrow\)\(\phi^{0}(K^{+}K)\pi\) are shown in Figure 7 as a function of \(\mathrm{p_{T}}\) and \(|\)\(\eta|\) for pixel-seeded and TRT-seeded reconstruction. For pixel-seeded reconstruction the average efficiency to reconstruct a kaon in the SCT is 80%. The corresponding efficiency to reconstruct a kaon in the SCT from a TRT-LUT (TRT-XK) seed is 77% (80%).
+
+#### 5.2.4 Electron reconstruction
+
+The efficiency for reconstructing \(\mathrm{e^{+}}\) and \(\mathrm{e^{-}}\) from \(B_{d}\) \(\rightarrow\)\(J/\psi(\mathrm{e^{+}e^{-}})K_{\mathrm{S}}\) decays is shown in Figure 8 as a function of \(\mathrm{p_{T}}\) (left) and \(|\) \(\eta\) \(|\) (right) for TRT-seeded track reconstruction. Results are shown for TRT-scans using the TRT-XK FEX (top) and TRT-LUT FEX (bottom) in events with pile-up at low luminosity. The average efficiency for the TRT-LUT (TRT-XK) FEX to reconstruct an electron with \(\mathrm{p_{T}}\) > 1 GeV from \(B_{d}\) \(\rightarrow\)\(J/\psi(\mathrm{e^{+}e^{-}})K_{\mathrm{S}}\) decays is 93% (92%) (respectively). The parameters of the TRT FEX have been set so as to be reasonably efficient for electrons with a \(\mathrm{p_{T}}\) of 1 GeV. However due to the effects of Bremsstrahlung energy loss, the efficiency increases with \(\mathrm{p_{T}}\) until a \(\mathrm{p_{T}}\) of ~5 GeV. The average efficiency for the track to be reconstructed by the Si-Kalman FEX is 83% (85%) when seeded by the TRT-LUT
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline  & \multicolumn{2}{c|}{\(\mathbf{N_{TR}/N_{\mathrm{hits}}}\) \textgreater{} } \\
+**Region** & **TRT-LUT** & **TRT-XK** \\ \hline \(|\)\(|\)\(\eta\)\(|\)\(|\)\(<\) 0.8 & 0.10 & 0.12 \\ \(0.8\)\(<|\)\(|\)\(\eta\)\(|\)\(|\)\(<\) 1.4 & 0.14 & 0.14 \\ \(1.4\)\(<|\)\(|\)\(\eta\)\(|\)\(<\) 2.0 & 0.18 & 0.18 \\ \(2.0\)\(<|\)\(|\)\(\eta\)\(|\) & 0.18 & 0.20 \\ \hline \end{tabular
+
+## 6 Conclusions
+
+Figure 7: Track-reconstruction efficiencies for kaons with \(p_{\rm T}^{\rm true}>0.5\) GeV from the decay \(D_{\rm s}\to\phi(K^{\prime}K)\pi\) versus \(p_{\rm T}\) (left) and \(|\eta|\) (right) using the Si-kalman FEX seeded by a pixel-scan (top) and by TRT-XX (middle) and TRT-LUT (bottom).
+
+(TRT-XK) FEX (respectively). Also shown in Figure 8 is the efficiency for tracks reconstructed by the Si to be correctly identified as electrons on the basis of the fraction of TR hits on the TRT track segment. The electron identification requirements are given in Table 6. Looser cuts have been used for the TRT-LUT FEX in the barrel and high-\(|\eta|\) regions in order to give approximately the same electron identification efficiency as for the TRT-XK FEX. The overall average efficiency to reconstruct an electron track and correctly identify it as an electron is 76% (76%) for TRT-LUT (TRT-XK) seeded reconstruction (respectively). For 2% (2%) of these the tracks, the Si track segment is due to a different particle from the TRT-LUT (TRT-XK) seed. However this has no direct consequence for the results presented here, since the TRT is only used to seed the Si reconstruction and to provide electron identification. A combined fit has not been made to all TRT and Si points.
+
+In Figure 9 the corresponding plots of efficiency for reconstructing \(\mathrm{e^{+}}\) and \(\mathrm{e^{\cdot}}\) (\(\mathrm{p_{T}>1GeV}\)) are shown for pixel-seeded reconstruction. Efficiencies are shown as a function of \(\mathrm{p_{T}}\) (left) and \(|\eta|\) (right) in events with pile-up at low luminosity. The average efficiency for the pixel-scan to reconstruct an electron from \(B_{d}\to J/\nu(\mathrm{e^{+}e^{\cdot}})K_{\mathrm{S}}\) is 95%. The average efficiency for an electron to be
+
+Figure 8: Efficiency for TRT-LUT (top) and TRT-XK (bottom) seeded track reconstruction versus \(\mathrm{p_{T}}\) (left) and efficiency versus \(|\eta|\) (right) for electrons from \(\mathrm{J}\mathrm{\nu}\mathrm{y}\rightarrow\mathrm{e^{+}e^{-}}\). The plots are shown for electrons with \(\mathrm{p_{T}^{true}\textgreater 0.5}\) (1GeV) for the right (left) plots respectively.
+
+reconstructed by the Si-Kalman FX seeded by the pixel-scan is 90%. This is 7% (5%) higher than the corresponding efficiency with TRT-LUT (TRT-XK) seeds. The same particle is reconstructed by the SCT and Pixel Detector in almost all cases. Also shown in Figure 9 is the efficiency for an electron track to be reconstructed in the Si and for a TRT track to be associated. Of the electron tracks reconstructed in the Si, on average 92% (92%) are associated to a TRT-LUT (TRT-XK) track. Of the associated TRT-LUT (TRT-XK) tracks, 85% (85%) are identified as an electron, giving an overall efficiency of 70% (70%) for an electron to be reconstructed in the Si and identified as an electron by the TRT. The overall electron reconstruction efficiency is 6% (6%) lower than for TRT-seeded reconstruction due to loss of efficiency in the Si-to-TRT association step. A summary of efficiencies is given in Table 5.
+
+The correct association of TRT and Si tracks is affected by Bremsstrahlung energy loss which can cause kinks in the track at the SCT/TRT boundary. Also the track fit to the TRT hits is constrained to the origin, which can cause a miss-measurement of the track trajectory in the cases where there has been a significant deviation of the particle from its initial trajectory. As a consequence, the track reconstruction efficiency is 6% (6%) lower than for TRT-seeded reconstruction due to loss of efficiency in the Si-to-TRT association step.
+
+Figure 9: Efficiency for pixel-seeded reconstruction as a function of \(p_{\mathrm{T}}\) (left) and \(\mathrm{ln}\)(right) for \(\mathrm{e^{+}}\) and \(\mathrm{e^{-}}\) from \(B\)\(\sim\)J/\(\mathrm{\nu}\) decays in events with pile-up for the Si-Kalman FX guided by a TRT-LUT scan (top) and a TRT-XK scan (bottom). The plots are shown for electrons with \(p_{\mathrm{T}}^{\mathrm{true}}\)\(>\)0.5 (1GeV) for the right (left) plots respectively. Note that the distributions for PIX and PIX+SCT are identical in the top and bottom plots.
+
+quence, of the associated Si and TRT-LUT (TRT-XK) tracks identified as electrons, the Si and TRT tracks are due to different particles in 6% (3%) of cases. However this is not important for the studies reported here since, for pixel-guided searches, the TRT is only used for electron identification. The correct association would be important if a combined fit were made to the TRT and Si points in order to improve the resolution of the track parameters.
+
+#### 5.2.5 Hit sharing
+
+An important consideration affecting the number of reconstructed track candidates is whether tracks are allowed to share hits. The TRT-XK and pixel-scan algorithms have been designed to resolve hit sharing during reconstruction. As part of the studies for this note, a post-processing step to merge track candidates sharing hits has also been added to the TRT-LUT algorithm.
+
+In the case of the pixel scan, hit-sharing is resolved by choosing the hit combination that gives the smallest residual between the track extrapolated from the inner two layers and the hit in the third layer. This has the effect of preferentially selecting higher-\(\mathrm{p_{T}}\)tracks. The mean number of pixel seeds is shown in Table 7 for the cases when hit sharing is and is not allowed. Also shown are the efficiencies for reconstructing final state particles of the \(B\)-decay in \(B_{\mathrm{s}}\!\to\!D_{\mathrm{s}}\!\to\!\phi^{0}(K^{+}K)\pi\) events with pile-up. This particular decay is considered because the Kaons from the \(\phi\) decay are very close together, so hit sharing is an important issue for the pattern recognition. It can be seen that allowing hit-sharing gives a significant increase in efficiency for reconstructing the K daughters of the \(\phi\) and hence in the \(D_{\mathrm{s}}\) reconstruction efficiency. However there is a corresponding doubling of the number of track candidates when hit sharing is allowed, which has implications for the trigger rate. This will be discussed in Section 6.7. For the results presented in this note, apart from the discussion of hit-sharing, pixel tracks have not been allowed to share hits.
+
+For the TRT-LUT FEX, two options have been implemented to resolve hit sharing. In the case that two tracks share more than a given fraction of hits, either:
+
+* the shortest track is rejected
+* the tracks are merged and a new track-fit performed to the hits from the combined tracks.
+
+\begin{table}
+\begin{tabular}{|l|l|c|c|c|c|} \hline  & \multicolumn{3}{c|}{**No muon Guidance**} & \multicolumn{2}{c|}{**With Muon Guidance (\(\mathrm{\lambda}\mathrm{z}\)\(<\)0.4cm)**} \\  & **Efficiency** & **No hit sharing** & **With hit Sharing** & **No hit sharing** & **With hit Sharing** \\ \hline Mean No. Pixel seeds & 38 & 90 & 18 & 36 \\ \hline \multirow{4}{*}{**TRT-LUT**} & \(\pi\) from \(\mathrm{D_{s}}\) & 85 & 87 & 85 & 85 \\  & K from \(\mathrm{D_{s}}\) & 80 & 87 & 81 & 86 \\ \cline{1-1}  & All 3 tracks from \(\mathrm{D_{s}}\) & 57 & 69 & 59 & 67 \\ \cline{1-1} \cline{2-6}  & \(\mathrm{D_{s}}\) & & & & \\ \hline \end{tabular}
+\end{table}
+Table 7: The mean number of pixel seeds in \(B\to\nu\)X events with pile-up for the cases when hit sharing is and is not allowed and the corresponding efficiencies for reconstructing \(\pi\) and K (\(\mathrm{p_{T}^{\mathrm{true}}}\!>\!1.5\) GeV) from \(D_{\mathrm{s}}\!\to\!\phi^{0}(K^{+}K)\pi\) in events with pile-up. Also shown is the efficiency to reconstruct all three tracks from the \(D_{\mathrm{s}}\) decay. Results are shown for a pixel scan with a pre-selection designed to be efficient for tracks with \(\mathrm{p_{T}}\!>\!1\) GeV. Reconstruction efficiencies are given for pixel-seeded Si-Kalman tracks passing the track selection cuts described in Section 6.7.
+
+[MISSING_PAGE_FAIL:23]
+
+#### Track quality
+
+An important consideration that is not revealed in the efficiency plots is the quality of track reconstruction. Figure 10 shows the invariant mass distributions obtained for reconstructed pions with \(\mathrm{p_{T}}\) > 4.0 \(\mathrm{GeV}\) from \(B_{d}\) \(\rightarrow\)\(\pi^{+}\pi^{-}\) decays for pixel-seeded reconstruction and using seeds from the TRT-LUT FEX. The track parameters have been determined from fits to the Si points plus, in the TRT-guided case, the three TRT hits used as seeds. The results of Gaussian fits to the invariant mass distributions are shown superimposed.
+
+The width of the mass peak is about a factor two bigger using TRT-guided track reconstruction than for pixel seeds. Similar results are obtained for the \(D_{\mathrm{s}}\) mass resolution from \(D_{\mathrm{s}}\) \(\rightarrow\)\(\phi^{0}(K^{+}K)\pi\), see Table 10. However the difference between pixel-guided and TRT guided reconstruction is smaller for the \(\phi^{0}\) mass resolution.
+
+The wider mass resolutions obtained with TRT-guided compared to pixel guided reconstruction can be attributed to interaction with material, the capabilities of the TRT detector and the way it has been used. Firstly, the Si track search gets poorer guidance from the TRT because of material effects. Particles suffer multiple scattering and energy loss in the material of the inner detector inside the TRT. Secondly, the TRT produces no \(\eta\) measurement in the barrel and has relatively poor \(\eta\) resolution in the end-caps, whereas the Pixel Detector yields relatively accurate seed information in all three dimensions. Finally, it may be possible to improve the track quality by modifying the use of TRT information for seeding the Si FEX. At present, only the information from three TRT hits is used to seed the Si track search and in the combined track fit to the Si and TRT points. By including all hits on the TRT track segment, it should be possible to improve the quality of the reconstructed tracks.
+
+It should also be possible to improve the mass resolution obtained with pixel-guided reconstruction by including TRT hits in a combined track fit to Si and TRT points. However, for the results presented in this note using pixel guided reconstruction, the TRT information has only been used for electron identification.
+
+\begin{table}
+\begin{tabular}{|l|c|c|c|} \hline \multicolumn{1}{|c|}{} & \multicolumn{1}{|c|}{**Pixel Guided**} & \multicolumn{1}{|c|}{**TRT-LUT guided**} & \multicolumn{1}{|c|}{**TRT-X guided**} \\ \hline \(\phi\) (MeV) & 5.5 & 7.2 & 6.2 \\ \(\mathrm{D_{s}}\) (MeV) & 24.5 & 45.8 & 41.3 \\ \hline \end{tabular}
+\end{table}
+Table 10: Mass resolutions for \(\phi\) and \(D_{\mathrm{s}}\) in \(D_{\mathrm{s}}\) \(\rightarrow\)\(\phi^{0}(K^{+}K)\pi\) events with pile-up. The resolutions have been determined by fitting a single Gaussian to the appropriate invariant mass distributions.
+
+Figure 10: Reconstructed \(\pi^{+}\pi^{-}\) invariant mass distributions from \(B_{d}\) \(\rightarrow\)\(\pi^{+}\pi^{-}\) decays with pion \(p_{\mathrm{T}}^{\mathrm{true}}\) > 4 \(\mathrm{GeV}\). The results of Gaussian fits to the invariant mass distributions are shown superimposed. The plot shows that the TRT-guided tracking gives worse mass resolution (\(213\pm 13\,\mathrm{MeV}\)) than the Pixel-guided tracking (\(106\pm 4\,\mathrm{MeV}\))
+
+#### 5.2.7 Execution time
+
+The execution times for the various algorithms have been measured on the following platforms:
+
+* single CPU Pentium-III 450 MHz, 512K L2 cache, TMC TI6NBFV+ mother board, 128M 100MHz Memory
+* single CPU Athlon 600MHz, 512K L2 cache, Microstart 6167 mother-board, 128MB 100MHz memory
+
+The code was compiled1 with maximum optimization2. The timing measurements were made a
+
+Footnote 1: The compiler used was using gcc/g++ version egcs-2.91.66 from egcs release 1.1.2.
+
+Footnote 2: The compiler optimization flags used with the Athlon were: _-s -static -O3 -fomit-frame-pointer -mpen-timupro -march=pentiumpro -malign-functions=4 -fintroll-loops -expensive-optimizations -malign-double -schedule-insnsns2 -mwide-multiply and with the PIII: -fnonnull-objects -O6 -fomit-frame-pointer -march=pentium -mcpu-pentium -malign-loops=2 -malign-jumps=2 -malign-functions=2_
+
+using a sample of -200 \(B\rightarrow\upmu\)X events with pile-up at low luminosity. The mean execution times are given in Table 11. The execution time for the TRT-LUT FX scales linearly with the number of hits, as shown in Figure 11. The mean execution time is about three times longer for the TRT end-cap (Figure 11 right) than for the barrel (Figure 11 left), reflecting the larger number of straws in the end-caps and the more complicated end-cap geometry. The TRT-XK FX algorithm includes a hit-ordering step, and as a consequence the execution time scales a NlogN, see Figure 12. The mean execution times for the two TRT algorithms are shown in Table 11. For the TRT-XK FX, results are shown for three different \(\upmu_{\text{T}}\) thresholds. For a \(\upmu_{\text{T}}\) threshold of 0.5 GeV, the mean execution time on the PIII is 577 ms for the TRT-XK algorithm and 230 ms for the TRT-LUT FX. The most CPU-intensive parts of the TRT-LUT FX have also been implemented on FPGAs used both as a co-processor to a Pentium CPU and in the FPGA systems ENABLE++ and ATLANTIS [9]. These implementations offer a reduction in execution time by at least a factor 6.
+
+Figure 11: The execution time of the TRT-LUT full-scan in the TRT barrel (left) and TRT end-caps (right) as a function of the number of TRT hits. The measurements were made on a 450 MHz PIII using a sample of \(B\)–\(\upmu\)X events with pile-up at low luminosity. In this and the following plots, bin-entries are indicated by boxes where the size of the box is proportional to the number of entries.
+
+[MISSING_PAGE_FAIL:27]
+
+Results are shown in Table 11 for the mean number of seeds from both the TRT-LUT FEX and the TRT-XK FEX. The mean number of hits is \(-50\%\) higher for the TRT-LUT FEX than for the TRT-XK FEX since hit-sharing between tracks has been allowed for the TRT-LUT FEX. Raising the \(\mathrm{p_{T}}\) threshold from 0.5 GeV to 1.5 GeV reduces the number of TRT-LUT (TRT-XK) seeds by a factor of 3.1 (3.0). For the triggers involving only electron tracks, a similar reduction in the number of TRT seeds can be obtained, for a 0.5 GeV \(\mathrm{p_{T}}\) threshold, by using as seeds only TRT tracks passing electron identification cuts.
+
+The mean numbers of seeds produced by pixel-scans with and without muon guidance are shown in Table 12. Both the use of muon guidance and raising the pixel-\(\mathrm{p_{T}}\) threshold increase the speed of the pixel algorithm and reduce the number of seeds to the Si-Kalman FEX. For the lowest pixel \(\mathrm{p_{T}}\) threshold used, 0.5 GeV, the number of seeds is halved by using muon guidance. Raising the threshold to 1.5 GeV gives a factor of 4.9 (3.9) reduction of the number of seeds produced by the pixel-scan without (with) muon guidance.
+
+These results are shown to indicate the dependence of execution time on \(\mathrm{p_{T}}\) threshold. However, in general physics requirements and trigger rate constraints will be the major factors determining the \(\mathrm{p_{T}}\) threshold used. The physics implications of the pixel-scan parameters will be addressed in Section 6.
+
+Note that the above timing measurements do not include operations that may be considered to be pre-processing or data preparation, i.e. data collection and the formation of clusters and space points from strip/pixel addresses. These algorithms have been bench marked elsewhere; see for example [16].
+
+The results of the event filter selections are based on the offline program xKalman. This has been measured to have an execution time of \(\sim\)10s per event on a HP K260 with quad 180 MHz PA-8000 processors.
+
+Figure 14: The distribution of the execution time of the Si-kalman FEX per pixel seed (left) and per TRT seed (right) measured on a 450 MHz Pill. Super-imposed are curves showing the fraction of seeds for which the execution time is below the given value. The number in the top right of the figure is the total fraction up to the right edge of the histogram.
+
+### Conclusions on track search
+
+The best efficiency for reconstructing hadron tracks is obtained using pixel-seeded reconstruction. For pixel-seeded searches, a significant saving in execution time is obtained by using information from the muon track to constrain the Z of the interaction point. The overall time taken on a 450 MHz PIII for a pixel-scan plus Si-Kalman track search (seed p\({}_{\mathrm{T}}\) > 0.5 GeV) is 75 ms with muon guidance (\(\Delta\)z < 1 cm) compared to 279 ms without muon guidance. If TRT information is required, a TRT-LUT scan plus track-association step increases the overall execution time to 366 ms.
+
+When TRT information is required e.g. for electron identification, TRT-guided searches currently give the best track reconstruction efficiency. The average overall time for TRT-LUT seeded reconstruction (p\({}_{\mathrm{T}}\) > 0.5 GeV) is 500 ms on a 450 MHz PIII. The overall execution time for TRT-XK seeded reconstruction is 50% longer. A further reduction in execution time can be obtained by limiting reconstruction in the Si to electron track candidates. The overall execution time for reconstruction seeded by TRT-LUT electron tracks is 313 ms on a 450 MHz PIII.
+
+These execution times are promising; some are already compatible with previous estimates used as input to models that simulate the performance of the full trigger system as part of the Pilot Project [7],[23]. The nominal time used for modelling a pixel-scan plus Si-Kalman track search is 20 ms on a 1000 MIPS processor (assumed to be equivalent to a 1 GHz processor). This is roughly compatible with the average time for the pixel-scan plus Si-Kalman track search (75 ms on a 450 MHz PIII) reported in this note when scaled linearly to 1000 MIPS. The nominal time used for modelling a TRT scan is 25 ms at 1000 MIPS. In this case, the extrapolation of the measured average time for the TRT-LUT algorithm (230 ms on a 450 MHz PIII) to a 1000 MIPS processor gives a value around a factor of four slower than the time used for the modelling studies. The extrapolated TRT-XK algorithm time (577 ms on the 450 MHz PIII) is about a factor 10 slower than the value used for modelling.
+
+By comparing the Athlon and PIII timings in Tables 11 to 12, it can be seen that the decrease in execution time roughly scales as the increase in CPU clock speed. Commodity CPU speeds continue to increase rapidly; at the time of writing, a 950 MHz Athlon is already available. It therefore seems reasonable to assume that, in the final system, execution times will be reduced by at least a factor of two compared to the times for a 1000 MIPS processor, which brings the TRT times closer to those used in the modelling studies.
+
+It should also be noted that the TRT scan time can be significantly reduced by implementation of the most CPU intensive parts of the algorithm on FPGA co-processors. There are also plans to investigate the implementation of some of the other tracking algorithms on FPGAs.
+
+The TRT scan has the advantage of an execution time that increases more slowly with occupancy than the pixel scan. Linearly for the TRT-LUT FEX, and as NlogN for the TRT-XK FEX, whilst the pixel scan has contributions that scale as the second and third power of the occupancy. The pixel scan does not suffer from a localised drop of efficiency or increase in fake tracks as does the TRT across the transition from barrel to end-cap geometry. However the pixel scan is intrinsically less robust as it requires hits in all three pixel planes traversed by the track and so has a track reconstruction in-efficiency proportional to the third power of the single plane in-efficiency. Plans are under way to make the algorithm more robust by additionally making use of SCT information. The TRT algorithm is less sensitive to detector in-efficiency. However, seeding Si-reconstruction from the outside rather than the inside suffers more from material effects. Thiscompromises the ability of simple trigger algorithms to make accurate measurements of track parameters. Unlike the TRT, the Pixel Detector has a inherent 3D measurement capability, which improves the quality of the seed information.
+
+## 6 HLT selections and performance
+
+In this section trigger selections are given for three channels: \(B_{d}\!\rightarrow\!\pi^{+}\pi^{-}\), \(D_{s}\!\rightarrow\!\phi^{0}(K^{+}K)\pi\) and \(\mathrm{J}/\Psi\rightarrow\mathrm{e}^{+}\mathrm{e}^{-}\). The performance of these selections is characterised in terms of the efficiency for a signal sample, the efficiency for events that would be selected offline, and the rate and execution time for a sample of \(B\!\rightarrow\,\mathrm{\mu}\mathrm{X}\) events. All event samples include pile-up corresponding to running at low luminosity (\(10^{33}\) cm\({}^{-2}\)s\({}^{-1}\)). Following the LVL2 track reconstruction described in the previous section, the selection process has been divided into the following three steps:
+
+* LVL2 track selection
+* LVL2 event selection
+* Event Filter selection
+
+The LVL2 selection uses tracks reconstructed by the algorithms described in Section 5, whilst the event filter selection is based on a track reconstruction by the offline reconstruction programme xxalman.
+
+In this section, firstly the data samples used for the efficiency and rate measurements are defined, then the common elements of the LVL2 track selection are outlined. The selections for the different channels are described in detail both at LVL2 and at the EF. Results are shown for reconstruction seeded by the TRT-LUT, TRT-XK and pixel-scan algorithms. For pixel guided searches, two algorithm options have been chosen:
+
+* loose pre-selection: \(\Delta\mathrm{z}_{\mathrm{\mu}}\!<\!1\) cm, \(\mathrm{p}_{\mathrm{T}}\) threshold set to be efficient for tracks with \(\mathrm{p}_{\mathrm{T}}\!>\!0.5\) GeV
+* tight pre-selection: \(\Delta\mathrm{z}_{\mathrm{\mu}}\!<\!0.4\) cm, \(\mathrm{p}_{\mathrm{T}}\) threshold set to be efficient for tracks with \(\mathrm{p}_{\mathrm{T}}\!>\!1.0\) GeV
+
+A summary of efficiencies, rates and execution times is given at the end of this section.
+
+### Data samples
+
+The following three event samples were derived as sub-sets of the signal and background data-sets defined in Section 3. The numbers of events in the samples are shown in Table 13.
+
+#### Signal sample
+
+All physics selections will contain cuts on the \(\mathrm{p_{T}}\) of the tracks considered in the analysis. Hence the signal sample is defined as the sub-set of events from the appropriate signal data-sets after the application of cuts to the true \(\mathrm{p_{T}}\) of the \(B\)-decay products matching the values of the \(\mathrm{p_{T}}\) cuts used in the offline analysis. The values of the \(\mathrm{p_{T}}\) cuts are given in Table 13.
+
+#### Offline sample
+
+More important than the 'absolute' efficiency for signal events, is the efficiency for the subset of signal events, as defined above, which would pass an offline selection. Such a selection will evolve with time. For the results presented here the offline selections presented in the Physics and Detector performance TDR [6] have been used. The selection cuts for the different channels are listed in Appendix A. The efficiency of the trigger selection should be as high as possible for the offline sample i.e. there should be a strong correlation between the trigger cuts and the offline cuts. Analysis using the offline sample also enables cross-checks that no serious biases are introduced by the trigger selections.
+
+#### Background
+
+A sample of fully simulated \(B\to\mu X\) events with pile-up. No additional cuts are applied to the generated event sample. This sample is used to determine the trigger rate resulting from a given selection.
+
+### LVL2 Track selection
+
+The first step, after track reconstruction at LVL2, is the application of track selection cuts (these are in addition to cuts applied within the reconstruction algorithms). The surviving tracks are input to a further stage of selection where parameters from two or more tracks are combined. The track selection step is important both to reduce the combinatorial background and to minimize the overall execution time. Cuts may applied to some or all of the following, depending on the channel, see Table 14:.
+
+* \(\mathrm{N_{SI}}\): The number of Si hits. For pixel-seeded searches, at least 5 Si hits are required (2 SCT hits in addition to the three pixel hits required by the pixel-scan). For TRT-seeded searches at least 5 Si hits are required. These requirements are common to all three selections.
+* \(\mathrm{p_{T}}\): The reconstructed \(\mathrm{p_{T}}\) is required to be at least 0.5 GeV for the \(\mathrm{J^{\prime}}\Psi\to e^{+}e^{-}\) trigger, 1.4 GeV for the \(D_{s}\to\phi^{0}(K^{+}K)\pi\) trigger and 3.9 GeV for the \(B_{d}\to\pi^{+}\pi^{-}\) trigger. These cuts re
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \cline{2-4} \multicolumn{1}{c|}{} & \(B_{d}\to\pi^{+}\pi^{-}\) & \(D_{s}\to\phi^{0}(K^{+}K)\pi\) & \(\mathrm{J}\Psi\to e^{+}e^{-}\) \\ \hline \(\mathrm{p_{T}}\) \(>\) **(GeV)** & 3.9 & 1.4 & 0.5 \\ \(\Delta R_{\phi\eta}\) \(>\) **(cm)** & 0.2 & 0.2 & No Cut \\ \(\mathrm{R_{1}}\) & No Cut & No Cut & see Table 6 \\ B-layer & No Cut & No Cut & Required \\ \hline \end{tabular}
+\end{table}
+Table 14: The LVL2 track selection cuts for the different channels.
+
+move low-\(\mathrm{p_{T}}\) tracks and reduce the number of fake tracks formed by combinations of hits from more than one particle.
+* \(\Delta\mathrm{R_{\mathrm{\phi m}}}\): The separation in \(\mathrm{\phi}\)-\(\mathrm{n}\) space between the trigger muon and the Si Kalman track. For the \(B_{d}\rightarrow\pi^{+}\pi^{-}\) and \(D_{\mathrm{s}}\rightarrow\mathrm{\phi}^{0}(K^{+}K)\pi\) triggers, a cut is applied to require events to have a \(\Delta\mathrm{R}>0.2\), where \(\Delta\mathrm{R}\) is defined by: \(\Delta R=\sqrt{\Delta\mathrm{\phi}^{2}+\Delta\mathrm{\eta}^{2}}\).
+* \(\mathbf{R_{1}}\): The fraction of transition radiation hits on the TRT track segment, \(\mathrm{R_{1}}\)=\(\mathrm{N_{TR}}\)/\(\mathrm{N_{hits}}\), where \(\mathrm{N_{TR}}\) is the number of TR hits and \(\mathrm{N_{hits}}\) the total number of hit son the TRT track segment. The cuts used to select electron candidate tracks for the \(\mathrm{J/\Psi}\rightarrow\mathrm{e^{+}e^{-}}\) trigger are given in Table 6.
+* \(\mathbf{B}\)-**layer:** For the \(\mathbf{J/\Psi}\rightarrow\mathrm{e^{+}e^{-}}\) trigger, a hit in the pixel B-layer is required.
+
+For the tables in following sections, the **track selection efficiency** is defined as the fraction of events for which all the signal decay products (\(\pi\pi\), \(\mathrm{K\pi\pi}\), or ee) are reconstructed with tracks passing the selection cuts. For a pixel-guided track search, a hadron is said to have been reconstructed if there is a track where the hadron contributed the majority of hits on the pixel track segment and the majority of hits on the SCT track segment. For a TRT guided search, the hadron is said to have been reconstructed if the majority of hits on the Si track are due to the hadron. An electron is considered to have been reconstructed if, additionally, the TRT track segment passes the electron identification cuts.
+
+### LVL2 Event Selection
+
+Event selection cuts are applied to the quantities calculated from the reconstructed parameters of two or more tracks passing the track selection cuts. Cuts may be applied to summed \(\mathrm{p_{T}}\), difference in Z intercept, and one or more invariant mass cuts, according to the signal channel. Details are given for the respective channels in the following sections.
+
+The signal, offline or background **event selection efficiency** is defined as the fractions of events from the signal, offline and background samples, respectively, that pass the event selection cuts. Note that even if one or more of the signal decay products is not reconstructed an event can pass the event selection cuts, and be counted towards the efficiency, if the event contains another combination of tracks passing the cuts. Conversely, an event in which all the signal decay products are reconstructed with tracks passing the track selection cuts, may fail the event selection due to poorly reconstructed track parameters.
+
+Event selection efficiencies are given both for the LVL2 and Event Filter selections.
+
+### Event Filter Selection
+
+The EF selection differs from LVL2 in that the ID track reconstruction is performed using the offline program xKalman[10]. Invariant mass cuts are applied to combinations of tracks to find candidates for the decay products of the signal process. A vertex fit is performed to candidate track combinations using the offline vertex reconstruction package CTVMPT[19] and cuts are applied to some or all of the following quantities:
+
+* Vertex fit chi-squared per degree of freedom \(\chi^{2}/\mathrm{N_{d.o.f.}}\)
+* Reconstructed transverse decay length, \(\mathrm{L_{xy}}\) (see Figure 15).
+* A cut on the angle in the transverse plane, \(\alpha_{xy}\), between the vertex position vector and the direction of the reconstructed momentum vector of the parent (see Figure 15).
+
+The angle \(\alpha_{xy}\) will, in general, be smaller for the B meson decay products than for other track combinations (decay products of light particles, or random track combinations).
+
+Details of the cuts used for the respective channels are given in the following sections.
+
+### Invariant mass plots
+
+For the LVL2 and EF triggers, invariant mass cuts are used to provide selections specific to each of the signal decay channels. Events are selected if they contain a track combination passing the invariant mass cuts (i.e. with invariant mass within a window around the appropriate particle mass). In this section, the selectivity of these cuts is illustrated by invariant mass distributions for signal and background events samples. These plots show invariant mass for combinations of reconstructed tracks passing the track selection and event selection cuts, apart from the invariant mass cut. For most of the plots (\(B_{d}\to\pi^{+}\pi^{-}\), \(\phi\)\(\to\)K\({}^{+}\)K- and J/\(\Psi\to\) e\({}^{+}\)e-), tracks are combined in opposite charge-sign pairs (for \(D_{\mathrm{s}}\to\phi^{0}(K^{+}K)\pi\) a third track is added to the track-pair forming the \(\phi\) candidate). The following histograms are shown:
+
+* **All combinations:** In many cases several tracks per event will pass the selection cuts. This histogram contains entries for all opposite charge sign track-pair combinations within the event (three tracks for \(D_{\mathrm{s}}\)).
+* **Correct combination:** This histogram is limited to at most one entry per event. It contains an entry for the combination of tracks associated to the products of the signal decay, where such a combination exists (e.g. for \(B_{d}\to\pi^{+}\pi^{-}\) the two reconstructed tracks associated to the \(\pi^{+}\) and \(\pi^{-}\) from the \(B_{d}\) decay). In the case where one or more of the daughter particles is multiply reconstructed, the combination nearest the nominal mass of the parent is chosen.
+* **False combinations:** This histogram is shown for signal events and is also limited to at most one entry per event. It contains entries for the track combination nearest the nominal mass of the parent particle in events where no correct combination exits (i.e. events where one or more of the daughter particles is not reconstructed).
+* **Best combination:** This histogram contains an entry for the correct combination in signal events, where such a combination exists. For background events, or signal events with no correct combination, the mass nearest the nominal parent mass is entered. For signal events this histogram is the bin-wise sum of the correct combination and false combination histograms.
+
+The distribution for all combinations is shown as the shape is not biased by selecting combinations nearest to the nominal parent mass. The other histograms with, at most, one entry per event are also shown since they allow the number of events passing the selection cuts to be extracted. For the best combination histogram, for example, the sum of the histogram-bin contents within the mass window gives the number of events passing the event selection, from which the event selection efficiencies are determined.
+
+### \(B_{d}\rightarrow\pi^{+}\pi^{-}\)
+
+The offline analyses currently planned for this channel put the following requirements on the trigger:
+
+* Good efficiency for \(B_{d}\rightarrow\pi^{+}\pi^{-}\) decays in which the daughters have \(p_{\mathrm{T}}^{\mathrm{true}}>\) 4.0 GeV. For this reason a \(\mathrm{p_{T}}\) cut of 3.9 GeV has been applied to the reconstructed tracks;
+* A wide window for the invariant mass cut so that the \(\pi^{+}\pi^{-}\) mass spectrum may be reconstructed offline between 4.6 and 6.0 GeV for fitting purposes. This window corresponds to about \(\pm 10\sigma(\mathrm{m}B_{d})\), where \(\sigma(\mathrm{m}B_{d})\) is 70 MeV offline.
+
+Note that the second requirement means that other interesting channels such as \(B_{d}\)\(\rightarrow\)\(\pi^{+}\)K\({}^{-}\) will also be accepted. The full composition of the mass distribution obtained offline with a \(\pi^{+}\pi^{-}\) hypothesis is shown in the Physics TDR [6].
+
+#### 6.6.1 Track selection
+
+The track selection cuts used are as follows:
+
+* Si Kalman track \(\mathrm{p_{T}}>\) 3.9 GeV.
+* The trigger muon and Si Kalman track must be separated by \(\Delta\mathrm{R}_{\phi\eta}\geq 0.2\)The distribution of \(\Delta\)R is shown in Figure 16 for signal and background events both for pixel-guided (left) and TRT-XK guided (right) track searches.
+
+In Table 15 results are given for the mean number of tracks per event passing the successive cuts and the corresponding efficiency for reconstructing both pions from \(B_{d}\!\rightarrow\pi^{+}\pi^{-}\). Results are shown for pixel guided searches with loose and tight pre-selections and for TRT-LUT and TRT-XK guided reconstruction.
+
+\begin{table}
+\begin{tabular}{|l|l|c|c|c|c|} \cline{3-6} \multicolumn{1}{c}{} & \multicolumn{2}{c|}{**Mean no. tracks**} & \multicolumn{2}{c|}{**Efficiency (\%)**} \\ \hline \multirow{3}{*}{**\(B_{d}\to\pi^{+}\pi^{-}\) decay**} & \multirow{2}{*}{**Pixel pre-selection**} & \multirow{2}{*}{**loose**} & \multirow{2}{*}{**tight**} & \multirow{2}{*}{**loose**} & \multirow{2}{*}{**tight**} \\ \cline{3-3} \cline{5-6}  & Pixel track \(\mathrm{p_{T}}>0.5\) GeV & 38 & 18 & 90 & 86 \\ \cline{2-6}  & Si Kalman track found from pixel seed & 35 & 17 & 84 & 81 \\ \cline{2-6}  & Si Kalman track passes cuts (\(\mathrm{p_{T}}>3.9\) GeV, \(\Delta\)R \(>0.2\)) & 1.1 & 1.1 & 81 & 77 \\ \hline \multirow{3}{*}{**\(B_{d}\to\pi^{+}\pi^{-}\) decay**} & \multirow{2}{*}{**TRT-XK**} & \multirow{2}{*}{**TRT-LUT**} & \multirow{2}{*}{**TRT-XK**} & \multirow{2}{*}{**TRT-LUT**} \\ \cline{1-1} \cline{3-3} \cline{5-6}  & TRT track, \(\mathrm{p_{T}}>0.5\) GeV & 119 & 262 & 80 & 79 \\ \cline{1-1} \cline{3-3} \cline{5-6}  & TRT track \(\mathrm{N_{his}}>\) cut (TRT-XK: 10, TRT-LUT: 19) & 114 & 165 & 79 & 74 \\ \cline{1-1} \cline{3-3} \cline{5-6}  & Si-Kalman track found from TRT seed & 64 & 86 & 75 & 72 \\ \cline{1-1} \cline{3-3} \cline{5-6}  & Si-Kalman track passes cuts (\(\mathrm{p_{T}}>3.9\) GeV, \(\Delta\)R \(>0.2\)) & 1.5 & 1.6 & 68 & 67 \\ \hline \end{tabular}
+\end{table}
+Table 15: This table shows the beneficial reduction in the mean number of track candidates in \(B\!\rightarrow\mu\)X events resulting from each stage of the track selection. Results are shown for pixel-guided and TRT-guided reconstruction. Also given at each stage is the efficiency to reconstruct both pions (\(p_{\mathrm{T}}^{\mathrm{true}}>\)4 GeV) from the \(B_{d}\!\rightarrow\pi^{+}\pi^{-}\) decay. The number of pixel or TRT tracks is important as it determines the total execution time of the Si Kalman algorithm.
+
+Figure 16: Distributions of \(\Delta\)R\({}_{\mathrm{pn}}\) for tracks reconstructed from \(B_{d}\!\rightarrow\pi^{+}\pi^{-}\) passing the track cuts and tracks in \(B\!\rightarrow\mu\)X events passing the track cuts for pixel-guided track search (left) and TRT-XK guided track search (right). Note that the relative normalisation of the signal and background distributions is arbitrary.
+
+The tight pre-selection gives a reduction by a factor of two in the number of tracks used as seeds to the Si-Kalman FEX, but with a loss of efficiency of 4%. The track selection efficiency is significantly lower for the TRT guided searches than for the pixel guided search.
+
+#### Event Selection
+
+Tracks surviving the selection described above are combined in all possible oppositely charged pairs. These pairs must then survive selection cuts on the scalar sum of their transverse momenta and the difference between the \(Z_{0}\) of the two tracks. The distributions these two quantities are shown in Figure 17 for track pair combinations in signal and background events. The \(Z_{0}\) distribution for the pixel-guided tracking does not extend beyond 1 cm because the muon guidance restricts the track search to a window of this size.
+
+Figure 17: Distributions of \(\mathrm{p_{T}}\)+\(\mathrm{p_{T}}\) (top) and \(\mathrm{\Delta\sigma_{0}}\) (bottom) for pairs of tracks reconstructed from \(B_{d}\rightarrow\pi^{+}\pi^{-}\) passing the track cuts and pairs of tracks from background (\(B\rightarrow\mu\chi\)) events. Distributions are shown for Si-Kalman tracks reconstructed from pixel-guided (left) and TRT-guided (right) track searches. Note that the relative scales of signal and background distributions are arbitrary.
+
+Finally a loose cut is applied to the invariant mass of the track-pair (pion hypothesis). The mass window is chosen to be \(\pm 10\)cm(\(\mathrm{m}B_{d}\)) using the online resolution obtained with the pixel-guided Si-Kalman tracking, which is about 100 MeV.
+
+The effects of these cuts are shown in Table 16. The statistical errors are shown for the background efficiencies after all selection cuts, the errors are relatively large due to the limited event sample and the very low (\(\sim\)1%) background efficiencies..
+
+It may be noted that the event selection efficiencies quoted in Table 16 for signal events passing the track cuts are higher than the corresponding track selection efficiencies given Table 15 (the event selection efficiency requires that there exists a track pair satisfying the cuts whilst the track selection efficiency requires that the \(\pi^{+}\pi^{-}\) daughters of the \(B_{d}\) are reconstructed and pass the selection cuts). This demonstrates that some events in which one (or both) of the decay products of \(B_{d}\rightarrow\pi^{+}\pi^{-}\) is not reconstructed or fails the track cuts, never-the-less pass the event selection due other tracks in the event. This is to be expected because the track selection alone is not specific to any particular \(B\) decay. For this reason, a relatively large fraction of background events also pass the first stages of the event selection.
+
+The mass cut provides a very specific selection of \(B_{d}\rightarrow\pi^{+}\pi^{-}\) decays, as can be seen in Figure 18 (Pixel guided with loose pre-selection) and Figure 19 (TRT-XK guided) which show the distributions of invariant masses from oppositely charged track pairs in signal events (left) and background events (right). The plots for Pixel guided with tight pre-selection and for TRT-LUT guided are similar to the plots shown in Figures 18 and 19 respectively.
+
+The trigger efficiency has been checked as a function of the \(\mathrm{p_{T}}\) and \(|\eta|\) of the \(B_{d}\) This is shown in Figure 20, in which the pixel-guided case (loose pre-selection) was chosen as a representative example. The general trend is for the efficiency versus \(|\eta|\) distribution is fairly flat, falling off at
+
+\begin{table}
+\begin{tabular}{|l|c|c|c|c|c|c|} \hline  & \multicolumn{3}{c|}{**pixel-guided (loose pre-selection)**} & \multicolumn{3}{c|}{**pixel-guided (tight pre-selection)**} \\ \cline{2-7}
+**Event selection cut** & **Signal** & **Offline** & **Background** & **Signal** & **Offline** & **background** \\
+**sample** & **sample** & **sample** & **sample** & **sample** & **sample** & **sample** \\ \hline Track cuts (see Table 15) & 89.8 & 96.9 & 18.6 & 87.8 & 93.1 & 19.3 \\ \hline \(\mathrm{Pr^{+}p_{T}>10\leavevmode\nobreak\ GeV}\) & 86.1 & 96.6 & 14.9 & 84.4 & 92.8 & 15.1 \\ \hline \(|\mathrm{|\Delta Z_{Q}|<2\leavevmode\nobreak\ cm}\) & 86.1 & 96.6 & 14.9 & 84.2 & 92.8 & 15.1 \\ \hline \(4.3<\mathrm{mass<6.3\leavevmode\nobreak\ GeV}\) & 77.5 & 93.2 & \(0.93^{+0.31}_{-0.24}\) & 74.4 & 86.7 & \(0.93^{+0.31}_{-0.24}\) \\ \hline \hline \multicolumn{7}{|c|}{**TRT-LUT-guided**} & \multicolumn{3}{c|}{**TRT-XK-guided**} \\ \cline{2-7}
+**Event selection cuts** & **Signal** & **Offline** & **Background** & **Signal** & **Offline** & **Background** \\
+**sample** & **sample** & **sample** & **sample** & **sample** & **sample** \\ \hline Track cuts (see Table 15) & 82.1 & 86.7 & 24.6 & 82.4 & 88.2 & 24.0 \\ \hline \(\mathrm{Pr^{+}p_{T}>10\leavevmode\nobreak\ GeV}\) & 79.3 & 85.9 & 21.2 & 78.7 & 87.8 & 20.3 \\ \hline \(|\mathrm{|\Delta Z_{Q}|<2\leavevmode\nobreak\ cm}\) & 75.0 & 82.1 & 14.5 & 75.8 & 84.0 & 15.6 \\ \hline \(4.3<\mathrm{mass<6.3\leavevmode\nobreak\ GeV}\) & 60.8 & 74.9 & \(1.1\pm 0.3\) & 62.1 & 77.2 & \(1.1\pm 0.3\) \\ \hline \end{tabular}
+\end{table}
+Table 16: Selection efficiencies for signal, offline and background event samples (as defined in Section 6.1) after sequential cuts designed to select events containing a track pair which form a good \(B_{d}\rightarrow\pi^{+}\pi^{-}\) candidate. All numbers are efficiencies in (%).
+
+high \(|\eta|\). There is a dip in efficiency at \(|\eta|=1.2\) reflecting the increased material in this region (the detailed structure reflects the low statistics available). The average efficiencies correspond to those in Table 16.
+
+Figure 19: The distribution of invariant masses from oppositely charged track pairs from the TRTXK-guided tracking which survive the selection cuts in Table 16, in signal events (left) and background events (right). The key to the different histograms is the same as that explained in the caption of Figure 18.
+
+Figure 18: Distribution of invariant mass for oppositely charged track pairs from pixel-guided reconstruction passing the selection cuts listed in Table 16. Distributions are shown for all combinations (open histogram) in signal events (left) and background events (right). Also shown by the filled part of the histograms are the distributions for the best combination in the event. The relative contributions in signal events from correct combinations and false combinations are indicated by the hatched and cross-hatched areas of the histogram, respectively. The definitions of best, correct and false combinations are given in Section 6.5. The mass cut window is shown by vertical dashed lines.
+
+#### 6.6.3 EF Selection
+
+ID track reconstruction is performed using the offline program xKalman and a vertex fit is performed to pairs of tracks of opposite charge sign in order to reconstruct the decay vertex. The selection cuts are as follows:
+
+* Invariant mass with-in the window 4.5 to 6.0 GeV
+* Vertex fit has \(\chi^{2}/\mathrm{N_{d.o.f.}}<8\)
+* Reconstructed transverse decay length \(\mathrm{L_{xy}}>100\)\(\mathrm{\SIUnitSymbolMicro m}\)
+* Angle in the transverse plane, \(\alpha_{\mathrm{xy}}<5^{\circ}\).
+
+After these cuts, only 0.052% of events remain from the background sample. No events were rejected from the sample of signal events passing the offline and LVL2 selections (note that for this EF study, the LVL2, EF and offline cuts were all applied to tracks reconstructed by the offline ID reconstruction program, xKalman). More details are given in [21].
+
+Figure 20: Efficiency to accept events from the \(B_{d}\to\pi^{+}\pi^{-}\) signal sample (pion \(p_{\mathrm{T}}^{\mathrm{true}}>4\) GeV) as a function of the generated \(\mathrm{p_{T}}\) (left) and \(\mathrm{\SIUnitSymbolMicro m}\) (right) of the \(B_{d}\) meson. The dashed lines show the \(\mathrm{p_{T}}\) (left) and \(\mathrm{\SIUnitSymbolMicro m}\) (right) distributions of the \(B_{d}\) meson. The apparent structure of the \(\mathrm{\SIUnitSymbolMicro m}\) distribution is due to low statistics. These plots were produced using the Pixel scan and Si-Kalman algorithms.
+
+### \(D_{s}\to\phi^{0}(K^{+}K)\pi\)
+
+This channel is interesting for \(B_{s}\) mixing studies. The \(B_{s}\) decay is not completely reconstructed in the trigger, since the reconstruction of only the \(\mathrm{D_{s}}\) decay is sufficient for rate reduction at LVL2. This allows more flexibility with inclusive selection of various \(B_{s}\to D_{s}X\) decay channels, such as \(B_{s}\to D_{s}\pi\), \(B_{s}\to D_{s}\pi_{1}\), \(B_{s}\to D_{s}D_{s}\) etc.1
+
+Footnote 1: In principle, the decay mode \(D_{s}\to\mathrm{K^{0}}(K\pi)\mathrm{K}\) could also be reconstructed. A trigger for this mode would work similarly to the one for \(D_{s}\to\phi^{0}(K^{+}K)\pi\), but preliminary studies [6] have shown that a reasonable trigger rate can only be obtained with a track \(\mathrm{p_{T}}\) cut of approximately \(\mathrm{p_{T}}>3\) GeV. Moreover, due to the large width of the \(\mathrm{K^{0}}\), the combinatorial background is dominant and hard to control.
+
+The offline analysis requires that the trigger:
+
+* has good efficiency for decays in which the three final-state daughters (\(\mathrm{K^{+}}\), \(\mathrm{K^{-}}\), \(\pi\)) have \(\mathrm{p_{T}}>1.5\) GeV;
+* reconstructs \(\phi^{0}\) candidates from two oppositely charged tracks (kaon mass hypothesis) in a relatively large mass window around the nominal \(\phi^{0}\) mass;
+* reconstructs \(\mathrm{D_{s}}\) candidates from two tracks which pass the \(\phi^{0}\) selection and a third track (pion mass hypothesis) in a relatively large mass \(\phi^{0}\) window around the nominal \(\mathrm{D_{s}}\) mass.
+
+#### Track selection
+
+The track selection cuts applied are as follows:
+
+* Si Kalman track with \(\mathrm{p_{T}}>1.4\) GeV.
+* \(\Delta\mathrm{R_{\phi_{\eta}}}>0.2\)
+
+Figure 21: The distribution of \(\Delta\mathrm{R}\) for Si tracks reconstructed by a pixel-guided search (left) and by a TRT-guided search (right). Distributions are shown for tracks from \(D_{s}\to\phi^{0}(K^{+}K)\pi\) (solid histogram) and for tracks in \(B\to\mu\mathrm{X}\) events (dashed histogram). The applied cut is indicated.
+
+[MISSING_PAGE_FAIL:42]
+
+The reconstruction efficiencies for pions and kaons from \(D_{\mathrm{s}}\!\rightarrow\!\phi^{0}(K^{*}K)\pi\) are given in Table 18 after all track selection cuts. For pixel-seeded reconstruction, the pion (kaon) efficiency is 3% lower (2% higher respectively) using a tight pre-selection compared to results using a loose pre-selection. Using the tight pre-selection, the mean efficiency is 85% for pions and 81% for kaons (\(p_{\mathrm{T}}^{\mathrm{true}}>1.5\) GeV in both cases). Compared these values the pion efficiency is 2% (3%) lower for TRT-XK (TRT-LUT respectively) seeded searches, whilst the kaon reconstruction efficiency is 2% higher (the same).
+
+#### Event Selection
+
+From tracks satisfying the selection cuts, oppositely charge-sign pairs are formed and their invariant mass calculated (kaon mass hypothesis). Those track pairs with invariant mass within a window \(|\,\mathrm{M}_{\mathrm{KK}}\cdot\mathrm{M}_{\phi}|<3\sigma_{\phi}^{\mathrm{ trig}}\) around the nominal \(\phi^{0}\) mass, \(\mathrm{M}_{\phi}\), are selected as \(\phi^{0}\) candidates. The mass resolution, \(\sigma_{\phi}^{\mathrm{trig}}\), is that measured for the \(\phi_{0}\) using the trigger reconstruction. The invariant mass distributions for signal events are shown in Figure 22 for pixel (left) and TRT (right) seeded reconstruction. The sizes of the resulting \(\phi^{0}\) mass windows are given in Table 19 (for comparison the mass resolution obtained offline is 3.4 MeV [6]). Also given in Table 19 is the efficiency for reconstructing at least one track-pair per event inside the \(\phi^{0}\) mass window for the signal sample. Results are shown for both pixel and TRT-guided reconstruction. For pixel-seeded reconstruction, 4% higher efficiency is obtained using a tight pre-selection than for a loose pre-selection. This is due to a higher kaon reconstruction efficiency for the tight pre-selection case. The \(\phi^{0}\) efficiencies for TRT-seeded reconstruction are about the same as for pixel-guided with a loose pre-selection.
+
+#### HLT selections and performance
+
+Figure 22: Reconstructed KK invariant-mass distributions for Si tracks from pixel (left) and TRT-LUT (right) seeds for \(D_{\mathrm{s}}\!\rightarrow\!\phi^{0}(K^{*}K)\pi\) events with pile-up. The \(\phi\) mass window is indicated by the dashed lines. The open histograms show the mass distribution for all combinations of oppositely charged tracks whilst the filled part of the histograms show the distributions for the best combination in the event. The relative contributions from correct and false combinations are indicated by the hatched and cross-hatched areas, respectively. Definitions of the best, correct and false combinations are given in Section 6.5.
+
+The track-pairs forming the selected \(\phi^{0}\) candidates are combined with all the other tracks in turn, assuming a pion mass for the new track. Track triplets whose combined invariant mass satisfies \(|\,\mathrm{M_{KK\pi}\cdot M_{DS}}|<3\sigma_{Ds}^{\mathrm{trig}}\) are accepted as \(\mathrm{D_{s}}\) candidates, where \(\mathrm{M_{DS}}\) is the nominal \(\mathrm{D_{s}}\) mass and \(3\sigma_{Ds}^{\mathrm{trig}}\) is the measured mass resolution for the \(D_{s}\) The sizes of the \(\mathrm{D_{s}}\) mass windows are given in Table 19 (for comparison the offline \(\mathrm{D_{s}}\) mass resolution is 14 MeV). The resulting mass distribution in signal and background events are shown in Figure 23. The results of this selection procedure are summarized in Table 19 for both signal and background events. Results are shown for pixel and TRT seeded reconstruction.
+
+The signal efficiency is lower for TRT-guided reconstruction than with pixel guidance. In addition, the background rejection is worse with TRT guidance, especially for the TRT-LUT algorithm, due partly to the larger number of TRT seeds per event and partly to the fact that the poorer mass resolutions necessitate the use of wider invariant mass windows. For pixel-seeded reconstruction, the highest signal efficiency and best background rejection is achieved using a tight pre-selection. This pre-selection has both a higher \(\mathrm{p_{T}}\) threshold and a tighter \(\Delta\mathrm{z}\) cut, both of which have a beneficial effect for this channel. Studies have shown that the higher \(\mathrm{p_{T}}\) threshold increases the kaon and hence \(\phi_{0}\) and \(D_{s}\) reconstruction efficiency (despite a small loss of pion efficiency) whilst the tighter \(\Delta\mathrm{z}\) cut reduces the background. For pixel-seeded reconstruction with a tight pre-selection the efficiency for the signal sample is 62% and 2.7% of events are selected from the background sample. The efficiency for the offline sample is somewhat higher at 67%.
+
+The rather low efficiency for the offline sample (compared to the \(\mathrm{B_{d}}\rightarrow\pi\pi\) channel, Section 5.4), seems to be due to poorer track-reconstruction using LVL2 algorithms than for offline reconstruction using xKalman. This is manifest, at least, for lower-\(\mathrm{p_{T}}\) tracks. More investigations on this issue are needed. One contribution to this difference in track quality may be the treatment of track candidates sharing hits, this is discussed in the following section.
+
+#### Effect of hit sharing.
+
+As discussed in Section 5.2.5, whether or not track candidates are allowed to share hits is important in determining the mean number of tracks per event, and hence the overall execution time, and the track reconstruction efficiency. It also has implications for the quality of the reconstruct
+
+\begin{table}
+\begin{tabular}{|l|l|c|c|c|c|} \cline{3-6} \multicolumn{1}{c|}{} & \multicolumn{3}{c|}{**Pixel Guided**} & \multicolumn{2}{c|}{**TRT Guided**} \\ \multicolumn{1}{c|}{} & \multicolumn{1}{c|}{**loose**} & \multicolumn{1}{c|}{**tight**} & & \\ \multicolumn{1}{c|}{} & \multicolumn{1}{c|}{**pre-selection**} & \multicolumn{1}{c|}{**pre-selection**} & \multicolumn{1}{c|}{**TRT-LUT**} & \multicolumn{1}{c|}{**TRT-XK**} \\ \hline \(\phi\) mass window (MeV) & \(\pm\)16.5 & \(\pm\)16.5 & \(\pm\)21.6 & \(\pm\)18.6 \\ \(\mathrm{D_{s}}\) mass window (MeV) & \(\pm\)73.5 & \(\pm\)73.5 & \(\pm\)137 & \(\pm\)124 \\ \hline \multirow{4}{*}{\(D_{s}\) mass window} & \(\phi\) & 70 & 75 & 68 & 70 \\ \cline{2-6}  & Signal & 58 & 62 & 54 & 55 \\ \cline{1-1}  & Offline sample & 63 & 67 & 58 & 63 \\ \cline{1-1}  & Background & 3.0 & 2.7 & 5.1 & 4.2 \\ \hline \end{tabular}
+\end{table}
+Table 19: The efficiency for the selection of \(\phi\) candidates in signal events and for the selection of \(\mathrm{D_{s}}\) candidates. in signal, offline and background samples (as defined in Section 6.1). Results are shown for pixel-guided and TRT-guided reconstruction.
+
+\begin{table}
+\begin{tabular}{|c|l|c|c|c|c|c|} \cline{3-6} \multicolumn{1}{c}{} & \multicolumn{1}{c|}{} & \multicolumn{2}{c|}{} & \multicolumn{2}{c|}{**With Muon Guidance**} & \multicolumn{2}{c|}{**tight pre-selection**} \\ \multicolumn{1}{c}{} & \multicolumn{1}{c|}{} & \multicolumn{2}{c|}{**No hit sharing**} & \multicolumn{2}{c|}{**With hit Sharing**} & \multicolumn{2}{c|}{**No hit sharing**} & \multicolumn{2}{c|}{**With hit Sharing**} \\ \hline \multirow{4}{*}{**No hit sharing**} & \(\phi\) & & 73 & 85 & 75 & 84 \\ \cline{2-6}  & \multirow{2}{*}{\(D_{s}\)} & Signal & 59 & 72 & 62 & 71 \\ \cline{3-6}  & & Offline sample & 67 & 82 & 67 & 81 \\ \cline{3-6}  & \multirow{2}{*}{Background} & \multicolumn{2}{c|}{3.2} & 6.3 & 2.7 & 4.7 \\ \hline \end{tabular}
+\end{table}
+Table 20: The efficiencies for reconstructing at least one track combination per event passing the \(\phi\) and \(\mathrm{D_{s}}\) selection cuts in \(D_{s}\to\phi^{(}K^{\pm}K^{\mp})\pi\) events with pile-up (the results given for the case of muon guidance and no hit sharing are the same as those given in Table 19).
+
+Figure 23: Reconstructed KK\(\pi\) invariant-mass distributions for pixel-guided track searches (top) and for TRT-LUT guided searches (bottom). Distributions are shown for all combinations (open histogram) in signal events (left) and background events (right). Also shown by the filled part of the histograms are the distributions for the best combination in the event. The relative contributions in signal events from false combinations and correct combinations are indicated by the cross-hatched and hatched areas of the histogram, respectively. The definitions of best, correct and false combinations are given in Section 6.5. The mass window is shown by vertical dashed lines.
+
+ed tracks and hence the event selection efficiency and trigger rate. The effect of hit sharing is shown in Table 20 in terms of the event selection efficiency for signal and background events (the corresponding pion, kaon and \(D_{\mathrm{s}}\) reconstruction efficiencies are shown in Table 7). Results are shown both for an un-guided pixel-scan and for a muon guided pixel-scan. In both cases the reconstruction efficiency is increased when hit sharing is allowed, but with a corresponding increase in trigger rate. With muon guidance (tight pre-selection) the efficiency for the offline sample is increased by 14% with respect to the results quoted in the previous section when hit sharing is allowed. However the fraction of background events passing the selection increases by a factor 1.7 to 4.7%. This is an area of continued study. It is hoped to be able to increase efficiency without such a large decrease in rejection for background events.
+
+#### EF Selection
+
+The ID track reconstruction is performed using the offline program xKalman. Firstly vertex fits are performed to pairs of tracks of opposite charge sign in order to reconstruct the \(\phi\) decay vertex. The following selection cuts are applied:
+
+* Invariant mass of the track pair within \(\pm 15\) MeV of the nominal \(\phi\) mass.
+* The two-track vertex fit has \(\chi^{2}/\mathrm{N_{d.o.f.}}<6\)
+
+For surviving track-pairs (\(\phi\)\(\rightarrow\)K\({}^{+}\)K\({}^{-}\) candidates), a third (pion candidate) track is added to the fit in order to reconstruct the \(D_{\mathrm{s}}\) decay vertex and the following cuts applied:
+
+* Difference in angle, \(\theta\), between the K\({}^{+}\) and \(\pi\) satisfies \(\mid\cos\theta\mid>0.4\)
+* Invariant mass of track-triplet within 56 MeV of the \(D_{\mathrm{s}}\) mass.
+* Reconstructed \(D_{\mathrm{s}}\) transverse decay length, \(L_{\mathrm{xy}}>180\)\(\mu\)m
+
+Using these cuts, 0.67% of events from the background sample are selected. A further background rejection can be achieved with the following cut:
+
+* Reconstructed \(D_{\mathrm{s}}\) has an angle in the transverse plane, \(\alpha_{\mathrm{xy}}<20^{\mathrm{o}}\).
+
+With this additional cut the fraction of background events selected is reduced to 0.45%. No events from the sample of events passing the LVL2 and offline selections were rejected by these cuts (note that for this EF study the LVL2, EF and offline selections were all applied to tracks reconstructed by the offline ID reconstruction program, xKalman). More details are given in [21].
+
+### J/\(\Psi\rightarrow\mathrm{e^{+}e^{-}}\)
+
+The channel \(B_{d}\to J/\nu(\mathrm{e^{+}e^{-}})K_{\mathrm{S}}\) is important as it provides a clean measurement of the angle \(\beta\) of the unitarity triangle. It is important that the trigger:
+
+* provides good efficiency for electron tracks down to \(\sim\)1 GeV (this implies a \(p_{\mathrm{T}}\) threshold of 0.5 GeV)
+* makes use of the electron identification capability of the TRT in order to reduce the combinatorial background from hadron tracks.
+
+These requirements pose a challenge for the trigger for the following reasons:* The effects of Bremsstrahlung energy loss means that reconstruction of electron tracks is a more difficult task than reconstruction of muons or hadrons.
+* As a consequence of the lower \(\mathrm{p_{T}}\) threshold, the effects of multiple scattering are more significant than for the other channels discussed in this note.
+* If a pixel seeded search is used, an extra step is required to associate TRT information with the Si track. This step can potentially result in miss-association or loss of efficiency.
+* If a TRT seed is used, energy loss before the TRT can cause kinks in the track which adversely affect the prolongation of the track into the Si Detector.
+
+Two approaches, using both a pixel-guided and TRT-guided search have been followed for this channel. In addition performance has been measured for both the TRT-LUT and TRT-XK algorithms.
+
+#### Electron track finding and identification
+
+As was discussed in Section 5, the overall execution time for electron reconstruction can be minimized by applying cuts to the TRT tracks considered as seeds to the Si-Kalman FEX. The reduction in the mean number of tracks per event is show in Table 21 for successive cuts applied to TRT tracks in \(B\rightarrow\,\mathrm{\upmu X}\) events with pile-up. Results are shown for both the TRT-XK and TRT-LUT FEX. The reduction in the mean number of tracks also has the benefit of reducing the combinatorial background for the J/\({}^{\mathrm{\upmu}}\) selection. The cuts applied to the TRT and associated Si tracks are as follows:
+
+* TRT track reconstructed with \(\mathrm{p_{T}}>0.5\) GeV.
+* Reconstructed TRT-XK (TRT-LUT) track has at least 10 (19) hits.
+
+#### HLT selections and performance
+
+\begin{table}
+\begin{tabular}{|l|c|c|c|} \hline
+**Track selection** & \multicolumn{2}{c|}{**Mean no. of tracks**} & \multicolumn{2}{c|}{**Efficiency (\%)**} \\ \hline
+**TRT Algorithm** & **TRT–XK** & **TRT–LUT** & **TRT–XK** & **TRT–LUT** \\ \hline
+**TRT scan, \(\mathrm{p_{T}}\)>0.5 GeV** & 119 & 262 & 85 & 86 \\
+**TRT track \(\mathrm{N_{hits}}\geq\) cut (TRT-XK: 10, TRT\_LUT: 19)** & 114 & 165 & 85 & 78 \\
+**TRT tracks identified as e** & 24 & 44 & 67 & 67 \\ \hline
+**Si Kalman tracks from e seed** & 6.9 & 14 & 57 & 59 \\
+**Si Kalman track with \(B\)-layer hit** & 4.7 & 9 & 52 & 53 \\ \hline \end{tabular}
+\end{table}
+Table 21: Track selection results for a TRT-seeded search. The mean number of tracks passing the sequential selection steps in \(B\rightarrow\,\mathrm{\upmu X}\) events and the corresponding efficiency to reconstruct both e\({}^{+}\) and e\({}^{-}\) from J/\({}^{\mathrm{\upmu}}\rightarrow\,\mathrm{e^{+}e^{-}}\) events with electron \(p_{\mathrm{T}}^{\mathrm{true}}\) > 1 GeV. Pile-up at low luminosity was applied to both event samples. Results are shown for the TRT-XK and TRT-LUT FEX.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline  & \multicolumn{2}{c|}{**N\({}_{\mathrm{TR}}\)/N\({}_{\mathrm{hits}}\) >**} \\
+**Region** & **TRT–LUT** & **TRT-XK** \\ \hline \(|\,\eta\,|<0.8\) & 0.10 & 0.12 \\ \(0.8<|\,\eta\,|\,|<1.4\) & 0.14 & 0.14 \\ \(1.4<|\,\eta\,|<2.0\) & 0.18 & 0.18 \\ \(2.0<|\,\eta\,|\,|\) & 0.18 & 0.20 \\ \hline \end{tabular}
+\end{table}
+Table 22: TRT electron identification cuts based on the ratio of the number of hits passing the higher Transition Radiation threshold, \(\mathrm{N_{TR}}\), to the total number of hits on the track, \(\mathrm{N_{hits}}\).
+
+* TRT track passes electron identification cuts, see Table 22. A cut is applied to the ratio R=N\({}_{\text{TR}}\)/N\({}_{\text{hits}}\) where N\({}_{\text{hits}}\) is the total number of TRT hit son the track and N\({}_{\text{TR}}\) is the number of hits passing a higher read-out threshold indicating transition radiation.
+* Si-Kalman track reconstructed from TRT seed
+* Si-Kalman track includes a B-layer hit.
+
+Also shown in Table 21 is the effect of these cuts on the efficiency to reconstruct both the e\({}^{+}\) and e\({}^{-}\) products of the J/\(\Psi\) decay. The efficiency is defined as the fraction of events from the signal sample (\(B_{d}\to J/\psi(\text{e}^{+}\text{e}^{-})K_{\text{S}}\) events with pile-up, with both e\({}^{+}\) and e\({}^{-}\) with \(p_{\text{T}}^{\text{true}}\) > 1 GeV) where both daughters of the J/\(\Psi\) are reconstructed i.e. the e\({}^{+}\) and e\({}^{-}\) are each associated to at least one (different) reconstructed track. Comparable reconstruction efficiency is seen for both the TRT-XK and TRT-LUT FEX, but there are significantly more tracks per event, on average, with the TRT-LUT FEX. There are two reasons for this:
+
+* the TRT-LUT FEX has been tuned to preserve efficiency in the barrel to end-cap transition region, with a consequent increase in the number of fake and multiply reconstructed tracks in this region, and
+* the TRT-XK FEX incorporates a step to resolve sharing of hits between different tracks, an equivalent step has not been used for the results shown here for the TRT-LUT FEX. The result of rejecting TRT-LUT tracks sharing more than 20% of hits is to reduce the number of TRT tracks identified as electrons from 44 (given in Table 21) to 38 (see Table 9 in Section 5.2.5).
+
+The corresponding results for pixel-guided searches are shown in Table 23. Following the pixel-scan and extrapolation into the SCT using the Si-FEX, the Si track segments are associated with tracks reconstructed by either the TRT-XK or TRT-LUT FEX. The number or reconstructed tracks and efficiencies are almost identical for the two TRT algorithms. The efficiency is 2-3% lower that for the TRT-guided case, but there is a benefit in that the number of track candidates passing the track selection is also reduced.
+
+#### 6.8.2 Event selection
+
+The tracks surviving the above cuts are combined in all charged-pair combination and the following cuts are applied:
+
+* electron pair identification cut R\({}_{12}\), see Table 24;
+
+\begin{table}
+\begin{tabular}{l|c|c|c} \hline \hline
+**Track selection** & **Mean no. of tracks** & **Efficiency (\%)** \\ \hline
+**pixel scan, p\({}_{\text{T}}\)\textgreater{}0.5 GeV** & 39 & 90 \\
+**Si Kalman track from e seed (with B-layer hit)** & 35 & 81 \\ \hline
+**TRT algorithm** & **TRT-XK** & **TRT-LUT** & **TRT-XK** & **TRT-LUT** \\ \hline
+**Associated TRT track** & 28 & 27 & 68 & 68 \\
+**Associated TRT track identified as electron** & 4.7 & 4.5 & 50 & 50 \\ \hline \hline \end{tabular}
+\end{table}
+Table 23: Track selection results for pixel-seeded search. The mean number of tracks passing the sequential selection steps in \(B\to\mu\chi\) events and the corresponding efficiency to reconstruct both electrons from J/\(\Psi\to\text{e}^{+}\text{e}^{-}\) events with electron p\({}_{\text{T}}\)\({}^{\text{true}}\) > 1 GeV. Pile-up at low luminosity was applied to both event samples. Results are shown for the TRT-XK FEX and the TRT-LUT FEX.
+
+* Difference in pseudo-rapidity between two tracks, \(|\Delta\eta|<1.5\)
+* Sum of transverse momenta, \(\rm p_{T}{}^{++}\)\(\rm p_{T}{}^{-}>3\) GeV
+* Difference in Z intercept of two tracks, \(\Delta\)Z\({}_{0}<2\) cm.
+
+#### 4.2.6 HLT selections and performance
+
+\begin{table}
+\begin{tabular}{c|c c c c} \hline  & \(|\eta|<0.8\) & \(0.8<|\eta|<1.4\) & \(1.4<|\eta|<2.0\) & \(2.0<|\eta|\) \\ \hline \(|\eta|<0.8\) & 0.15 & 0.18 & 0.20 & 0.20 \\ \(0.8<|\eta|<1.4\) & 0.18 & 0.18 & 0.20 & 0.20 \\ \(1.4<|\eta|<2.0\) & 0.20 & 0.20 & 0.20 & 0.22 \\ \(2.0<|\eta|<\) & 0.20 & 0.20 & 0.22 & 0.22 \\ \hline \end{tabular}
+\end{table}
+Table 24: The \(\rm R_{12}\) cut value used for e’e– pair identification as a function of \(|\eta|\) of the e- and e+. The track pair is considered as an e’e– pair if the value of R12 is greater than the cut given in the table.
+
+Figure 24: Distributions of \(|\Delta\eta|\) (top left), \(\rm p_{T}{}^{++}\)\(\rm p_{T}{}^{-}\) (top right), \(|\Delta\)Z\({}_{0}|\) (bottom left) and \(\rm cos(\varphi)\) (bottom right) for tracks passing the track cuts. Distributions are shown for tracks reconstructed by the TRT-KK FEX in \(\rm J/V\to e^{+}e^{-}\) events with pile-up (solid histogram) and \(B\to\mu\chi\) events with pile-up (dashed histogram). The cuts are indicated.
+
+The distributions of these quantities are shown in Figure 24 for Si-Kalman tracks from TRT-XK seeds in J/\(\Psi\rightarrow\) e\({}^{+}\)e\({}^{-}\) events with pile-up and \(B\rightarrow\)\(\nu\)X events with pile-up.
+
+The surviving tracks are then combined in all opposite charge-sign pair combinations and the invariant mass calculated (electron-hypothesis). The distributions of invariant mass obtained with TRT-XK seeded reconstruction is shown in Figure 25 for signal \((B_{d}\!\rightarrow\!J/\psi(\mathrm{e}^{+}\mathrm{e}^{-})K_{\mathrm{S}}\) events with pile-up) and for background (\(B\!\rightarrow\)\(\nu\)X events with pile-up). Also shown in Figure 25 are the signal and background invariant mass distributions for pixel-seeded reconstruction in conjunction with the TRT-XK algorithm. The corresponding invariant mass distributions for TRT-LUT seeded reconstruction and for pixel-seeded reconstruction in conjunction with a TRT-LUT full-scan are shown for signal events in Figure 26.
+
+Figure 25: Invariant mass distributions for opposite charge-sign pair combinations in J/\(\Psi\rightarrow\) e\({}^{+}\)e\({}^{-}\) events with pile-up. Results are shown for TRT-XK seeded reconstruction (top) and for pixel-seeded reconstruction in association with the TRT-XK algorithm (bottom). Distributions are shown for all combinations (open histogram) in signal events (left) and background events (right). Also shown by the filled part of the histograms are the distributions for the best combination in the event. The relative contributions in signal events from false combinations and correct combinations are indicated by the cross-hatched and hatched areas of the histogram, respectively. The definitions of best, correct and false combinations are given in Section 6.5. The mass window is shown by vertical dashed lines.
+
+A cut is applied to select events where there is at least one track pair with effective mass in the window \(2\leavevmode\nobreak\ \mathrm{GeV}<\mathrm{M}_{\mathrm{ee}}<3.8\leavevmode\nobreak\ \mathrm{GeV}\). The results of this selection procedure are shown in Table 25 for TRT-guided reconstruction. After all selection cuts the efficiency to select signal events is 52% (56%) for TRT-XK (TRT-LUT) seeded reconstruction (respectively). Some of the signal events that fail the trigger selection also fail the offline selection, for example due to hard Bremsstrahlung energy loss by one or both of the electrons. The efficiency for events which would be selected off line is, therefore, higher than for the signal sample. The efficiency for events from the offline sample is 63% (65%) for TRT-XK (TRT-LUT) seeded reconstruction.
+
+The fraction of background events that pass the selection is significantly higher for tracks reconstructed from TRT-LUT seeds (15%) than for TRT-XK seeds (10%). In both cases the background is significantly greater than that obtained in a previous study (3.4%) reported in the TPSR [3] using tracks reconstructed by a modified version of the offline ID reconstruction program xkalman and applying the same selection cuts. It is possible to reduce the fraction of background events selected, with some loss of efficiency, by using tighter cuts. In Table 25 results are also shown for a tighter cuts on \(|\Delta\eta|\), \(\mathrm{p}_{\mathrm{T}}^{+}\mathrm{+}\mathrm{p}_{\mathrm{T}}^{-}\) and invariant mass. With these cuts the fraction of background events selected is reduced by about a factor 2 for a 5% loss of efficiency for events from the offline sample.
+
+The use of additional cuts has also been investigated. For example, a cut on the separation in azimuthal angle, 0, between the two electrons (\(\cos\theta>0.2\)), in conjunction with the tighter selection cuts, gives significant further background rejection (-15%) for little loss of efficiency (-1%) for events in the signal and offline samples. With these cuts, the results obtained are similar to those reported in [3]. However the possible implications for physics of such a cut, which is not used in the current offline analysis, have yet to be evaluated fully.
+
+Figure 26: The invariant mass distribution for opposite charge sign pair combination in signal events for TRT-LUT seeded reconstruction (left) and for pixel-seeded reconstruction in conjunction with the TRT-LUT algorithm (right). The histograms have the same definitions as in Figure 25.
+
+[MISSING_PAGE_FAIL:52]
+
+Results are shown in Table 26 for pixel-guided reconstruction in conjunction with TRT scans using the TRT-XK and TRT-LUT algorithms using the TPSR set of selection cuts. The signal efficiencies are 1-4% lower than for TRT-guided reconstruction (TPSR cuts) and the fraction of background events selected is also lower, significantly so for the TRT-XK algorithm (7.3% compared to 10%).
+
+A comparison of the performance of the various algorithm and selections is shown graphically in Figure 27. Three points are shown for TRT-XK and TRT-LUT guided reconstruction corresponding to after the TPSR cuts, after the tighter cuts, and with the addition of the cos\(\theta\) cut. Results are also shown for pixel-seeded reconstruction in conjunction with the TRT-XK and TRT-LUT full scans using the TPSR selection cuts. Although the performance of the various algorithm combinations differ for a given set of selection cuts, similar signal and background efficiencies can be obtained when the selection cuts are varied.
+
+#### 6.8.3 EF Selection
+
+ID track reconstruction is performed using the offline program xKalman. Tracks are required to have a B-layer hit and at least 6 other Si hits. The first selection steps are the same as for the trigger selection. Electrons are identified using the same cuts (R\({}_{1}\) and R\({}_{12}\)) as used above for the TRT-XK algorithm. For all pairs of opposite-sign electron candidate tracks, the TPSR cuts listed in Table 25 are applied. For track-pairs surviving this selection, a fit is performed to a common vertex. The following selection cuts are applied in order to select J/\(\Psi\) candidates:
+
+* Invariant mass within the window 2.62 to 3.34 GeV
+* Vertex fit has \(\chi^{2}/\mathrm{N_{d.o.f.}}<8\)
+* Reconstructed transverse decay length L\({}_{\mathrm{xy}}>220\)\(\mathrm{\mu m}\)
+
+After these cuts, 0.77% of the background event sample are selected. A further cut, which is not part of the offline selection, may be applied to further reduce the trigger rate, as follows:
+
+* Angle in the transverse plane, \(\alpha_{\mathrm{xy}}<40^{\mathrm{o}}\).
+
+With this additional cut, the fraction of events selected from the background sample is reduced to 0.35%. No events are rejected from the sample of events passing the LVL2 and offline selections (note that for this EF study, the LVL2, EF and offline selections were all applied to tracks reconstructed by the offline ID reconstruction program, xKalman).
+
+Figure 27: A comparison of signal efficiency (offline sample) versus background efficiency for the various algorithms and selections. Three points are shown for TRT-XK and TRT-LUT guided reconstruction; after the TPSR cuts, after the tighter cuts, and with the addition of the cos\(\theta\) cut. Results are shown for pixel-seeded reconstruction in conjunction with the TRT-LUT and TRT-XK full scans using the TPSR selection cuts (the point for the latter (pixel + TRT-XK) lies on top of the middle point for TRT-LUT guided).
+
+The first two cuts listed above will select events containing e\({}^{+}\)e\({}^{-}\) pairs from the decay of prompt or non-prompt J/\(\Psi\). However the last two cuts (L\({}_{\mathrm{xy}}\) and \(\alpha_{\mathrm{xy}}\)) are specific to the selection of non-prompt J/\(\Psi\). The measurement of the cross-section for prompt J/\(\Psi\) production is also of interest. In order to select these events, the following selection could be performed in parallel to the last two cuts above:
+
+* Reconstructed transverse decay length L\({}_{\mathrm{xy}}\)\(<\) 170 \(\upmu\)m
+* p\({}_{\mathrm{T}}\) of the e\({}^{+}\) and e\({}^{-}\) tracks \(>\) 1.0 GeV
+
+This would select a further 0.28% of the background sample. More details can be found in [21].
+
+### Robustness
+
+It is important that the trigger is robust with respect to detector inefficiency, noise and miss-alignment. The data-sets used for the studies reported in this note contain a simulation of detector inefficiency (3% for the SCT, TRT and Pixels) and of the expected levels of front end electronic noise in the SCT and Pixels. The effects of detector miss-alignment, however, were not part of the simulation.
+
+In a separate study, miss-alignments of the SCT and Pixel Detectors have been simulated by displacing the reconstructed points which form the input to the FEX algorithms. Preliminary measurements have been made of the effect on the \(B_{d}\)\(\rightarrow\)\(\pi^{+}\)\(\pi^{-}\)trigger (p\({}_{\mathrm{T}}\) threshold 4 GeV). The efficiency and rate are insensitive to the effects of shifts using Gaussian distributions equal in width to the intrinsic detector resolutions. Increasing the level of miss-alignment by a factor of two causes a loss of efficiency for the B\({}_{d}\)\(\rightarrow\)\(\pi^{+}\)\(\pi^{-}\) trigger of -10% without significant change in the trigger rate. A re-optimization of the algorithm parameters for the poorer resolution is expected to recover some of the lost efficiency, but with some increase in rate and execution time. This is an area of continuing study.
+
+For the other channels covered in this note, lower p\({}_{\mathrm{T}}\) thresholds are applied and so multiple scattering will dominate up to higher levels of miss-alignment than for the \(B_{d}\)\(\rightarrow\)\(\pi^{+}\)\(\pi^{-}\) trigger. However, the task for pattern recognition is more demanding for these other channels and so a faster degradation is performance might be expected with increased levels of miss-alignment. The miss-alignment studies will be extended to these channels.
+
+### Summary of HLT selections
+
+The results for the LVL2 selections are summarised in Table 27 in terms of signal efficiency, background rate and execution time. For clarity, in this table results are only shown for the loose pixel pre-selection. Some results with the tight pixel pre-selection will be mentioned, where appropriate, in the following discussion. The rates quoted assume an input rate to the LVL2 tracking trigger of 9 kHz. It is also assumed that this is dominated by \(B\)\(\rightarrow\)\(\upmu\)X + pile-up or similar events. As explained in Section 4.1 this is pessimistic by of order a factor 2.
+
+A viable \(B_{d}\)\(\rightarrow\)\(\pi^{+}\)\(\pi^{-}\) trigger has been demonstrated. All algorithms give a reasonable rate of 84 Hz - 99 Hz (the higher value is for TRT-guided reconstruction), but pixel-guided reconstruction (loose pre-selection) gives an efficiency which is about 15% higher than for TRT guided reconstruction. For pixel guided reconstruction, the rate and efficiency are comparable to previous estimates [3] based on a modified version of the offline ID reconstruction program xKalman. For pixel-guided reconstruction with a loose pre-selection, the loss of events passing the selection for offline analysis is small (7%). The loss of events from the offline sample is somewhat larger (13%) with the tight pixel pre-selection (not shown in Table 27). Selection cuts have been proposed for an EF selection, using tracks reconstructed by xKalman, which reduces the rate to 5 Hz. A summary of the rates for the EF selections is given in Table 28.
+
+A viable trigger has also been demonstrated for \(D_{s}\rightarrow\phi^{0}(K^{*}K)\pi\). The best results are obtained using pixel-guided reconstruction, which gives comparable results to those previously obtained using xKalman. With the loose pixel pre-selection, the efficiency is 63% for events passing the offline selection, and the trigger rate is 269 Hz. Note that somewhat better efficiency (67%) and
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|} \cline{3-6} \multicolumn{1}{c}{} & \multicolumn{2}{c|}{**Pixel guided with**} & \multicolumn{2}{c|}{**TRT guided**} \\ \multicolumn{1}{c}{} & \multicolumn{1}{c|}{**TRT-LUT**} & \multicolumn{1}{c|}{**TRT-XK**} & \multicolumn{1}{c|}{**TRT-LUT**} & \multicolumn{1}{c|}{**TRT-XK**} \\ \hline \multirow{4}{*}{**Kalman**} & **Signal** & \(B_{d}\rightarrow\pi^{+}\pi^{-}\) & 78 & 61 & 62 \\ \cline{3-6}  & **sample** & \(D_{s}\rightarrow\phi^{0}(K^{*}K)\pi\) & 58 & 54 & 55 \\ \cline{3-6}  & & \(1/\Psi\rightarrow\mathrm{e}^{+}\mathrm{e}^{-}\) & 53 & 51 & 55 (46) & 51 (44) \\ \cline{3-6}  & **offline** & \(B_{d}\rightarrow\pi^{+}\pi^{-}\) & 93 & 75 & 77 \\ \cline{3-6}  & **sample** & \(D_{s}\rightarrow\phi^{0}(K^{*}K)\pi\) & 63 & 58 & 63 \\ \cline{3-6}  & & \(1/\Psi\rightarrow\mathrm{e}^{+}\mathrm{e}^{-}\) & 61 & 60 & 66 (60) & 62 (57) \\ \hline \multirow{4}{*}{**Rate (Hz)**} & \(B_{d}\rightarrow\pi^{+}\pi^{-}\) & \(84^{+28}_{-22}\) & \(99\pm 23\) & \(99\pm 23\) \\ \cline{3-6}  & \(D_{s}\rightarrow\phi^{0}(K^{*}K)\pi\) & \(269\pm 38\) & \(460\pm 49\) & \(381\pm 45\) \\ \cline{3-6}  & \(1/\Psi\rightarrow\mathrm{e}^{+}\mathrm{e}^{-}\) & \(1260\pm 78\) & \(657\pm 58\) & \(1350\pm 80\) & \(900\pm 67\) \\ \cline{3-6}  & **Total** & \(1613\pm 86\) & \(1010\pm 71\) & \(1909\pm 92\) & \(1380\pm 81\) \\ \cline{3-6}  & **(1126\pm 74)** & \((831\pm 65)\) \\ \hline \multirow{4}{*}{**Time on PIII [Athion]**} & pixel-scan & 43 (22) & \multicolumn{2}{c|}{N/A} \\ \cline{2-6}  & Si-kalman & 32 (19) & \multicolumn{2}{c|}{} \\ \cline{2-6}  & **Si Total** & **75 [41]** & 265 [167] & 172 [112] \\ \cline{1-1} \cline{2-6}  & **(ms)** & \multicolumn{1}{c|}{TRT scan} & 230 [150] & 577 [399] & 230 [150] & 577 [399] \\ \cline{1-1} \cline{2-6}  & **TRT-SCT assoc.** & 91 [57] & 42 (26) & \multicolumn{2}{c|}{N/A} \\ \cline{1-1} \cline{2-6}  & **Total** & **396 [248]** & **694 [466]** & **495 [317]** & **749 [511]** \\ \hline \end{tabular}
+
+* 
+\begin{tabular}{l} a. [.]rate (247 Hz) can be obtained with a tight pixel pre-selection (not shown in Table 27) due to the higher \(\mathrm{p_{T}}\) threshold and tighter \(\mathrm{\Delta z}\) cut, both of which have a beneficial effect for this channel. A possible EF selection has been presented which would give a further reduction in the rate to 41 Hz.
+
+For hadron channels, in pixel-seeded mode the information from the pixel and SCT detectors is sufficient to reach a trigger decision. The corresponding execution time on a 450 MHz PIII is 75 ms.
+
+For the \(\mathrm{J/\Psi\to e^{+}e^{-}}\) trigger, comparable performance is obtained with TRT-guided and pixel guided modes. For the same selection cuts, TRT-guided reconstruction gives somewhat higher efficiencies than pixel-guided reconstruction, but also higher rates. In comparison with a previous study based on xKalman, the rates given here are much higher (a factor 2-3) using the same selection cuts. However the efficiencies are also higher (\(\sim\)10%), and with tighter cuts comparable similar performance can be obtained. For example, with TRT-XK guided reconstruction and the tighter selection cuts, an efficiency of 57% is obtained for events passing the offline selection with a trigger rate of 350 Hz. It may be possible to improve the efficiency for pixel-seeded reconstruction by extrapolating Si tracks into the TRT, rather than performing an independent TRT-scan plus track-association step as is done at present.
+
+The execution time is significantly longer when TRT information is required, e.g. for triggers involving electron identification, than when only Si information is sufficient. The total mean execution time on the PIII is about 400ms - 500ms (310 ms) using the TRT-LUT algorithm and 700 ms - 750 ms (620 ms) using the TRT-XK algorithm, where the first number is for pixel-seeded reconstruction and the second is for TRT-guided reconstruction (the number in brackets is when only TRT electron candidates are used to seed the Si track reconstruction, but this is not suitable for triggers for other channels involving hadrons). The times for pixel-seeded reconstruction include the time taken to associate all Si and TRT tracks, this time could be reduced by only considering TRT electron candidate tracks. It would be possible to substantially reduce the time for the TRT-LUT scan by benefiting from the fact that the most time-consuming parts of the TRT LUT algorithm have been implemented on FPGAs.
+
+## 7 Limitations of the current studies and future work
+
+The pixel-scan algorithm currently requires hits in all three pixel planes traversed by a particle from the interaction point. This introduces a dependence of the reconstruction efficiency on the third power of the efficiency per plane of the Pixel Detector. The algorithm will be extended to make use of SCT information. This will allow the requirement to be changed to a B-layer hit plus a hit in one of the two other pixel layers plus a third pixel layer hit or a SCT hit. As a result, the robustness of the algorithm with respect to detector inefficiency will be improved.
+
+For pixel-guided track searches, TRT information has been included by performing an independent full-scan of the TRT and subsequently associating Si and TRT tracks. If the TRT information is only required for electron tracks, the execution time could be reduced by considering only electron seeds in the association process. However better performance in terms of both efficiency and execution time, may be possible by, instead, extrapolating the Si tracks into the TRT.
+
+For the results presented in this note, full use has not been made of the TRT hits in the final track fit. In TRT guided mode, only three TRT hits have been used in the track fit and in pixel guided mode no TRT hits are used in the fit (the TRT information is only used for electron identification). The reconstructed track parameters could be improved by incorporating the full TRT information at the track-fitting stage. Various levels of complexity could be envisioned for this step, ranging from a simple helix fit to the use of offline algorithms. The fit could be combined as part of a track extrapolation step from Si to TRT, for example, using a Kalman filter method. The performance implications of using various track fitting algorithms, including offline algorithms, will be investigated in terms of efficiency and execution time.
+
+The ID layout has been changed since the version used for the studies in this note. In particular the four pixel disks in the end-cap region have been replaced by five smaller disks. It will be verified that these changes do not adversely affect the B trigger performance.
+
+For the results presented in this note, the Si-Kalman FEX uses as input three dimensional points formed after SCT stereo association. An advantage of this method is that the input to the FEX is the same for SCT and pixels and the transition from barrel to end-cap geometry is treated automatically. However disadvantages are that hits are required in both stereo layers, with an impact on efficiency, and there is some loss of information compared to using the individual cluster positions as input to the pattern recognition stage. It would be straight-forward to adapt the Si-Kalman FEX to use cluster positions as input and this would allow a comparison of performance with and without SCT space-point formation.
+
+The events samples used in this study were simulated with a uniform field in the ID. The true solenoidal field departs significantly from this, particularly at large radius and in the high-\(\left|\eta\right|\) region. The Si-Kalman and TRT-XK algorithm have the capability to use a field-map in order to take into account the true field. However, the performance of the B-trigger selection in the ATLAS solenoidal field has yet to be validated.
+
+The preliminary study of the effects of miss-alignment for the \(B_{d}\rightarrow\pi^{+}\pi^{-}\) trigger will be extended to the other channels. The range of miss-alignment scenarios will be extended in consultation with the ID group. In addition the effects of detector in-efficiency and increased levels of electronic noise will be studied.
+
+For these studies, the muon trigger was not simulated, rather the true muon trajectory was used. A simulation of detector effects will influence the muon-guidance to the pixel scan algorithm and the \(\Delta\)R\({}_{\phi\eta}\) cuts used in some of the trigger selections. The studies will be repeated using a full simulation of the muon trigger, when available.
+
+Studies of the \(B_{d}\to\pi^{+}\pi^{-}\) trigger using the Si-Tree algorithm have produced encouraging results. It is planed to extend these studies to the other channels covered in this note.
+
+In this note, electron identification is performed by the TRT alone. It is foreseen to extrapolate the electron candidate tracks found by the ID full-scan for validation in the calorimeter.
+
+Two channels in Table 1, requiring a trigger on a soft muon or electron, have not been studied for this note. These channels differ from those covered here in that rely on information external to the ID from the muon system (in addition to confirmation of the LVL1 muon) or ECAL. Trigger implementations for these channels have important implications for data flow in the trigger system. Previous performance estimates have been based on offline reconstruction. These should be updated using trigger algorithms.
+
+The studies presented in this note have investigated the semi-exclusive reconstruction of specify B-physics channels both at LVL2 and at the EF. Execution time has been taken as the primary motivation for a division of tasks between LVL2 and the EF, but no attempt has been made to optimize this division. Such an optimization would involve, for example, an assessment of data-flow and processing requirements as a function of various sequential processing scenarios. This note represents a first step, in providing rate estimates and measurements of execution time which can be used as input to various models of the HLT system.
+
+The EF selections in this note are based on tracks reconstructed by an offline ID reconstruction program, xKalman. They differ from offline selections in the use of more inclusive selections and looser cuts. However the factors which motivate differences in the selections applied at the EF and offline remain to be studied and defined. In particular, the final calibration and detector alignment constants may not be available at the EF and the impact of this on the EF performance remains to be quantified.
+
+The LVL2 studies presented in this note were performed in the stand-alone C/C++ framework, CTrig, using input data in ASCII format produced by the FORTRAN trigger simulation package, ATRIG. The EF studies were performed using the FORTRAN ID reconstruction program xKalman in the ATRECON framework. For future studies, the algorithms will be ported to the new ATLAS offline framework, Athena, as part of a new trigger package.
+
+## 8 Summary and conclusions.
+
+**Table 29**: Summary of trigger rates and efficiencies obtained using the selections described in this note. For convenience of comparison, this table is given in the same format as Table 11-18 of [6] (which is reproduced as Table 1 of this note). The rate estimates for the channels not covered in this note are from [6].
+
+\begin{tabular}{|l|l|l|l|l|} \hline  & & & \multicolumn{2}{c|}{**Rate (Hz)**} \\ \cline{4-5}  & **HLT selection** & **Selected** & & **Event** \\  & **(in addition to muon \(\mathrm{p_{T}}\)? 6GeV)** & \(B\)-channels** & **LVL2** & **Filter** \\ \hline  & 3 hadrons \(\mathrm{p_{T}}>1.5\) GeV, & \(B_{s}\to D_{s}\pi\) & 270 & 41 \\  & invariant mass cuts for \(\phi\) and \(\mathrm{D_{s}}\) & \(D_{s}\to\phi(K^{+}K^{-})\pi\) & & \\  & EF: invariant mass, vertex fit quality, transverse decay length and angle cuts. & & & \\ \cline{2-5}  & 2 hadrons \(\mathrm{p_{T}}>4\) GeV, & \(B_{d}\to\pi\pi\) & 80 & 5 \\  & angle, \(\mathrm{\sum_{P}}\) and loose invariant mass cuts & \(B_{d}\to\mathrm{K}\pi\) & & \\  & EF: invariant mass, vertex fit quality, transverse decay length and angle cuts. & & & \\ \hline  & 2 tracks \(\mathrm{p_{T}}>0.5\) GeV, TRT ee identification, & \(b\overline{b}\to\mathrm{\mu}B_{d}/\psi(ee)K^{0}\) & 660 & 32 \\
+**Electron** & \(\mathrm{\Delta\eta}\), \(\mathrm{\sum_{P}}\), \(\mathrm{\Delta Z}\) and invariant mass cuts & & & \\  & EF: invariant mass, vertex fit quality, transverse decay length and angle cuts. & & & \\ \hline  & single \(e\), \(\mathrm{p_{T}}>5\) GeV, identification in & \(b\overline{b}\to e\) & 90 & \\
+**Not** & TRT+ECAL of electron reconstructed with \(\mathrm{p_{T}}>4\) GeV in the Inner Detector & & & \\
+**in this** & second \(\mathrm{\mu}\) & \(B_{d}\to J\psi(\mathrm{\mu\mu})/KK^{+})\), & 170 & \\  & (\(\mathrm{p_{T}}>5\) GeV, \(|\eta|<2.5\)) & \(B_{s}\to J\psi(\mathrm{\mu\mu})\phi\). & & \\  & identification in muon chambers + matching & \(B\to\mathrm{\mu}\), & & \\  & with the Inner Detector & \(B\to K^{0}\mathrm{\mu\mu}\), _etc._, & & \\  & & \(\Lambda_{b}\to\Lambda^{0}\,J\psi(\mathrm{\mu\mu})\), & & \\  & & \(B_{c}\to J\psi(\mathrm{\mu\mu})\pi\) & & \\ \hline \hline \multicolumn{5}{|l|}{**Total \(B\)-physics trigger rate**} & \multicolumn{1}{c|}{1270} & \multicolumn{1}{c|}{-100} \\ \hline \end{tabular}
+
+In this note, the performance of various track reconstruction algorithms has been evaluated in conjunction with trigger selections for three channels important for physics studies; \(B_{d}\to\pi^{+}\pi^{-}\), \(D_{s}\to\phi^{0}(K^{+}K)\pi\) and \(\mathrm{J}/\Psi\to\mathrm{e^{+}e^{-}}\). The LVL2 track reconstruction uses a Kalman filter based track search in the SCT seeded by tracks reconstructed by a full scan of either the Pixel Detector or the TRT. Two TRT algorithms have been evaluated, TRT-XK based on the offline reconstruction program xKalman++ and TRT-LUT, a Look-Up-Table based implementation. Measurements have been made with different sets of algorithm parameters which influence execution time and efficiency. In particular, the pixel-scan algorithm allows pre-selection cuts to be applied to hit-pairs used to seed reconstruction in the third pixel layer, and subsequently in the SCT. Two options have been evaluated based on a loose or tight pixel pre-selection.
+
+The best overall performance has been obtained for pixel seeded reconstruction in conjunction with the TRT-XK algorithm. This gives efficiencies for events passing the offline selections of 93%, 64%, 60% respectively for the three channels \(B_{d}\to\pi^{+}\pi^{-}\), \(D_{s}\to\phi^{0}(K^{+}K)\pi\) and \(\mathrm{J}/\Psi\to\mathrm{e^{+}e^{-}}\). The total LVL2 rate for these channels is 1 kHz. A summary of the selections and rates is given in Table 29. The mean total execution time on a 450 MHz PIII (600 MHz athlon) is about 700 ms (470 ms). Faster execution times can be obtained with the TRT-LUT algorithm, but at a highertrigger rate. Using TRT-guided reconstruction, similar performance can be obtained for the \(\mathrm{J/\Psi\to e^{+}e^{-}}\) channel, however the efficiency for the \(B_{d}\!\rightarrow\!\pi^{+}\pi^{-}\) channel is significantly lower than for pixel-guided reconstruction. The pixel-scan currently requires three out of three hits in the pixel-detectors, and is therefore more susceptible than the TRT-scan to the effects of detector in-efficiency. Its planned to extend the pixel-scan algorithm to allow it to additionally make use of SCT information and so reduce the susceptibility to detector inefficiency.
+
+Previous measurements of the performance of a B-physics trigger were based on offline code [6]. Comparable performance has now been obtained for the \(\mathrm{B_{d}\!\rightarrow\!\pi^{+}\pi^{-}}\) and \(\mathrm{B\!\rightarrow\!D_{S}(\phi(KK)\pi)\pi}\) selections using algorithms suitable for the LVL2 trigger. Good progress has also been made with algorithms for the \(\mathrm{B\!\rightarrow\!J/\psi(e^{+}e^{-})}\) channel. For this channel, a LVL2 rate -2 times higher than that reported in [6] is obtained using the same selection cuts but for \(\sim\)10% higher efficiency. It is possible to obtain performance approaching that reported in [6] using different selection cuts.
+
+A preliminary study has shown the LVL2 B-physics trigger to be robust with respect to the expected levels of miss-alignment in the SCT and Pixel Detectors. This study will be extended in the future to include all three channels and to extend the range of miss-alignment scenarios considered.
+
+Possible event filter selections have been proposed using tracks reconstructed by the offline ID reconstruction program \(\mathrm{\times}\)Kalman. These selections give a factor \(\sim\)10 reduction in trigger rate without loss of signal events which would be selected offline. The final rate for the three channels considered in this note after the full HLT selections is 80 Hz.
+
+## References
+
+* [1] A. Di Mattia, A. Nisati and S. Robins, _Combined muon reconstruction at Level-2_. ATLAS Internal Note ATL-DAQ-2000-037 (Mar 2000)
+* [2] The ATLAS collaboration, ATLAS Inner Detector Technical Design Report Volume I, ATLAS TDR 4, CERN/LHCC 97-16 (April, 1997)
+* [3] The ATLAS collaboration, ATLAS Trigger Performance Status Report, CERN/LHCC 98-15 (June, 1998).
+* [4] M. Smizanska, S.P. Baranov, J. Hrivnac and E. Kneringer, _Overview of simulations for ATLAS B-physics studies_ ATL-COM-PHYS-2000-007 (2000)
+* [5] F. Rizatdinova, _Semi-inclusive B-physics triggers at low luminosity_, ATL-DAQ-98-114 (1998).
+* [6] The ATLAS Collaboration, _ATLAS detector and physics performance TDR_, CERN-LHCC-99-15 (1999).
+* [7] J. Bystricky and J. C. Vermeulen, _Paper modelling of the ATLAS_, ATL-DAQ-2000-030 (April 2000)
+* [8] P. Billoir, Nucl. Inst. and Meth. 225 (1984) 352.; P. Billoir and S. Qian, Nucl. Inst. and Meth. A294 (1990) 219 and A295 (1990) 492.
+* [9] J. Baines et al., _Pattern Recognition in the TRT for the ATLAS B-Physics Trigger_, ATL-DAQ-99-007 (1999).
+* [10] I. Gavrilenko, Description of Global Pattern Recognition Program (XKalman), ATL-INDET-97-165 (1997).
+* [11] I. Gaines, S. Gonzalez and S. Qian, _Implementation of an Object Oriented Track Reconstruction Model into Multiple LHC Experiments in the Proceedings of the international conference Computing in High Energy and Nuclear Physics (CHEP'2000)_, Padova, Italy (2000) [http://www-wisconsin.cern.ch/~sjlnat/oo.html](http://www-wisconsin.cern.ch/~sjlnat/oo.html).
+* [12] A. Baratella, M. Dameri, P. Morettini and F. Parodi, _PixTig: a track finding algorithm for LVL2_, ATLAS-DAQ-2000-025 (2000).
+* [13] L. Guy, PhD Thesis, Melbourne University, Melbourne, Australia and ATLAS note in preparation (2000).
+* [14] D.G. Cassel and H. Kowalski, _Pattern Recognition in Layered Track Chambers using a Tree Algorithm_, Nucl. Inst. and Meth. 185 (1981) 235.
+* [15] W. Li and S. George, ATLAS note in preparation (2000).
+* [16] R. Dankers and J. Baines. _A Data Preparation Algorithm for the Precision Tracker LVL2 FEX_, ATL-DAQ-99-001 (1999).
+* [17] \(B\)-physics tapes with minimum bias, [http://home.cern.ch/~msmizans/production/tapelist_minb.html](http://home.cern.ch/~msmizans/production/tapelist_minb.html).
+* [18] Innsbruck Monte Carlo production: \(B\)-physics simulation [http://home.cern.ch/~emo/b_sim.html](http://home.cern.ch/~emo/b_sim.html)
+* [19] F. Tartarelli, _Documentation for the CTVMT vertex fitting package in ATLAS_, [http://tarta.home.cern.ch/tarta/vtx/docu.html](http://tarta.home.cern.ch/tarta/vtx/docu.html)
+* [20] D. Rousseau, private communication.
+* [21] F. Rizatdinova and N. Nikitin, _Rejection of rate at EF for J////_ Ds and \(B_{d}\!\rightarrow\!\pi^{+}\!\pi^{-}\) channels_ ATLAS Internal Note, ATL-DAQ-2000-017 (2000).
+
+* [22] Y. Coadou, J. Damet, H. Korsmo and G.F. Tartarelli, Measurement of sin(2beta) from \(B^{0}_{d}\)-\(J/\Psi\)\(K^{0}_{s}\) ATLAS Internal Note ATL-PHYS-99-022 (1999).
+* [23] J.C. Vermeulen, _Computer modelling of the ATLAS LVL2 trigger system_, ATL-DAQ-2000-035 (April 2000).
+
+## Appendix A: Offline Selections
+
+### \(B_{d}\to\pi^{+}\pi^{-}\)
+
+The event sample used for the offline studies is selected by the following requirements:
+
+* only two \(B\) mesons generated in the event
+* one \(B_{d}\to\pi^{+}\pi^{-}\) decay
+* a muon trigger, which is simulated by requiring a muon generated within \(|\eta|<2.4\), \(\mathrm{p_{T}}\)\(>\)6 GeV, successfully reconstructed in ID with a \(B\)-layer hit. Note that no muon system simulation/reconstruction was used explicitly.
+* the two pions come directly from the \(B\), not from hadronic interactions.
+
+The offline event selection for this channel [20] is as follows. The event must contain two oppositely charged tracks each with:
+
+* \(\mathrm{p_{T}}>4\) GeV
+* impact parameter greater than 3\(\sigma\)
+* at least 9 Si hits including a \(B\)-layer hit
+* In combination with the reconstructed muon track: \(\Delta\mathrm{R_{\phi\eta}}>0.4\) or Invariant Mass(\(\pi\),\(\mu\)) \(>5\) GeV
+
+A pair of tracks satisfying these cuts form candidates for the \(\pi^{+}\pi^{-}\) daughters of the \(B_{d}\) In order to reject tracks from a low-mass displaced vertex or B decays with three or more prongs, candidates are excluded if there is a third track, X, which:
+
+* Has \(\mathrm{p_{T}}>1\) GeV
+* Has at least 7 Si hits
+* In conjunction with either the \(\pi^{+}\) or \(\pi^{-}\) candidate satisfies: \(\Delta\mathrm{R_{\phi\eta}}\) (X,\(\pi\)) \(<1\) and Invariant Mass(X,\(\pi\)) \(<5.5\) GeV
+* And either:
+* forms a vertex with the \(\pi^{+}\pi^{-}\) candidates satisfying: Invariant Mass(X, \(\pi^{+}\), \(\pi^{-}\)) \(<5.5\) GeV and impact parameter of X w.r.t. the \(\pi^{+}\pi^{-}\) vertex less than 3 \(\sigma\), or
+* forms a vertex with either the \(\pi^{+}\) or \(\pi^{-}\) candidate satisfying: Invariant Mass(X,\(\pi\)) \(<2\); \(\Delta\mathrm{R_{\phi\eta}}\)(X,\(\pi\)) \(<0.5\); vertex probability \(>1\%\); decay-length greater than 10 \(\sigma\)
+
+The candidate is accepted if the track pair satisfy:
+
+* opposite charge
+* \(\mathrm{p_{T}}^{+}+\mathrm{p_{T}}^{-}>10\) GeV
+* 3D vertex probability \(>5\%\)
+* decay length greater than 3 sigma
+* \(\pi\pi\) 2D momentum consistency with beam-line and secondary vertex fit probability \(>5\%\)
+* 6 GeV
+The invariant mass cuts are loose as a fit is applied to the resulting invariant mass distribution.
+
+### \(\mathrm{\phi^{0}(KK)\pi}\)
+
+Unlike the analysis in [6], the offline analysis is restricted to events which contain only one \(\mathrm{B_{s}\to D_{s}(\mathrm{\phi^{0}(KK)\pi)\,\pi}}\) decay. Events with two or more \(\mathrm{B_{s}}\) mesons (not necessarily decaying into the \(D_{s}(\mathrm{\phi^{0}(KK)\pi)\,\pi}\) channel) are excluded.
+
+The \(\mathrm{\phi^{0}}\) is reconstructed from two oppositely charged tracks taken from the sample of tracks reconstructed by xKalman. A kaon mass hypothesis is applied for each track, and track pairs are selected which meet the following additional requirements:
+
+* \(\mathrm{p_{T}>1.5}\) GeV for each track
+* angular cuts: \(\Delta\phi_{\mathrm{KK}}>10^{0}\), \(\Delta\phi_{\mathrm{KK}}>10^{0}\)
+* vertex-fit probability greater that 1%
+* invariant mass within 3\(\sigma_{\mathrm{\phi}}\) of the nominal \(\mathrm{\phi^{0}}\) mass
+
+The accepted \(\mathrm{\phi^{0}}\) candidates are combined with a third track (pion mass hypothesis) with \(\mathrm{p_{T}>1.5}\) GeV, and a three-track vertex is refitted. The combinations passing a vertex-fit probability cut of 1% and having an invariant mass within a 3\(\sigma_{\mathrm{D_{s}}}\) mass window around the nominal \(\mathrm{D_{s}}\) mass are selected as \(\mathrm{D_{s}}\) candidates.
+
+In offline analysis, the \(\mathrm{D_{s}}\) candidates are combined with a fourth track with \(\mathrm{p_{T}>1}\) GeV, assumed to be a pion. The four-track combination is subjected to the following selection procedure/cuts:
+
+* The \(\mathrm{B_{s}}\) vertex is refitted using \(\mathrm{\phi^{0}}\) and \(\mathrm{D_{s}}\) mass constraints, requiring a vertex-fit probability greater than 1%. The reconstructed \(\mathrm{B_{s}}\) vertex should points back towards the primary vertex and the \(\mathrm{D_{s}}\) vertex back to the \(\mathrm{B_{s}}\) vertex.
+* \(\mathrm{B_{s}}\) proper time \(>0.4\) ps
+* \(\mathrm{B_{s}}\) impact parameter \(<55\) \(\mathrm{\mu}\)m
+* \(\mathrm{B_{s}}\)\(\mathrm{p_{T}>10}\) GeV
+* invariant mass within 2\(\sigma_{\mathrm{B_{s}}}\) of the nominal \(\mathrm{B_{s}}\) mass
+
+The last cuts in the \(\mathrm{B_{s}}\) selection above have no correspondent in the LVL2 trigger selection procedure, which reconstructs \(\mathrm{D_{s}}\) candidates only.
+
+### \(\mathrm{\phi^{0}(KK)\pi}\)
+
+Tracks were reconstructed in the ID with xKalman including a correction for Bremsstrahlung energy loss for tracks identified as electrons on the basis of TRT information. Reconstructed tracks are required to have at least 6 Si hits. Cuts are applied to combinations of tracks in order to reconstruct the \(\mathrm{J^{\prime}\Psi}\), \(\mathrm{K_{s}}\) and \(B_{\mathrm{\phi}}\) Note that only the \(\mathrm{J^{\prime}\Psi}\) is reconstructed as part of the trigger selection.
+
+### J/\(\Psi\) reconstruction
+
+Pairs of oppositely charged electron candidate tracks (\(\mathrm{p_{T}>0.5\ GeV}\)) are fitted to a common vertex and their invariant mass calculated (electron hypothesis). The following cuts are applied:
+
+* Vertex fit \(\chi^{2}/\mathrm{N_{d.o.f.}<6}\)
+* Invariant mass inside window:
+* barrel (\(\mathrm{\eta|<0.7}\)) [-5\(\sigma\), +3\(\sigma\)] \(\sigma=53\) MeV
+* end-cap (\(\mathrm{\eta|>0.7}\)) [-7\(\sigma\), +3\(\sigma\)] \(\sigma=63\) MeV
+* Transverse decay length, \(\mathrm{L_{xy}>250\ \mu m}\)
+
+### K\({}_{\mathrm{s}}\) reconstruction
+
+Pairs of oppositely charged tracks with \(\mathrm{p_{T}>0.5\ GeV}\) (excluding those identified as leptons) are fitted to a common vertex, the invariant mass calculated (pion hypothesis) and the following cuts applied:
+
+* Decay radius: 1 cm \(<\) R \(<\) 37 cm.
+* Decay vertex has \(\left|\,\mathrm{z}\,\right|<210\) cm
+* Vertex fit \(\chi^{2}/\mathrm{N_{d.o.f}<50}\)
+* Invariant mass inside window [-3\(\sigma\), +3\(\sigma\)], \(\sigma=6.6\) MeV
+* Transverse decay length, \(\mathrm{L_{xy}>1cm}\)
+
+### B\({}_{\mathrm{d}}\)reconstruction
+
+A three-dimensional kinematic fit was performed using the four tracks from the reconstructed \(\mathrm{K_{s}}\) and \(\mathrm{J/\Psi}\). The following cuts were applied:
+
+* Fit \(\chi^{2}/\mathrm{N_{d.o.f}<6}\)
+* Invariant mass inside window [-3\(\sigma\), +3\(\sigma\)]:
+* barrel (\(\mathrm{\eta|<0.7}\)) \(\sigma=21\) MeV
+* end-cap (\(\mathrm{\eta|>0.7}\)) \(\sigma=30\) MeV
+* Proper decay time, \(\tau=\mathrm{L_{xy}M_{B}/p_{T}>0.5\ ps}\) where \(\mathrm{L_{xy}}\) is the transverse decay length. \(\mathrm{M_{B}}\) is the \(B_{d}\) mass and \(\mathrm{p_{T}}\) is the reconstructed \(\mathrm{p_{T}}\) of the \(B_{d}\) meson.
+* Reconstructed \(\mathrm{p_{T}>5\ GeV}\)
+
+Full details of this selection are given in [22].

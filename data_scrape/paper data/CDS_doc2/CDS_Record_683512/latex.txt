@@ -1,0 +1,167 @@
+Application of a real-time data processing VME module using a custom high speed I/O multiport board to "ATLAS Tile-Cal Read Out Driver"
+
+V. Gonzalez, E. Sanchis 1
+
+University of Valencia, Spain
+
+Footnote 1: Permanent address of authors is: Department of Informatics and Electronics, University of Valencia.
+
+###### Abstract
+
+In this note we propose an implementation of a Read Out Driver (ROD) prototype module for Tile-Cal detector of ATLAS experiment. RODs are part of the necessary interface between each subdetector and the global read out system in order to fulfill with the ATLAS Data Acquisition standardization requirements.
+
+The proposed implementation is based on a commercial general purpose real-time data processing VME board which is coupled to a custom designed multiport I/O daughter board. The module accepts data through an optical input port at a maximum rate of 10 Mbytes/s, processes them according to the user's application and provides a 1 Gigabit/s optical link as output. It also provides a standard IEEE SCI bi-directional port to integrate the module in a large system based on point to point high speed links.
+
+[MISSING_PAGE_EMPTY:2]
+
+## 1 Introduction
+
+The ATLAS Data Acquisition System (DAQ) requires an interface between the front-end electronics for detectors and the global read out system [1]. This interface includes several functional modules: derandomizer buffers, front-end links, RODs and read out links2.
+
+Footnote 2: The specifications of this interface are fully described in [3].
+
+In this document we focus on the design and implementation of a Read Out Driver module (ROD) for the Hadronic Calorimeter (Tile-Cal detector) of ATLAS [2].
+
+Figure 1 shows the necessary interface between Tile-Cal front-end read out and the global DAQ system.
+
+At the maximum LHC luminosity the average first level trigger accept rate (L1A) will be 100 KHz with a peak rate of 13.3 MHz, which corresponds to two consecutive level one triggers [1]. In order to have a constant rate at the second level trigger and maintain a reasonable second level buffer size, derandomizer buffers are necessary.
+
+Figure 1: Interface between Tile-Cal front-end and the ATLAS global Read Out SystemThe output of each derandomizer goes to a ROD through optical paths, namely front-end links. RODs perform data multiplexing according to the "Region of Interest" (RoI) segmentation, pre-processing (if necessary), error checking/recovery and transmission through optical paths, namely read out links, to the second level buffers (ROB). The maximum allowed time to perform all these operations is not yet defined by the DAQ group. However we assume that ROD should operate in a nearly transparent mode, i.e., without introducing any considerable dead-time to the second level trigger.
+
+## 2 Summary of Main Rod Specifications
+
+In this section we summarize the main ROD task according to [3]. Fully description of ROD specifications can be found in the same reference.
+
+Detector groups are responsible for providing the ROD module to the ATLAS DAQ. This part of the system is the first one where we can reach a higher level of data concentration and multiplexing by gathering information from different front-end links. Elementary digitised signals are formatted in raw data prior to be transferred to the ROB. The data format of the event, as well as the requirements concerning error detection/recovery mechanisms are subject to constraints.
+
+Main ROD tasks are the following:
+
+* **Data gathering** Receive data from derandomizers at the L1A rate. Possibly it should be necessary to multiplex data so that ROD outputs match RoI segmentation.
+* **Timing, trigger and control** Receive the standard Timing, Trigger and Control signals (TTC) from LHC machine [4].
+* **Error detection and recovery** Perform error detection and recovery. This includes consistency of Front-end Level 1 Identifier (FE_L1ID) and Front-end Bunch Crossing ID (FE_BCID) with the Event Number (ROD_L1ID) and Bunch Crossing ID (ROD_BCID). In the case of error, the ROD either tries to recover or continuously sends error flags events until a front-end reset occurs. In any case it must not stop the normal data taking.
+* **Data format** The ROD output data format should contain at least the following information that must be sent even if there is no data for a given event: 
+\begin{tabular}{l l} ROD_L1ID & Event number (24 bits) \\ ROD_BCID & Bunch crossing corresponding to L1A (12 bits) \\ ERROR/STATUS & Synchronization error, FE error, Physics data, \\  & Empty data,... \\ ROD_MODULE_ID & Module identifier \\ DATA & Raw data \\ \end{tabular}
+
+Although the final number of bits needed for some of the fields above is not yet defined, in this document we assume a \(\sim 7\) Bytes overhead applied to raw data.
+* **Optical link** The event data has to be sent to the ROBs through optical links at the L1A event rate (100 KHz). It is assumed that 1 Gigabit/s links will be used [1]. If necessary, a FIFO buffer before the link must be included. In this case, a ROD_BUSY signal should be foreseen to protect FIFO against overflow.
+* **Test** A test mode where fake events with known data has to be foreseen to test the read out chain from the ROD level up to the ROB.
+* **Calibration and monitoring** Access to data by means other than the normal read out is considered. For this purpose, an auxiliary output port will be provided. The use of this port, for purposes such as monitoring, calibration, etc., should not introduce any dead-time nor interfere with the normal read out.
+* **Initialization** During initialization the ROD has to assert the ROD_BUSY signal until it has been completed. However, if a local reset has to be generated, the ROD should no assert ROD_BUSY but it should produce empty event with the proper error flag.
+
+## 3 ROD Functional Block Diagram
+
+Figure 2 shows a functional block diagram of a ROD.
+
+Figure 2: Functional block diagram of a ROD
+
+The Input Port accepts data coming from derandomizers at a rate of L1A through optical fibers. The multiplexer stage is necessary for second level trigger purposes as it is convenient that ROD output matches RoI segmentation.
+
+The functions of the Processing Unit are to perform error detection/recovery, data processing (optional depending on detector requirements) and formatting.
+
+The TTC ASIC provides all the necessary LHC signals for these functions (e.g. LHC clock, L1A, bunch counter reset, event counter reset, bunch crossing number, event number, etc...).
+
+The Output Port to ROB is a 1 Gigabit/s serial optical link at the same rate as the ROD input (i.e. 100KHz).
+
+The private network interface is optional for detectors willing to work in a stand-alone mode which often implies a huge amount of data to be read out.
+
+Present solutions based on conventional backplane buses (VME, Fastbus, etc.) are not adequate. Therefore, a very high bandwidth interconnection network is envisaged.
+
+However, for calibration, monitoring and testing purposes, ROD could be accessible through VME backplane, as these functions do not require a high bandwidth traffic.
+
+Figure 3 shows the integration of the ROD in the global Trigger/DAQ architecture.
+
+Figure 3: ROD integration in the global Trigger/DAQ architecture
+
+## 4 Tile-Cal Rod Prototype Implementation
+
+Figure 4 shows a block diagram of a possible Tile-Cal ROD implementation.
+
+The aim of this first prototype is to demonstrate some ROD functionalities according to ATLAS Read Out specifications (i.e. data formatting, error detection and Gigabit optical output link) under Tile-Cal requirements (i.e. data pre-processing). Future ROD developments should consider all the aspects not covered or optimized by this prototype, as the optical input receiver multiplexer or present technological constraints.
+
+The proposed implementation consists of a module containing three VME cards, one acting as a mother board and two as daughter boards. The mother board is a commercial card from LSI Corporation using several TMS320C40 Digital Signal Processors allocated in TIMs (standard Texas Instruments Modules) [5]. It provides a flexible, modular, systems level solution to a divers range of real-time data processing applications.
+
+In our case, this board acts both as Input Port and Processing Unit using two commercial TIMs. The first one performs optical interface for data coming to ROD Input Port using TAXI 10 Mbytes/s transmission. It serves also as main Processing Unit (e.g. error detection/recovery, calibration constants, data formatting). The second port is fully dedicated to control the two output ports through the _dBeX32_ LSI proprietary bus.
+
+Figure 4: ROD implementation block diagramThis board can also be accessed through the VME backplane for monitoring, calibration operations and overall control of the module.
+
+The implementation of the functions for the Processing Unit is not completely well defined yet. In particular data pre-processing needs some feedback from Tile-Cal collaborators (zero suppression or not, calibration constants, etc...). Indeed, algorithms for error detection/recovery must also be taken into account. For the moment we are considering the ideas given in reference [6] as basic principles on possible schemes for error detection and error recovery.
+
+On the other hand, as it is mentioned in section 3, ROD might furnish a stand-alone facility through its private port using a high bandwidth interconnection network (figure 3). For the implementation of this prototype, among the different available solutions (FiberChannel, SCI, ATM, etc...), SCI standard IEEE [7] has been chosen. SCI, which is presently object of an CERN R&D Program, is well suited because it provides familiar bus-like services to the user but avoids the bottlenecks inherent in physical buses, scales up to high-end supercomputer performance and supports efficient software for parallel-processing systems and applications. Nevertheless, for future ROD versions, the other solutions should not be discarded as industrial developments must be strongly considered.
+
+In our case, connection to SCI is made using a C40/SCI VME daughter board developed by CERN RD24 group. This interface is accessible through the _dBeX32_ and provides all the necessary signals for the standard SCI protocol. Further technical details can be found in references [8], [9] and [10].
+
+The Giga-Link interface will be a custom designed VME daughter board which will couple to the DBV44 mother board using the _dBeX32_ bus. Its main tasks are the following:
+
+* Receive synchronization signals (TTC signals from LHC)
+* Provide a 1 Gigabit/s optical output link
+* Generation of ROD_BUSY control signal
+
+According to the proposed ROD implementation and with the quantities concerning Tile-Cal given in Table 1, we can estimate the total number of RODs needed for the whole detector.
+
+\begin{table}
+\begin{tabular}{|l|c|} \hline \multicolumn{2}{|c|}{**Tile-Cal parameters**} \\ \hline Number of Channels & \multicolumn{2}{|c|}{\(\sim\)10.000} \\ \hline Raw data/channel & \multicolumn{2}{|c|}{2 bytes/event} \\ \hline Total raw data/event & \multicolumn{2}{|c|}{20 Kbytes (2 bytes x 10.000 channels)} \\ \hline Channel data rate/event & \multicolumn{2}{|c|}{200 Kbytes/s (2 bytes x100KHz)} \\ \hline Total data rate/event & \multicolumn{2}{|c|}{2 Gbytes/s (200 Kbytes/s x 10.000 channels)} \\ \hline \end{tabular}
+\end{table}
+Table 1: Main Tile-Cal parameters for ROD implementation As said before, ROD prototype has a maximum input rate of 10 Mbytes/s. This implies that we can accept up to 50 Tile-Cal channels per ROD (10 Mbytes/200 Kbytes) provided a multiplexer stage is present at the output of the derandomizer. This number is well suited for the recommended Tile-Cal RoI segmentation.
+
+Assuming this number of channels, 200 ROD will be needed for the detector. For the proposed ROD implementation this gives a total amount of 30 VME crates, although future improvements on integration could reduce this number down to 20 or even less.
+
+It is convenient to point out that in order to maintain a reasonable data rate at the ROD output we assume a common header each 50 channels (\(\sim\) 7 Bytes, as stated in section 2). This implies that the ROD output data rate is 10.7 Mbytes/s at the L1A trigger rate (100 KHz), so that, the total data rate to be transferred to the second level trigger is 2.15 Gbytes/s, which represents an increment of about 7.5 % over the total raw data rate.
+
+The estimated time needed for ROD to perform its tasks (read input data, processing and output data) is about 20 \(\upmu\)s which is negligible compared to the T2 latency (10 ms), so that no significant dead-time is introduced 3.
+
+Footnote 3: This time is estimated as follows: 10 \(\upmu\)s for reading data (100Bytes/10MBytes/s), 5 \(\upmu\)s for processing data (2 C40 clock cycles x 50 operations), 1 \(\upmu\)s for output data (107Bytes/1Gbit/s) and the remaining for data formatting and error detection/recovery, etc.
+
+In table 2 we summarize the main Tile-Cal ROD parameters.
+
+In figure 5 we show Tile-Cal ROD integration in the common Trigger/DAQ and its connection to the front-end electronics. Derandomizer buffers and multiplexer stage whose implementation have not been described here, must be object of future work.
+
+\begin{table}
+\begin{tabular}{|l|c|} \hline \multicolumn{2}{|c|}{**Tile-Cal ROD parameters**} \\ \hline Number of Tile-Cal channels per ROD & \\ at 10 Mbytes/s input rate & 50 \\ \hline Total number of RODs & 200 \\ \hline Total VME crates & 20-30 \\ \hline ROD output data rate & 10.7 MBytes/s \\ \hline Total data rate to ROBs & 2.15 Gbytes/s \\ \hline Data rate overhead (due to formatting) & 7.5 \% \\ \hline Estimated ROD latency & 20 \(\upmu\)s \\ \hline Introduced dead-time to 2\({}^{\text{nd}}\) level trigger & negligible \\ \hline \end{tabular}
+\end{table}
+Table 2: Main Tile-Cal parameters
+
+## 5 Present Status of Work and Future Activities
+
+We are currently involved in the design of a ROD prototype based on three VME boards. Two of them, namely the DBV44 and the C40/SCI interface, have already been tested at our home laboratory and the third one is presently under design.
+
+In the context of CERN RD24 activities, we have gained experience in the programming and use of the DBV44 and the C40/SCI interface. The software and final tests of these two boards are nearly finished for the September 1995 ATLAS test beam (Rutherford, Manchester, Valencia) where this interface will be fully tested and its possible use in the ATLAS second level trigger evaluated. Results from this test will give us a better knowledge of the C40/SCI possibilities for its application in the Tile-Cal stand alone acquisition mode proposed in this document.
+
+Concerning the Giga-Link board, work is currently in progress. The proposed design, shown in figure 6, plans to use commercially available devices to reduce its cost and improve reliability.
+
+Figure 5: View of Tile-Cal ROD integration in the private ring and in the Global Trigger/DAQThe core of this board is the FTC1001, a Gigabit Optics + G-Link Chips, from Finisar Corp. [11] which performs parallel to serial conversion using a HDMP-1012 Chip Set from Hewlett Packard [12] and optical link coupling at a maximum speed of 1.5 GB/s.
+
+The transceiver performs the necessary level conversion between dBeX32 bus and the FTC-1001.
+
+The Control Logic includes the _dBFi_, generates ROD_BUSY signal and contains the overall control of the board.
+
+Current work is focused on the design of the _dBFi_, in particular bus signaling simulations and technological choices for its implementation based on PLDs.
+
+Future hardware activities will be the following:
+
+- Tests on optical Input Port (Taxi TIM from LSI Corp.) and optical Output Port (Finisar Corp.).
+
+- Integration of the TTC ASIC signals in the ROD.
+
+- Giga-Link interface prototype implementation and test.
+
+- Follow interface developments for the Private Control of SCI ring.
+
+- In a second step we might consider both the design and implementation of the multiplexer stage which will be coupled to the TAXI Input Port and the derandomizer buffers.
+
+Figure 6: Close up view of the Giga-Link Interface
+
+In parallel to hardware, some software tasks must be done:
+
+* Implement algorithms for Tile-Cal data pre-processing, formatting and error detection/recovery.
+* Daughter boards control programs.
+* Application software.
+
+We would like to point out that this work is being done having in mind future ATLAS DAQ tests where integration of detectors in common DAQ is foreseen. For this purpose we expect to have this board finished by mid 96 and the whole ROD prototype by end 96.
+
+## Acknowledgments
+
+We are very grateful for the help given by some of our colleagues to this work. In particular we appreciate the contributions from J. Ferrer, J.M. Lopez and F. Mora as well as the support and advice given by H. Muller and M. Nessi.
+
+This work is being financially supported by the University of Valencia and by the High Energy Physics Group of the IFIC (UV-CSIC, Valencia).
+
+_This is a working document that will be continuously updated. Authors will appreciate any comment or suggestion about it._

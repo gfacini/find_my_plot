@@ -1,0 +1,76 @@
+# Performance of Multi-threaded Reconstruction in ATLAS
+
+The ATLAS Collaboration
+
+For Run 3, ATLAS has migrated its standard reconstruction software to a multi-threaded framework in Athena release 22. This note describes the preliminary performance of the new release, comparing multi-threading and multi-processing, which was used for parallelism in Run 2.
+
+## 1 Introduction
+
+The new Athena release 22 [1], to be used for reprocessing of Run 2 Monte Carlo simulation and data, as well as for data taking and Monte Carlo simulation production at the beginning of Run 3, is able to offer both multi-process and multi-thread parallelism, as well as a combination of both. These offer significant performance benefits compared to serial processing approaches.
+
+In multi-process (MP) parallelism, workers are forked from the primary process at a pre-configured stage during execution (e.g. before or after the first event is processed). Following the forking, all worker processes share memory allocated in the primary process but otherwise run in parallel, independent of each other. As such, each worker also has its own unique memory space and produces its own outputs, which need to be merged later via a post-processing step.
+
+Multi-thread (MT) parallelism is significantly more challenging to develop. Here, there is no explicit forking of worker processes from the primary. Rather, threads are spawned and assigned some work (e.g. execute an algorithm). There is a single pool of heap memory that is shared across all threads. This means that various difficulties must be overcome: multiple threads cannot write to the same memory at the same time; threads must not attempt to read memory that is actively being written to; and algorithms must be scheduled such that all input is fully available before they run. Because of these difficulties, writing MT-safe code can be demanding. However, the performance benefit from using a single pool of memory for all threads can be significant.
+
+This note provides some performance comparisons of the new parallelism capabilities in the ATLAS standard reconstruction software, and demonstrates the improvements compared to the production configuration used during Run 2, and benchmarked in this note with Athena release 21.
+
+## 2 Benchmark Configuration
+
+The benchmark jobs use real data from run 357750 taken during 2018, with 250 events per worker process or thread. The total number of events per job thereby increases in order to keep the total job time approximately constant. The data events have an average number of interactions per bunch crossing \(\langle\mu\rangle=50\), which is approximately that expected for the luminosity-leveling period during Run 3.
+
+The tests are run on a machine with an Intel(r)Xeon(r)CPU E5-2630 v3 at 2.40 GHz (16 cores, and with SMT disabled). The machine has 126 GB of available memory. Memory is measured by the proportional set size, and time by the wall clock processing time. For MP and MT tests, the number of events to be processed concurrently is set to the number of available threads. In some comparisons, the results from several serial (single thread, single process) reconstruction jobs are also shown. In these cases, the jobs do not interact with one another except through system-wide resource contention.
+
+Athena release 22.0.32 is used for the tests in release 22, and Athena release 21.0.124 is used for the tests in release 21. Insofar as it is possible, the job configurations mirror what is actually used in the production system by ATLAS. There are, nevertheless, some significant changes between release 21 and release 22. These include a nearly complete revision of the data quality monitoring infrastructure and re-optimization of the tracking cuts for the higher pileup environment expected in Run 3 [2]. The latter has significant impact on throughput. Many other technical changes, particularly to do with conditions handling, were made in order to better cope with the multi-threaded configuration used for production in release 22.
+
+## 3 Benchmark Results
+
+Figure 1 compares the memory usage in MT jobs in release 22 to that of MP jobs in release 21, essentially comparing the memory consumption in the Run 2 reconstruction configuration to that of the Run 3 reconstruction. The memory consumption per worker thread in MT is significantly lower than the consumption per worker process in MP, owing to the better sharing of memory. As expected, the memory consumption grows linearly with the number of worker threads. Some memory reduction is possible in MP by forking workers after the first event, owing to the late loading and initialization of some information that may still be shared across workers. However, the complexity of forking after the first event and correctly gathering the output from all events proved substantial, and the production configuration used has to date relied on forking before the first event.
+
+Figure 2 compares the event throughput for MP reconstruction in release 21 to that of MP and MT reconstruction in release 22. The improvements in the track reconstruction in particular in release 22, including a re-optimization of the track selection for the somewhat higher pileup conditions expected in Run 3, have helped to significantly improve the total throughput of the jobs. For standard production, ATLAS uses 8-core jobs for a 16 GB memory allocation. With a memory requirement of about 5.9 GB in release 22, only two serial reconstruction jobs could fit into that 16 GB envelope. A six-worker MP job from release 21 just barely fits into the 16 GB envelope, while in principle a 16-thread MT job would comfortably fit into the same memory envelope. All together, this results in a 70% improvement in total throughput for release 22. This is captured in Figure 3, which compares the total node throughput for an 8-core, 16 GB node for release 21 MP and release 22 serial, MP, and MT jobs.
+
+Figure 4 shows the event throughput for MP and MT jobs in release 22 in comparison to an idealized event loop throughput based on serial reconstruction performance in release 22. MP offers a slight advantage in throughput within the event loop due to contention between threads and the locking of memory to avoid data race conditions in MT. As shown in Figure 2, however, this advantage is overcome by the additional
+
+Figure 1: Memory usage of the MT ATLAS reconstruction (including Data Quality monitoring) as a function of number of threads in release 22 (blue triangles) compared to that of the MP reconstruction as a function of the number of workers in release 21 (open green circles). The solid lines are linear fits.
+
+Figure 3: Total node throughput (events processed per second) for the ATLAS reconstruction in release 21 MP, release 22 serial, release 22 MP, and release 22 MT, based on optimal packing of an 8 core node with 16 GB of memory. The measurements are based on the total processing time including all the necessary sub-steps (e.g. merging output files if applicable etc.).
+
+Figure 2: Event throughput (events processed per second) for the ATLAS reconstruction as a function of number of threads in MT (blue triangles) and as a function of the number of workers in MP (red squares) in release 22 compared to that of the MP reconstruction as a function of the number of workers in release 21 (open green circles). The measurements are based on the total processing time including all the necessary sub-steps (e.g. merging output files if applicable etc.).
+
+time required to finalize the job and merge outputs. The serial event throughput offers some picture of an "idealized" event loop without contention or overheads. This ideal is not a straight line because as the load increases, a modern CPU automatically changes core frequency to optimize throughput against power consumption. This ideal line is calculated by running multiple independent serial reconstruction jobs, rather than simply by extrapolating based on the performance of a single job. MP is very close to this idealized limit, thanks to minimal contention between workers. Further work is ongoing in release 22 to push the throughput towards this theoretical limit.
+
+## 4 Conclusions and Outlook
+
+In preparation for Run 3, ATLAS has migrated its standard reconstruction software to a multi-threaded framework in order to maximize the event throughput by better utilizing the available computing resources. This note presents the preliminary performance of the new framework and demonstrates the performance gains with respect to the software used for Run 2 processing. As in every software optimization project, there is ongoing development to increase the event throughput and decrease the memory footprint even more.
+
+## Additional Views
+
+This appendix includes additional views of the same data that might be useful in talks focused on specific aspects of MT and MP comparisons and the migrations from release 21 to release 22.
+
+Figure 4: Event throughput (events processed per second) of the ATLAS reconstruction (including Data Quality monitoring) as a function of number of threads/processes in release 22. The measurements are based on the event-loop processing time only. The blue triangles show the multi-threaded Athena (Rel. 22 MT) and the red squares show the multi-process Athena (Rel. 22 MP) results. The black dashed line shows the ideal throughput based on serial reconstruction performance.
+
+Figure 5 compares the memory of reconstruction jobs in release 22 using MT and MP to those in release 21 using MP. The memory usage of MP jobs has grown between release 21 and release 22 owing primarily to changes required to make the processing thread-safe. Figure 6 compares the memory usage in release 22 in MT and MP with that of serial Athena in release 22. Significant savings are achieved with both mechanisms for parallelism.
+
+Figure 7 compares the total throughput in Athena release 22 during MP, MT, and ideal jobs, here captured by multiple serial reconstruction jobs running in parallel. The differences in total throughput are owing to initialization, finalization, and other overheads (merging of outputs in the case of MP, and thread contention and related issues in the case of MT).
+
+Figure 8 compares the event throughput for MP reconstruction in release 21 to that of MT and MP in release 22, considering only the time spent in the event loop. The differences in event loop time are mostly related to thread contention in MT. All the event loop throughput results are shown together in Figure 9. While the serial jobs provide a picture of ideal scaling of throughput, the memory consumption (as shown in Figure 6) is prohibitively high for the use of exclusively serial reconstruction. For standard production, ATLAS uses 8-core jobs for a 16 GB memory allocation. The difference in memory is such that only two serial jobs would fit into the 16 GB envelope, while a 16-thread MT job can fit easily within the envelope. Therefore, the throughput of MT within a restrictive memory footprint like that available in standard resources on the WLCG is about three times that of serial processing, as shown in Figure 3. A simplified view showing a comparison of only MP in release 21 and only MT in release 22 (i.e. the configurations used most in production) is shown in Figure 10. The MT jobs provide somewhat better overall throughput than the MP jobs owing to differences in finalization and the merging of outputs.
+
+An alternative view of the event loop time is shown in Figures 11 and 12, which compare the time per event in release 21 MP to that of release 22 in MP and MT configurations and an ideal event loop time based
+
+Figure 5: Memory usage of the ATLAS reconstruction (including Data Quality monitoring) as a function of number of threads/processes. The blue triangle markers show the multi-threaded Athena (Rel. 22 MT) and the red square markers show the multi-process Athena (Rel. 22 MP) results. The green open circle markers show the memory consumption of multi-process Athena in release 21 (Rel. 21 MP). The solid lines are linear fits.
+
+Figure 6: Memory usage of the ATLAS reconstruction (including Data Quality monitoring) as a function of number of threads/processes in release 22. The blue triangle markers show the multi-threaded Athena (Rel. 22 MT) and the red square markers show the multi-process Athena (Rel. 22 MP) results. The black dashed line shows the memory consumption of multiple serial reconstruction jobs. The solid lines are linear fits.
+
+Figure 7: Event throughput (events processed per second) for the ATLAS reconstruction as a function of number of threads/processes in release 22. The measurements are based on the total processing time including all the necessary sub-steps (e.g. merging output files if applicable etc.). The blue triangle markers show the multi-threaded Athena (Rel. 22 MT) and the red square markers show the multi-process Athena (Rel. 22 MP) results. The black dashed line shows an idealized throughput captured using multiple serial reconstruction jobs.
+
+Figure 8: Event throughput (events processed per second) for the ATLAS reconstruction as a function of number of threads/processes. The measurements are based on the event-loop processing time only. The blue triangle markers show the multi-threaded Athena (Rel. 22 MT) and the red square markers show the multi-process Athena (Rel. 22 MP) results in release 22. The green open circle markers show the event throughput of multi-processing Athena in release 21 (Rel. 21 MP).
+
+Figure 9: Event throughput (events processed per second) of the ATLAS reconstruction (including Data Quality monitoring) as a function of number of threads/processes. The measurements are based on the event-loop processing time only. The blue points show the multi-threaded Athena (Rel. 22 MT), the green points show the multi-process Athena (Rel. 22 MP) results, and the black dashed line shows the ideal throughput based on extrapolation of serial reconstruction performance in release 22. The green open circle markers show the event throughput for multi-process Athena in release 21 (Rel. 21 MP).
+
+on an extrapolation of a serial reconstruction job in release 22. The same trends are visible as discussed throughout this note.
+
+## References
+
+* [1] ATLAS Collaboration, _The ATLAS Collaboration Software and Firmware_, ATL-SOFT-PUB-2021-001, 2021, url: [https://cds.cern.ch/record/2767187](https://cds.cern.ch/record/2767187).
+* [2] ATLAS Collaboration, _Software Performance of the ATLAS Track Reconstruction for LHC Run 3_, ATL-PHYS-PUB-2021-012, 2021, url: [https://cdsweb.cern.ch/record/2766886](https://cdsweb.cern.ch/record/2766886).
+
+Figure 10: Total node throughput (events processed per second) for the ATLAS reconstruction in release 21 MP and release 22 MT, based on optimal packing of an 8 core node with 16 GB of memory. The measurements are based on the total processing time including all the necessary sub-steps (e.g. merging output files if applicable etc.).

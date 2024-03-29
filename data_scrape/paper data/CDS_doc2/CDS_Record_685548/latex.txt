@@ -1,0 +1,173 @@
+The implementation of the \(\upmu\)Fast algorithm in the new PESA framework
+
+**Authors : A. Di Mattia, S. Falciano, A. Nisati**
+
+Keywords : On-line, Trigger, LVL2, HLT, Muon, \(\upmu\)Fast
+
+_Abstract_
+
+The \(\upmu\)Fast algorithm has been developed for the Level-2 muon trigger in the barrel region of the Muon Spectrometer. This note describes the implementation of \(\upmu\)Fast within the new PESA software framework. The code structure, the data access scheme and the produced trigger data are described in detail. Performance results in terms of code timing and physics validation are also reported.
+
+## 1 Introduction
+
+In this paper we present the latest implementation of the \(\upmu\)Fast algorithm [1] developed for the Level-2 muon trigger in the barrel region of the Muon Spectrometer (\(|\eta|\)\(<\)1). In this new implementation the algorithm has been embedded in the new software framework of the Physics and Event Selection Architecture (PESA), thus allowing for a test of the full ATLAS High Level Trigger (HLT) sequence which is menu driven.
+
+As the detailed features of \(\upmu\)Fast and the trigger performance have been described elsewhere [1][2][3], here we only summarize the steps of the muon track reconstruction in the Muon Spectrometer and the momentum measurement. Instead we describe in detail its new features, such as the data access scheme, the data selection within the Regions-of-Interests (ROIs), its interfacing to the HLT Steering program and to other components of PESA. The performances, in terms of code timing and physics validation within this new framework, are presented in the last section of this document.
+
+## 2 The Fast algorithm
+
+MuFast is an algorithm to perform muon track reconstruction and momentum measurement in the barrel region of the Muon Spectrometer. The algorithm, implemented in C++, is designed to be conceptually simple and fast in order to be implemented online, in the demanding environment of the ATLAS Level-2 (LVL2) trigger. Even so, its physics performance (muon \(\mathrm{p_{T}}\) resolution and rejection against background) is very close to the offline one. The algorithm is seeded by the LVL1 trigger result that provides for each selected muon the \(\mathrm{p_{T}}\) threshold satisfied and the position in \(\eta\) and \(\phi\) of the ROI containing the triggered track.
+
+The task of the LVL2 trigger is therefore: to confirm the LVL1 trigger by a more precise estimation of the muon \(\mathrm{p_{T}}\); to determine the so called "muon features" to build a _physics object_, a muon, which enters in the trigger menus.
+
+The feature extraction procedure is performed in three sequential steps :
+
+* Muon track pattern recognition using the information of the barrel trigger chambers, the Resistive Plate Chambers (RPCs) with low occupancy, which define the initiator of the muon trajectory. A road is then opened around the track and Monitored Drift Tube (MDT) chamber hits are selected within the road. A contiguity algorithm is then applied to the hits in the road to select those belonging to the muon track, thus removing the background. No use of drift time is made at this stage.
+* A straight-line track fit is made using the selected hit tubes and their drift time measurements. The fit is performed in each of the MDT stations having hit tubes (two or three), thus providing "superpoints" for a further calculation. For low \(\mathrm{p_{T}}\) muons, where the outer MDT station is not reached by the muon particle, the interaction vertex is taken as third point to be used in the global fit.
+* From a sagitta measurement the \(\mathrm{p_{T}}\) is estimated via a Look-up table (LUT), thus avoiding any time consuming fitting methods.
+* TThe output of the algorithm is a measurement of \(\eta\), \(\phi\), direction of flight and \(\rm p_{T}\) of the muon ("muon features") which are passed to the HLT Steering program for use in the trigger menus.
+
+### Pattern Recognition
+
+Using RPC hits and Level-1 ROI information (low- or high-\(\rm p_{T}\) muon candidates), the muon trajectory is computed in two orthogonal planes, the r-z bending plane and the r-\(\phi\) non-bending plane.
+
+In the bending plane the trajectory is defined by a fit to an arc of circle (field region at high radius) and a straight line tangent to the circle (no-field region at low radius). The boundary of these two regions is the exit point of the calorimeter. For high-\(\rm p_{T}\) muon candidates, two points used in the fit are in the inner- and outer-most RPC stations in addition to the nominal interaction point. For low-\(\rm p_{T}\) muons, two points are from the two inner-most RPC stations. These points are computed as the mean position of all RPC hits in all layers of a given RPC station.
+
+In the non-bending plane, independent straight line fits are made to the outer station and the nominal interaction point, and to the inner station and the interaction point. The mean value of the \(\phi\) angle values found with these two fits is taken as an estimate of the track azimuth.
+
+The geometrical model used to define the muon trajectory is illustrated in Figure1.
+
+The resulting trajectories are used to define muon roads in the MDT precision chambers. In each MDT station (inner, middle and outer) and for each hit, a residual is computed as the distance of the hit tube centre (the nominal wire position) from the chord of the intersecting trajectory. A hit tube is selected if the residual is smaller than a given distance defined by a road.
+
+Figure 1: Definition of muon trajectories (geometrical model) using the RPC hits indicated by the Level-1 trigger as Region-of-Interest.
+
+Roods are calculated for low- and high-p\({}_{\rm T}\) muons and for each type of chamber using simulated muons. They are defined such that they include 96% of muon hits with a small contamination of background. The muon road and the definition of residual is illustrated in Figure 2.
+
+An iterative, contiguity algorithm is then applied to the hits within the road to remove those with the highest residuals and, for the select ones, recompute the mean trajectory until only one hit per chamber layer is left. At the end of the iterations, a muon track is defined with a maximum of eight hits in each MDT station.
+
+### Track fit and \(p_{T}\) estimate
+
+Using the drift time measurement, a straight line track fit is made to the set of MDT hit tubes selected by the contiguity algorithm (see Figure 3). A linear time-distance relation is used (no Lorentz effect included) and the time-of-flight and propagation time along the wire are subtracted. The fit allows for the determination of three superpoints, one per station, to be used to determine the track sagitta.
+
+An estimate of the muon p\({}_{\rm T}\) is found using a Look-up Table (LUT) where the relationship between the measured sagitta (\(s_{\rm m}\)) and the muon momentum is stored. The measured sagitta, (Figure 4) is defined as follows :
+
+\[s_{\rm m}\,=\,\left[\frac{{\rm Z}_{3}\,{\rm-}\,{\rm Z}_{1}}{{\rm R}_{3}\,{\rm- }\,{\rm R}_{1}}({\rm R}_{2}\,{\rm-}\,{\rm R}_{1})+{\rm Z}_{1}\right]\,{\rm-}\,{ \rm Z}_{2}\]
+
+Figure 2: Muon road in a precision chamber (MDT) built around the initial muon trajectory (defined using RPC hits from the Level-1 trigger). The algorithm will compute the hit residual only for those hits falling within the road.
+
+[MISSING_PAGE_FAIL:5]
+
+## 3 The PESA framework
+
+The Event Selection Software (ESS) selects and classifies events using a set of HLT algorithms which reconstruct objects such as electrons, muons, jets and other particles. An event is selected if the reconstructed objects satisfy at least one of the physics signature given in the Trigger Menu.
+
+The ESS will run in the software environment provided by the Level-2 Processing Unit (L2PU) for the LVL2 trigger or by the Processing Task (PT) for the Event Filter (EF). The ESS has to comply with the requirements of the online environment, such as thread safety and performance goals. At the same time, it is highly desirable that the ESS runs in the ATHENA offline environment [13] to allow the development of the selection algorithms, study their physics performance and the boundary between LVL2 and EF. Moreover, in the offline environment, the ESS has to simulate the full trigger selection where the detailed simulation of the LVL1 trigger system provides the seed (LVL1 Result) for the LVL2 algoritms and the LVL2 results provide the seed for the EF reconstruction algorithms.
+
+For the reasons described above, the ATHENA framework has been selected as the framework to run the ESS inside the EF PT and, in a modified form, in the L2PU. The ESS is made by four sub-packages which have some dependencies by external packages, several coming from the offline software. The four packages are : the Steering, the Event Data Model (EDM), the HLT algorithms and the Data Manager. Any new development of trigger algorithm needs to be interfaced properly to these packages in order to be inserted in the framework and this is the procedure used to embed the \(\upmu\)Fast algorithm in the new software framework.
+
+The Steering controls the processing of the HLT algorithms in the right sequence in order to reach a trigger decision to be passed to the next trigger level. The event data used by the algorithms are structured according to the so called Event Data Model which covers all data entities in the event and their relationship (examples of data entities are the raw data in ByteStream format, the LVL1 Result, the LVL2 Result, the EF Result and other reconstructed quantities in the selection chain). The Data Manager handles all the event data during processing. It is based on the ATHENA StoreGate service [14] which provides the infrastructure to access data in a form suitable to the algorithms such as Conversion services from ByteStream to Raw Data Objects, different ROB Provider Services for LVL2, EF and offline trigger simulation.
+
+## 4 The new algorithm implementation
+
+The \(\upmu\)Fast code is written in C\(++\) and has been implemented in a modular way. This design choice has simplified a lot the migration from the old ATLAS trigger software environment (ATRIG) to the new PESA software framework. From the old code new software components have been obtained grouping the classes according to the task implemented, and embedding them with high level interfaces. Such components follow the standard programming patterns that are compliant with the rules of the ATHENA framework: "Algorithms" (and Tools) to implement the "procedures" called by the HLT steering to process the event data and "Services" to provide utility functions accessed by the Algorithms during the processing. The communication among software components happens via the high level interfaces.
+
+In Figure 5 a package diagram shows the software components employed for the Level-2 muon trigger as they are now organized within the ESS Selection Software. The main component is TrigmuFast, an HLT Algorithm, that controls the Raw Data access seeded by the ROI, the data reconstruction and the Muon Features Extraction. During the algorithm processing the event data are held in the Transient Event Store by the MuonByteStream classes. These classes implement the Raw Data Objects (RDO) for both RPC[8] and MDT[7] detectors and are accessed via the MuonDataContainer. Data Converter Services inside Storegate take care of convert the detector ByteStream data format into the RDOs during the data access. The Raw Data access by "region" is implemented using the RegionSelector[11] that provides maps between space regions and the collections of data belonging to those regions.
+
+To convert the RDOs into something usable by the data reconstruction, the algorithm accesses detector specific data brought the Cabling Services. These Services provide a standalone model of the detector geometry and readout, plus a mapping between the online identifiers schema and offline hierarchical identifiers[9]. Such a mapping is crucial for performing the ByteStream coding and for associate the RDO to the corresponding detector element that produced it. Cabling Services are designed to host conditions and calibration constants if these meta data will be required by the Level-2 data reconstruction. The geometry parameters are accessed via the Amdbsimrec interface that reads the AMDB database[10].
+
+The RPC strips that produced the trigger are also required to start the track reconstruction. Among these strips only the ones belonging to the pivot station (middle RPC doublet in the barrel muon spectrometer) will be provided by the LVL1 trigger processor. Therefore, it is mandatory to perform also a fast emulation of the Level-1 logic to identify the trigger strips in
+
+Figure 5: The dependencies of Fast algorithm.
+
+the coincidence station (the innermost RPC doublet in the case of the low-p\({}_{\rm T}\) trigger and the outermost in the case of the high-p\({}_{\rm T}\) trigger).
+
+For that reason, a simple and fast Level-1 simulation code has been rewritten. The aim is to provide an infrastructure to simulate the Level-1 basic logic. As shown in figure 5, uFast uses this code to select the strips that have produced the LVL1 muon triggers. The optimization of this code is the main achievment of the present implementation of the LVL2 muon package.
+
+### Fast internal structure
+
+The algorithm core is made of 7 subprocesses, implementing the selection tasks described in chapter 2. No direct communication is foreseen among different subprocesses: they simply operate on data organized in structures and modified to extract results into different structures.The subprocess execution is controlled by special classes called Sequences, which group the subprocesses into logical reconstruction steps and manage the data structure. These classes take care also to provide access to the data structure during the uFast execution. In this way the processed data can be inspected to perform a monitoring of the algorithm functionalities.
+
+This design reduces at minimun the latency due to the exchange of messages between subprocesses and of complex classes modelling the data, but at the same time grant a sort of modularity: each subprocess can be substituted providing that the new implementation operate on the same data structure. For the reasons described before, the interaction with the framework software components is limited to the level of the algorithm interface. Besides that interface the RDOs are replaced by data structure optimized for data recontruction procedure.
+
+### "Muon features" and trigger data.
+
+Once uFast has confirmed the muon candidate(s) indicated by the LVL1 Result in the ROI(s), it produces a set of "muon features" to be communicated to the Steering program. By these features the muon is completely identified as a physics object entering in the LVL2 Trigger Menu. The defined "features" are the following :
+
+1. **track \(p_{t}\) at the nominal p-p vertex**;
+2. **entrance radius**: radius of the surface that defines the Muon Spectrometer entrance;
+3. **hal at the entrance**: \(\eta\) of the muon track in the ATLAS reference system;
+4. **f at the entrance**: \(\phi\) of the muon track given in the reference system of the MDT station;
+5. **f direction**: average \(\phi\) of the muon track in the ATLAS reference system;
+6. **z at the entrance**: \(z\) of the muon track in the ATLAS reference system;
+7. **z direction**: cotg(\(\theta\)) of the muon track (at the entrance) in the ATLAS \(r\)-\(z\) reference system.
+
+The track momentum into the transverse plane (p\({}_{\rm T}\)) is estimated at the interaction vertex so that it can be related to the other physics features used in the trigger selection. On the contrary, the other kinematical parameters are given at the entrance of the Muon Spectormeter. This is defined by the surface that lays in the middle of the innermost MDT station.
+
+The main use of the "muon features" is made into the hypotesis algorithm that applies the threshold cut on the estimated p\({}_{\rm T}\). If the cut is satisfied, the muon object is confirmed as a good muon candidate and other algorithms, that exploit the data coming from the inner detector and the calorimeter, can be applied to achieve a further refinement of its physics properties. To identify the muon data into the other subdetectors, the direction of flight is used to backtrack the muon up to the interaction vertex.
+
+The "muon features" may be also part of the trigger data that will be bound together to the detector data in the event building process. The EF task may use them to monitor the quality of the \(\upmu\)Fast selection, by comparing the \(\upmu\)Fast by \(\upmu\)Fast with the \(\upp_{\mathrm{T}}\) reconstructed by the Event Filter. The geometrical features are available for seeding the EF reconstruction in a similar way in which the LVL1 ROI seeds the LVL2 selection. This operational mode of the EF must be foreseen for reducing the processing time in presence of a harhs background environment.
+
+## 5 Physics performance and timing
+
+The aim of the LVL2 muon algorithms is to reject muons with \(\upp_{\mathrm{T}}\) below a given threshold and fake muons accepted by the LVL1 trigger system. This is possible thanks to the high precision measurements provided by the MDT tracking system. The physics performance of \(\upmu\)Fast has been presented in detail in [1] and [3]. Here we only recall the main results presented in those papers. The old LUTs, calculated for the muon layout "M", have been used to reconstruct muons simulated with the most recent layout ("P"). This is possible because there are no significant differences between the two layouts; in addition we have also checked that the muon reconstruction is not affected by these changes. The main difference of the \(\upmu\)Fast implementation in the new software with respect the version presented in the Technical Proposal [2] is the use "Level-1 Emulation". However we expect this to have no or very little impact on the reconstruction efficiency.
+
+The track finding efficiency depends on the size of road width in each MDT station. A reconstruction efficiency of about 96% is obtained (with respect to the Level-1 muon trigger selection) with road 5 cm (middle large stations) to 50 cm (small outer stations) widths.
+
+Figure 6 left shows the transverse momentum resolution (\(1/p_{T}\)-\(1/p_{T}\)\({}^{\mathrm{true}}\))/\(1/p_{T}\)\({}^{\mathrm{true}}\) of muons generated with \(p_{T}\)\({}^{\mathrm{true}}\)=20 GeV as presented in the TP. The resolution tails arise from events with large Coulomb scattering, or from poor reconstruction induced by delta-rays emitted by the muon. The right part of the figure shows the reconstruction of a similar muon data sample with the \(\upmu\)Fast program implemented in the HLT software. As it can bee seen, the two results are identical, as expected.
+
+The muon \(p_{T}\) resolution (at the nominal vertex) has been evaluated with and without the simulation of the cavern background. Figure 7 shows the \(p_{T}\) resolution as a function of the muon \(p_{T}\) of isolated muons and without cavern background. The resolution is around 4.5% in the \(p_{T}\) region from 6 to 20 GeV and is less than a factor 2 worse that the one expected from the offline in the same region (about 2.5%). The background simulation performed for the TP, and done boosting its intensity by a factor 10, indicated a deterioration at 6 GeV/c (\(10^{33}\) cm-\(2\)s-\(1\) luminosity) from 5.5% to 5.8 and from 4.0% to 5.7% at 20 GeV (\(10^{34}\) cm-\(2\)s-\(1\) luminosity).
+
+Trigger rates are calculated by convolving the relevant efficiencies with cross-sections extracted from Monte Carlo such as DPMJET and PYTHIA. The former is used to calculate secondary muon rates from charged meson in flight decays, while the latter is used to evaluate muon production cross-sections from heavy flavour and the W boson. The \(\upmu\)Fast trigger efficiencies for \(p_{T}\)\({}^{\rm{thres}}\)=6 GeV and 20 GeV are shown in Figure 8.
+
+Figure 6: The \(\mathbf{p_{T}}\) resolution of 20 GeV transverse momentum muons reconstructed with the old implementation of \(\upmu\)Fast (left histogram) and with the same algorithm implemented in the new PESA software (right histogram; the cavern background is not simulated). The fit shown is a Gaussian function.
+
+Figure 7: The transverse momentum resolutions of isolated muons without (empty bullets) and with cavern background (full bullets). The luminosity is \(L\)=10\({}^{34}\) cm\({}^{-2}\)s\({}^{-1}\). An analytical function is also superimposed; in the case of no background a=300 MeV, b=0.0003 GeV\({}^{-1}\), and c=0.04.
+
+he contribution from the cavern background triggers accepted by the LVL1 is reduced by a factor larger than 100, thus bringing this source to a negligible level.
+
+A summary of the trigger rates at Level2 using the \(\upmu\)Fast algorithm is reported in Table 1.
+
+\begin{tabular}{|c|c|c|} \hline  & 6 GeV thresh. & 20 GeV thresh. \\ phys. process & (L=\(10^{33}\) cm\({}^{-2}\)s\({}^{-1}\)), kHz & (L=\(10^{34}\) cm\({}^{-2}\)s\({}^{-1}\)), kHz \\ \hline \hline _beauty decays_ & _0.86_ & _0.09_ \\ \hline _charm decays_ & _0.45_ & _0.04_ \\ \hline _W-\(\cdot\)\(>\)\(\mathbf{m}\)_ & _0.003_ & _0.02_ \\ \hline _p /K decays_ & _3.0_ & _0.07_ \\ \hline _cavern back. (nom.)_ & _negligible_ & _negligible_ \\ \hline _total_ & _4.3_ & _0.22_ \\ \hline \end{tabular}
+
+\begin{table} \end{table}
+Table 1: Trigger rates of the main physics processes (the leptonic W cross section is normalised to the value predicted by PYTHIA for \(\mathrm{p_{T}}\)\(\mathrm{\overline{\upmu}}\)\(>\)3 GeV and \(|\)\(|\)\(<\)2.7: 9.56 nb. This corresponds to a rate of about 100 Hz at nominal luminosity).
+
+Figure 8: **Fast trigger efficiencies curves for muons selected by the LVL1 muon trigger.**
+
+### Code timing
+
+The \(\upmu\)Fast trigger algorithm latency has been tested using a 2.4 GHz PC (CPU XEON, with 516 KB cache size). The data sets used consisted of about 400 simulated single muon tracks with 100 GeV transverse momentum, with and without the cavern backgorund (L = \(10^{34}\) cm\({}^{-2}\) s\({}^{-1}\), safety factor = 2). The timing measurement has been performed using the TrigTimer Service and running the algorithm as a standalone process.
+
+Several subprocesses of \(\upmu\)Fast have been checked: the Level-1 emulation, the muon trajectory fit based on RPC data, the MDT data selection and decoding, the muon trajectory fit made with the MDT data, the track sagitta measurement and the estimation of the transverse momentum associated to the track. In addition, the monitoring latency has been also evaluated. The monitoring consists of about 12 histograms filled with intermediate results coming from \(\upmu\)Fast subprocesses; this allows to control the correct functioning of the algorithm.
+
+The timing of each single subprocess is reported in Table 2 for muons with no cavern background. The value of the RMS associated is also reported for reference. The overall latency of the algorithm is 1 ms, and the most consuming process is the Level-1 emulation. The monitoring adds little time to this latency (about 0.06 ms).
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|} \hline \multirow{2}{*}{Subprocesses} & \multicolumn{2}{c|}{no cavern background} & \multicolumn{2}{c|}{cavern background **x** 2} \\ \cline{2-5}  & mean (ms) & RMS (ms) & mean (ms) & RMS (ms) \\ \hline \hline _LVL1 Emulation_ & _0.77_ & _0.2_ & _0.83_ & _0.1_ \\ \hline _RPC track recons._ & _0.032_ & _0.005_ & _0.032_ & _0.007_ \\ \hline _MDT data decoding_ & _0.037_ & _0.01_ & _0.052_ & _0.02_ \\ \hline _Contiguity alg._ & _0.011_ & _0.002_ & _0.012_ & _0.002_ \\ \hline _MDT track fit_ & _0.11_ & _0.01_ & _0.11_ & _0.02_ \\ \hline _sagitta meas._ & _0.003_ & _0.001_ & _0.003_ & _0.001_ \\ \hline _p\({}_{T}\) estimate_ & _0.003_ & _0.0004_ & _0.003_ & _0.0007_ \\ \hline _monitoring_ & _0.063_ & _0.009_ & _0.068_ & _0.03_ \\ \hline _total_ & _1.03_ & **-** & _1.11_ & **-** \\ \hline \end{tabular}
+\end{table}
+Table 2: List of the latencies of all main subprocesses of the \(\upmu\)Fast algorithm. In the “total” the global algorithm latency is given.
+
+igure 9 shows the overall latency distribution for the events in the sample. The tails are small and all events have been reconstructed with less than 2.4 ms. In presence of the cavern background the processing time increase up to 1.1 ms (10% more).
+
+## 6 Conclusions and outlook
+
+The implementation of the \(\upmu\)Fast algorithm in the new PESA software has been presented and discussed in detail. The integration has been succesfully performed and the code has been studied to check the physics performances and the latency, including the data access time. The physics results agree very well with those of previous analyses; the transverse muon momentum resolution is comparable to the one that can be obtained by offline packages and therefore valuable reductions of LVL1 muon rates can be achieved. The algorithm and data access timing is within the LVL2 latency. This indicates that \(\upmu\)Fast is not far from the optimization needed to run in the LVL2 processors of the experiment. However a number of important steps have to be made in the near future to complete the algorithm and its studies: in particular it is important to check the robustness of this program against several possible background conditions of the muon spectrometer. Furthermore, the present version of \(\upmu\)Fast, working only in the barrel region, has to be extend to include the full rapidity region covered by the muon system.
+
+Figure 9: Distribution of the total mFast latency, without cavern background (full line) and with the cavern background for nominal luminosity and safety factor = 2 (dashed line).
+
+## References
+
+* [1]**A muon trigger algorithm for Level-2 features extraction**, A. Di Mattia et al., CERN ATLAS note ATL-DAQ-2000-036, [http://doc.cern.ch/archive/electronic/cern/others/atl-not/Note/daq/daq-2000-036.pdf](http://doc.cern.ch/archive/electronic/cern/others/atl-not/Note/daq/daq-2000-036.pdf)
+* [2]**ATLAS High-Level Triggers, DAQ and DCS Technical Proposal, CERN-LHCC/ 2000-17.**
+* [3]**The Level-2 Muon Trigger for the ATLAS Muon Spectrometer**, A. Di Mattia, PhD Thesis, University of Rome "La Sapienza", 20 May 2000, [http://www.roma1.infn.it/exp/atlas/thesis/adimattia.html](http://www.roma1.infn.it/exp/atlas/thesis/adimattia.html)
+* [4]**The raw event format in the ATLAS Trigger & DAQ**, C.Bee et al., CERN ATLAS note ATL-COM-MUON-2003-011.
+* [5]**The NROD data format and the tower partitioning of the MDT chambers**, T.A.M.Wijnen, University of Nijmegen note HEN-434, [http://www.hef.kun.nl/atlas/Pub/mrodfmt100.pdf](http://www.hef.kun.nl/atlas/Pub/mrodfmt100.pdf)
+* [6]**Data format of the RPC detector of the Muon System data format**, Aielli et al., CERN ATLAS note ATL-MUON-2003-006.
+* [7]**Definition of "Raw Data Objects" for the MDT chambers of the Muon Spectrometer**, Assamagan et al., CERN ATLAS note ATL-COM-MUON-2003-020.
+* [8]**Raw Data Object definition for the RPC chambers of the ATLAS Muon Spectrometer**, Assamagan et al., CERN ATLAS note ATL-MUON-2003-018.
+* [9]**A Hierarchical Software Identifier Scheme for the ATLAS Muon Spectrometer**, K.Assamagan et al., CERN ATLAS note ATL-COM-MUON-2002-019, Version 2.0, http://muondoc/home/cern.ch/muondoc/software/Database/
+* [10][http://www.cern.ch/ATLAS/GROUPS/MUON/AMDB_SIMREC/amdb_simrec.html](http://www.cern.ch/ATLAS/GROUPS/MUON/AMDB_SIMREC/amdb_simrec.html)
+* [11]**Region-of-Interest Selection for ATLAS High Level Trigger and Offline Software Environments,** A.G.Mello et al., CERN ATLAS note ATL-COM-DAQ-2003-005 and ATLAS note ATL-COM-SOFT-2003-002, 24 March 2003.
+* [12]**The ATLAS DAQ, HLT and DCS Technical Design Report**, Trigger/DAQ Collaboration, in preparation.
+* [13]**Athena : User Guide and Tutorial**, [http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/General/Tech](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/General/Tech). Doc/Manual/2.0.0-DRAFT/AthenaUserGuide.pdf
+* [14]**StoreGate : a Data Model for the ATLAS Software Architecture**, P.Calafiura et al., [http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/EventDataModel/Tech.Doc/StoreGate/Chep01.pdf](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/EventDataModel/Tech.Doc/StoreGate/Chep01.pdf)

@@ -1,0 +1,177 @@
+[MISSING_PAGE_FAIL:1]
+
+## 2 Ringlet Start-up
+
+When the NodeChip generates the SCI clock and Sync packets, the LC1 will output a SCI clock and Sync packets. Without these inputs, the LC1 gives no SCI clock - as expected from the LC1 Specification [3]. The LC1 does not produce Sync packets in response to an input sync packet but at the rate set in the CSR.
+
+It was sometimes not clear how to start the ringlet. With both SCI-A nodes powered on, doing a software initialisation of the NodeChip followed by reading the LC1-A node_id register from the NodeChip usually caused the ring to become operational, i.e. allow the NodeChip to be able to send a SCI request to itself. (Is reading the LC1-A node_id register a pre-requisite to allowing the LC1-A bypass to work?) Sometimes the NodeChip had to be re-initialised or the switch power cycled or reset using the internal reset jumper (This is equivalent to power cycling the switch). It was found best to have all the 4*4 switch internal RESETx jumpers in.
+
+It seems probable that the Mach PLD in the 4*4 switch will reset a given LC1 chip if it detects that the incoming SCI clock has failed.
+
+## 3 Accessing the CSR Space of the LC1 Chip
+
+The NodeChip will ignore the node_ID and take all Cbus packets with address offsets that start FFFF,Exx,xxxx to access the CSR registers of the NodeChip. This means that the CSRs in the LC1 chips cannot be accessed directly over the Blink using the mapping of the SCI address offset in the private space of the LC1 to provide the sink Blink_ID of the Blink packet. All LC1 register accesses were made from the SCI side of the LC1 chip, using the node_id and address offsets that start FFFF,Fxxx,xxxx. For LC1-A this was a direct access from the SCI-A ringlet; but for LC1-C the request packet route is as follows:
+
+Request on SCI-A with the node_id of LC1-C
+
+LC1-A removes request and gives echo on SCI-A
+
+LC1-A generates Blink packet with source_id=0 and sink_id=F (through ID)
+
+LC1-C recognises node_id as being in its range of node_ids and accepts the Blink packet
+
+LC1-C places the request on SCI-C ringlet
+
+LC1-C recognises node_id of the incoming SCI-C packet as the node_id of LC1-C and accepts the request
+
+LC1-C sends the response back to the NodeChip using the reverse route.
+
+## 4 Waveforms for different SCI Packet Types
+
+### WSB
+
+Figure 2 shows the logic analyser traces observed on SCI-A, SCI-C and the Blink of the Switch when a Write Selected Byte request was sent from NodeChip-A to the STATECLEAR CSR of LC1-C using the arrangement shown in Fig. 1a. Note that the IFLG and OFLG signals are labled with respect to the LC1 chips.
+
+Figure 2: Write Selected Byte to CSR in LC1-C
+
+### Rsb
+
+Figure 3 shows the logic analyser traces observed on SCI-A, SCI-C and the Blink of the Switch when a Write Selected Byte request was sent from NodeChip-A to the STATECLEAR CSR of LC1-C using the arrangement shown in Fig. 1a.
+
+LC1_B_SW.DOC R.H-J
+
+Figure 3: Read Selected Byte to CSR in LC1-C
+
+### Move64, Nread64, and NWrite64
+
+Figure 4 shows the logic analyser traces observed on SCI-A, SCI-C and the Blink of the Switch when Move request was sent from NodeChip-A to NodeChip-C on SCI-C using the arrangement shown in Fig. 1b. Note the generation of the SCI move packet on SCI-C by LC1-C has been delayed to 556 ns from the expected 430 ns by the generation of a sync pulse at t = 300 ns. (430 ns was observed when this test was repeated.)
+
+NRead64 requests had the same parameters as RSB requests and NWrite64 requests had the same parameters as Move64 requests. This is expected as the respective request packets carry the same number of bytes.
+
+Figure 4: **SCI Move from NodeChip-A to NodeChip-C**
+
+[MISSING_PAGE_FAIL:6]
+
+Figure 7 shows the measured times between data on the Blink (FRAME-) and a packet on the destination SCI ringlet (OFLGn) as a function of the SCI packet length for both SCI ring speeds. The Blink operated at 50 MHz and the LC1 used "store and forward" mode.
+
+LC1_B_SW.DOC R.H-J
+
+Figure 6: Packet Transit Times and Occupancies as a function of SCI packet length on SCI-C 50 MHz
+
+Figure 7: Transfer Time of packets from Blink to SCI ringlet
+
+[MISSING_PAGE_EMPTY:8]
+
+[MISSING_PAGE_FAIL:9]
+
+To examine the re-try capabilities over Blink, two additional Move packets were sent from NodeChip-A to NodeChip-C with the following behaviour:
+
+LC1_B_SW.DOC R.H-J
+
+Figure 11: **LC1 re-tries the Blink when the destination asserts BUSY-**
+
+When the Blink destination is busy, the Blink source re-tries every 320 ns. This continues until the destination becomes free.
+
+## 7 Blink Packet Format
+
+Blink Packets for Request and Response have the same format. There are no echo packets on the Blink. The SCI packet is encapsulated by prepending the Blink code and postpending the Blink post, reserved and parity words. The following is generated using the Blink information from [3] and the SCI data from the IEEE standard [4], each item in bold represents a 16 bit word. Sub-items are listed most significant first. The values in square brackets [n] indicate the number of bits involved for this sub-item. The usual (observed) values for the parameters are given on the right hand side.
+
+Blink SCI Observed Value
+
+.Blink_sendID[4]
+
+.BLink_sinkID[4]
+
+0-12 == CHIP_ID 14 == HERE_ID node_id matched
+
+15 == THRU_ID put on remote SCI
+
+.vd =0 for SCI encapsulated packet
+
+.re =0 if packet not retried on Blink else =1
+
+.transID[6] copy of the low order bits of SCI control field
+
+targetId SCI remote node id
+
+command
+
+.mpr[2] max ring priority, initially 0 00
+
+.spr[2] send priority 00
+
+.phase[2] used by Q control for re-try 00= NOTRY
+
+.old discard stale packet by scrubber 0
+
+.ech 0 for send 1 for echo packets 0
+
+.eh 1 if 16 byte extended header 0
+
+.cmd[7] transaction performed :
+
+.RSB req. 000xxxx xxxx= final select bytes address
+
+WSB req. 001xxxx xxxx= final select bytes address
+
+dmov64 req. 1110110 0x76
+
+Nread64 0110000 0x30
+
+NWrite64 0110010 0x32
+
+RSB resp16 111101 0x7d
+
+Resp no data 1111100 0x7c
+
+sourceId sending SCI node id
+
+control.trace 0=dont log packet 0
+
+.todExp[5] time of death exponent 0=no tod 0
+
+.todMan[2] time of death mantissa
+
+.tpr[2] trans priority set by sender 00
+
+.transactionid[6] concat with sourcecid allows outstanding transactions 0
+
+offset address[48] Address offset within the node
+
+data[ ]
+
+CRC The SCI CRC. The LC1 is usually told to generate this CRC when the packet is transmitted
+
+see.crcc
+
+post.reserved[13]
+
+.less =1 packet has been truncated early after busy ack observed
+
+=0 not truncated
+
+.bad =1 SCI CRC bad
+
+.crcc SCI CRC status / cmd to line
+
+0 line to gen correct CRC
+
+1 line to gen wrong CRC
+
+2 line to gen stopped CRC
+
+3 line to use packet's CRC is valid 3
+
+reserved parity
+
+LC1_B_SW.DOC R.H-J
+
+## References
+
+[1] "SCI Subsystems for HEP Experiments", R.E. Hughes-Jones et al, Open Bus Systems Paris 1995
+
+[2] "Performance Measurements of the SCI NodeChip", R.E. Hughes-Jones, D.Mercer, MAN/HEP/Feb96
+
+[3] "Link Controller LC-1 Specification Rev 1.06", Dolphin Interconnect Solutions AS, Jul 1995
+
+[4] "IEEE Standard for Scalable Coherent Interface", IEEE standard 1596-1992 SCI Standard IEEE

@@ -1,0 +1,231 @@
+**ATLAS Internal Note**
+
+**DAQ-NO-095**
+
+**22 May 1998**
+
+**Atlas DAQ**
+
+**The Dataflow for the ATLAS DAQ/EF Prototype -1**
+
+G.Ambrosin\({}^{\rm b}\), H-P.Beck\({}^{\rm a}\), D.Francis\({}^{\rm b}\), F. Hogbe Nlend\({}^{\rm b}\), M.Joos\({}^{\rm b}\), GLehmann\({}^{\rm a}\), A.Mailov\({}^{\rm c}\), L.Mapelli\({}^{\rm b}\), G.Mornacchi\({}^{\rm b}\), M.Niculescu\({}^{\rm b,c}\), K.Nudan\({}^{\rm d}\), J.Petersen\({}^{\rm b}\), D.Prigen\({}^{\rm b}\), J.Rochez\({}^{\rm b}\), R.Spiwos\({}^{\rm b}\), L.Tremble\({}^{\rm b}\), G.Unel\({}^{\rm d}\), T.Wildish\({}^{\rm b}\)
+
+a. Laboratory for High Energy Physics, University of Bern, Switzerland.
+
+b. CERN, Geneva, Switzerland.
+
+c. Institute of Atomic Physics, Bucharest, Romania.
+
+d. Bogazici University, Istanbul, Turkey.
+
+NoteNumber : 069
+
+Version : 1.0
+
+Date : 1 November 1997
+
+Reference : [http://atddoc.cern.ch/Atlas/Notes/069/Note069-1.html](http://atddoc.cern.ch/Atlas/Notes/069/Note069-1.html)
+
+## 1 Introduction
+
+This document defines the dataflow system as part of the overall ATLAS DAQ/EF prototype-1 [1] and describes its high level design.
+
+After a definition of the dataflow system and an outline of its boundaries with other parts of DAQ/EF prototype -1, an overview of the dataflow operations is given in terms of the behaviour of its three main building blocks: the read-out crate (ROC), the event builder (EB) and the sub-farm DAQ. Based on the above, a factorisation into three sub-systems, the Local DAQ (LDAQ), the DAQ-Unit (DU) and the Event Builder (EB), is defined.
+
+### The Dataflow system in prototype-1
+
+The data flow component of the ATLAS DAQ/EF prototype-1 is responsible for moving the event data from the detector read-out links to the final mass storage. It also provides event data for monitoring purposes and implements local control for the various data flow elements. A global view of the data flow component is shown in Figure 1.
+
+### Factorisation of the dataflow system
+
+Three main functions are provided by the data flow. Specifically: the collection and buffering of data from the detector (the front-end DAQ), the merging of fragments into full events (the event builder) and the interaction with the event filter (EF) (the farm DAQ). In addition to the event building function (which we see as a dataflow building block), we are lead to the identification in the system of 2 modular functions (or building blocks):
+
+* The read-out crate (ROC): the segmentation of the detector read-out into Read-Out Driver (ROD) modules suggests to organise the front-end DAQ into a number of modular, independent elements (ROCs) each supporting the read-out from one or more RODs and having one or more connections to the event builder.
+* The sub-farm DAQ: the event filter farm may also be viewed as being (logically or physically) segmented into independent modular elements, each connected to one of the event builder outputs and treating one or more events. Such a modular element is called a sub-farm, its data acquisition part is the sub-farm DAQ.
+
+The term modular here refers to the fact that a ROC (or a sub-farm) works concurrently and independently with respect to any other ROC (sub-farm) in the system. Each modular element connects independently to the event builder. It is indeed the role of the event builder to combine the various "modules" into a coherent dataflow system.
+
+Figure 1: The DAQ/EF Dataflow
+
+### 3 Boundaries with other part of the system
+
+The dataflow has boundaries with other systems which are part of DAQ/EF -1, such as the event filter, or not, such as the triggers. This is sketched in the context diagram of Figure 2 where we have also indicated the relevant issues for each external system.
+
+* _The Detectors_: the boundary between the DAQ and detector systems is defined [3] to be at the level of the Read-Out Link (ROL) connecting the ROD with the read-out crate. The format of the data transferred over the ROL and the synchronisation (including issues such as back pressure and flow control) between this latter and the DAQ are two issues relevant to this boundary.
+* _The Triggers_: the DAQ, and in particular the ROC, exchange control commands (e.g. the Levell accept for a certain event) and data (e.g. Region Of Interest (ROI) information) with the trigger systems. The issues are in this case related to which trigger(s) the DAQ communicates with and to the format of the data and control commands exchanged.
+* _The Back-end:_ the dataflow and the back-end functions (e.g. the overall run control) ought to integrate into a unique system. Integration between dataflow and back-end is performed at the level of an element, part of each building block (ROC, sub-farm DAQ and event builder), which provides those DAQ functions which are not specifically the main flow of the event data.
+* _The Event Filter:_ the event filter interacts with the sub-farm DAQ by receiving full events, and outputs new events, such as re-formatted accepted events, to the sub-farm DAQ. How data (raw and filtered events) are exchanged with the event filter and in what format are the issues related to the integration of the dataflow with the event filter.
+
+Figure 2: Dataflow Context Diagram.
+
+* _The Mass Storage_: the sub-farm DAQ is also responsible for recording onto permanent storage data from the event filter. The main issues here are related to the format of the data, as produced by the event filter, and the characteristics of the mass storage system. A suitable software interface, to output full events, is the place where dataflow and mass storage integrate.
+* _The Monitoring programs_: dataflow and monitoring programs interact in terms of transactions (requests/replies) for event data. The boundary is specified as a software interface to retrieve an event, with some predefined characteristics (e.g. its trigger type), from the dataflow. The format of the event data is also here a relevant issue.
+
+### Definitions
+
+Reference [4] lists the definitions, acronyms and abbreviations related to the dataflow system.
+
+## 2 DataFlow High Level Design
+
+Starting from the top level view of the dataflow as defined in section 1.2, we refine the dataflow high level design by
+
+1. defining the three main dataflow functional elements (ROC, event builder and sub-farm DAQ) and
+2. discussing their integration into the dataflow system.
+
+### The read-out crate
+
+The ROC (see Figure 3 for a functional sketch) is the modular element responsible for handling the movement of data, originating from a group of RODs, between the ROL and the event builder. It provides the following main functions:
+
+* Detector read-out buffering and data distribution to other dataflow elements in the crate. This function is provided by the ROB (read-out buffer) element in Figure 3. The ROB is the integration element between the dataflow and the detectors.
+
+* The control of the flow of data within the crate. For example, event fragments buffered in the ROBs have to be discarded or moved to the EB according to the response provided by a data reduction device such as the LVL2 trigger system. The TRG (trigger) element provides this control function, it also plays the role of the integration element between triggers and dataflow.
+* Fragments of accepted events are moved from the ROB memories and merged into a "crate fragment" (consisting of all the elementary fragments from the individual ROBs). These are buffered and then sent to the event builder. This function is implemented by the L3IF (interface to the event filter) module.
+* Other ancillary functions must also be provided locally in the crate: the control of the crate, the handling of errors and support for event monitoring (the capability for external application programs to receive, upon request, a sample of the data flowing in the crate). An interface point to back-end DAQ functions is also needed. The component which is assigned to these ancillary tasks is defined as the LocalDAQ (LDAQ). The LDAQ plays also the role of integration element with both the back-end and the monitoring programs.
+* An important role is played by the intra-crate links (e.g. the one connecting the ROBs and the L3IF to support the data collection function) and the related communication protocols (e.g. the data collection protocol).
+
+We remark that here we have identified functions, i.e. we have described logical modules. While an implementation could possibly use a physical TRG and a physical L3IF module, a different implementation could merge some of the functions into the ROB. For example:
+
+* Each ROB connects directly to the event builder, that is the output part of the L3IF "module" has been collapsed (Figure 4) into the ROB (the intra-crate data collection link has become intra-module communications).
+
+Figure 3: Functional view of the Read-Out Crate (ROC)
+
+he ROB element.
+
+### The Event Builder
+
+The event builder merges the "create (or ROB, in the case of a direct connection between ROB and event builder) fragments" having the same level 1 ID1 into a complete event at a destination.
+
+Footnote 1: By Event ID we mean the value (over 24 bits) uniquely identifying an event provided by the Level 1 trigger (REF).
+
+The event builder has boundaries (Figure 6) with the ROC, at the level of the L3IF, and with the sub-farms, at the level of the switch to farm interface (defined below). In both cases a buffer for crate fragments (L3IF) and full events (SFI) is the physical boundary between the event builder and the other parts of the dataflow.
+
+Figure 4: L3IF function collapsed into the ROB element.
+
+Figure 5: TRG and L3IF functions collapsed into the ROB element.
+
+[MISSING_PAGE_FAIL:7]
+
+Although there are different performance requirements between the data flow in the read-out crate and in the sub-farm, they are functionally very close. One common aspect is that, as far as the data flow is concerned, individual crates as well as individual sub-farms, are independent modular elements. Another aspect is that of the presence in the sub-farm DAQ of elements providing a combination of event data input/output and buffering (the SFI and SFO elements). These considerations suggest a common approach, at least in the high level design, between the DAQ support in the ROC and in the sub-farm.
+
+### Common Issues
+
+Partitioning and event format are issues common throughout the DAQ/EF prototype -1 and, in particular, across the dataflow system. Here we define them and indicate where the dataflow provides support for their implementation.
+
+#### 2.4.1 Dataflow Partitioning
+
+Partitioning is defined as the capability of running multiple, independent, concurrent DAQ systems with full functionality on sub-sets of the detector. As such it is a requirement for the overall DAQ and, in particular, for the dataflow.
+
+Figure 8: The sub-farm DAQ.
+
+A dataflow partition is therefore a sub-set of the dataflow hardware and software which provides full DAQ functionality. This means that a partition has the capability of reading-out, recording and monitoring/calibrate a sub-set of the detector.
+
+We currently define the smallest detector partition (the granularity of the partition) as the read-out of one single ROC. We may have therefore two basic types of partitions:
+
+* A single (stand alone) ROC: a sub-set of the detector (corresponding to those RODs ending up into the specific ROC) is read-out and the data are output from the L3IF to some form of mass storage, calibration task, etc. In this case there is no intervention of any other part of the dataflow (event builder or farm).
+* A vertical slice of the dataflow, including one or more ROCs, the event builder and one or more sub-farms. This is expected to be the "standard" way of partitioning the dataflow.
+
+In both cases defined above we remark that:
+
+* ROCs and sub-farms are partition blind, in the sense that they do not have to perform anything special to run in a particular partition and nor do they actively participate to the process of partitioning the dataflow. They are passive elements as far as partitioning is concerned. The single, stand alone, ROC is just configured as using a different ROC output task.
+* The event builder is the sub-system which implements the partitioning of the dataflow. At the level of the event builder, dataflow partitions are non intersecting sets of sources and destinations (i.e. groups of ROCs and sub-farms). The event builder is physically shared by all the running partitions while the data flow manager implements the association between event builder sources and destinations.
+
+#### 2.4.2 Event Format
+
+The structure of the data, at various stages within the DAQ/EF prototype -1 in general (and the dataflow in particular) is defined by the event format. The event format allows elements of the dataflow, as well as processing tasks, to access part of the data without resorting to other resources (such as a database). It defines how data of a ROB, crate fragment or sub-detector may be directly accessed by processing tasks. Moreover it defines additional data that is added to the detector data (such as event tags) by elements of the dataflow to allow processing tasks to e.g. quickly identify the type and origin of the event.
+
+Formatting of the event, in the sense of adding information (header, pointers, etc.), is supported in the dataflow by any element which handles the data (ROB, L3IF, SFI).
+
+### Integration
+
+#### 2.5.1 Internal Dataflow integration
+
+Integration between ROCs, event builder and sub-farm DAQs is realised at the level of the boundary between sub-systems.
+
+* The L3IF element realises the interface between ROC and event builder insofar as it provides data collection at the ROC level (the last data flow step in the ROC) and performs the source task of the event builder. The L3IF buffer is both the boundary between ROC and event builder as well as the place were integration happens.
+* The SFI element realises the interface between the event builder and sub-farm DAQ it plays a role analogous to that of the L3IF for the ROC and the event builder. It performs the event builder destination task and interfaces to the distribution of events to the event filter. Again the SFI buffer acts as both the boundary and the integration point between event builder and sub-farm DAQ (see Figure 8).
+
+#### 2.5.2 External Dataflow integration
+
+Integration with systems external to the dataflow happens at the following points, as depicted in Figure 2
+
+* The ROB module supports the integration of the ROC with the detectors (i.e. the read-out link from the detector ROD).
+* The TRG module integrates the ROC with the trigger systems.
+* The LDAQ integrates all building blocks with both the back-end and the monitoring and calibration programs.
+* The SFI and SFO support the integration of the sub-farm DAQ with the event filter.
+* The SFO integrates a sub-farm with the mass storage system.
+
+## 3 Development Organisation
+
+### Sub-systems
+
+The functional overview of the dataflow as described in section 2 suggest a factorisation of the dataflow system into three sub-systems, each fulfilling a function: the movement of the data within a modular unit, the merging of event fragments and all the functions unrelated to the movement of the data. We call them, respectively, the DAO-unit, the Event Builder and the localDAQ sub-system.
+
+The above factorisation is related to the design of the dataflow, it aims at exploiting functional commonalities across the system. We also expect that part of this factorisation will be carried over to the implementation phase: for example localDAQ functions are candidates for common implementation across the dataflow system.
+
+#### 3.1.1 The DAQ-Unit
+
+The DAQ-Unit implements the flow of the event data either in the ROC or in the sub-farm DAQ. It consists of:* _I/O modules_: these are elements in the DAQ-Unit located at the boundaries with other DAQ systems (e.g. the trigger system) or sub-systems (e.g. the event builder). They provide means to input, buffer and output data. The following instances of I/O modules have been identified: 1. The ROB, placed at the interface between detectors and the ROC. 2. The TRG, located at the interface between the trigger systems and the ROC. 3. The L3IF, located at the interface between the ROC and the Event Builder. 4. The SFI, located at the interface between the Event Builder and the Event Filter. 5. The SFO, located at the interface between the Event Filter and the mass storage system
+* _Data Links_ and related data transfer protocols: these implement the movement of data within a DAQ-Unit and between I/O modules: 1. The data collection link: event fragments are collected from ROBs to form a crate-wide fragment in the L3IF I/O module. 2. The TRG link: commands and ROI data are sent by the TRG link to other I/O modules (ROB and/or L3IF) in the ROC. 3. The distributor and collector links: events are provided by the SFI to the event filter through an event distributor connection, event filter transformed events are provided to the SFO via the event collector connection. 4. The LDAQ link: the DAQ-Unit (both for the ROC and sub-farm DAQ) communicates, for instance control and event monitoring data, with the LDAQ over the LDAQ link. 3.1.2 The LocalDAQ. The LDAQ sub-system implements all the common DAQ functions which are not related to moving events along the DAQ system. These functions, although with some degree of specialisation, are common throughout the dataflow system: in the ROC, event builder and sub-farm DAQ. A minimal set of functions provided by the LDAQ includes:
+* local control within the dataflow: both to control a data taking session and to deal with errors produced during the data taking session.
+* support to event monitoring programs: a statistical sample of the events flowing in the dataflow (ROC or sub-farm) has to be provided to user programs for analysis/monitoring purposes.
+* access to configuration data bases: the dataflow system configuration (for example how the dataflow is partitioned) and the dataflow parameters (such as buffer sizes) will be made available in the form of a data base. The contents of the data base will be made available by the LDAQ to the other dataflow sub-systems.
+* interface to back-end: the LDAQ is the point in the dataflow system which connects to the back-end system, for example, as far as run control and message reporting are concerned.
+* stand alone operation: the LDAQ will also provide the facility to run a dataflow building block, such as a single ROC, in stand alone mode (e.g. for debugging purposes). This means that suitable emulation of back-end functions will be provided by the LDAQ.
+
+#### 3.1.3 The Event Builder
+
+The event builder implements the merging of event fragments into full events as well as the routing of full events to appropriate destination units. Its overall description is that given in section 2. We factor out, at this point, all the other ancillary functions which can be associated to the localDAQ.
+
+### Integration into dataflow building blocks
+
+The dataflow building blocks defined in section 2. are realised by integrating a localDAQ with a sub-system providing data movement (i.e. a DAQ-Unit or an event builder):
+
+* The ROC is realised by integrating a ROC localDAQ with a DAQ-Unit composed of ROC elements.
+* A sub-farm DAQ is realised by combining a sub-farm like DAQ-Unit with a LocalDAQ.
+* The event builder combined with a localDAQ provides the full functionality of the event builder building block.
+
+The differentiation of a DAQ-Unit for a ROC from the one for a sub-farm DAQ as well as the differences between localDAQs at different levels in the dataflow (ROC, event builder, sub-farm) are a subject for the design phase of each sub-system.
+
+The integration of localDAQ and the other sub-system types is also a subject which is relevant to the further design phase.
+
+## 4 Appendix (Previous Work)
+
+The first phase of the project, one of pre-design analysis and early prototypes both in the area of the read-out crate and the event builder, was completed in 1996. Extensive documentation in terms of summary documents, workplans and technical notes is available in [5]and [6] to which reference should be made for detailed results. Here we discuss some relevant topics.
+
+Pre-design analysis of the read-out crate and the sub-farm DAQ has resulted in the identification, of the concept of an I/O module: the combination of a memory, a processor and a number of I/O channels. For example, a ROB is an instance of an I/O module with one high-speed input channel (from the detector) and at least two output channels (one to the L3IF and the second to the LDAQ); the L3IF, TRG and SFI are other instances of an I/O module.
+
+A number of initial selections of hardware elements has been made in the area of the read-out crate.
+
+* VMEbus is used as the crate integration bus as well as the initial implementation of the intra-crate links; evaluations and studies to select other technologies for intra-crate links, such as the Raceway Interlink and the PVIC systems, are under way.
+* PCI has been selected as the I/O integration bus within an I/O module, the PMC format is the preferred one for I/O interfaces.
+* I/O modules are currently implemented by VMEbus, PowerPC based processors with 2 (or more) PMC sites.
+
+Hardware libraries (e.g. interfaces to the module hardware features such as the PCI bus) and generic (hardware and operating system independent) packages (such as buffer management and I/O scheduling) have been developed to support the generic I/O module element.
+
+Studies of operating systems for real-time applications including the possibility of using PCs and/or the WindowsNT operating system, at least in the area of the LDAQ, have also been performed and are reported in [8].
+
+Intra-crate communication protocols have been defined and prototyped to support both the local DAQ (e.g. control transactions between LDAQ and a ROB) and the data flow (e.g. the data flow control messages exchanged between the TRG module and the L3IF).
+
+A local control and a monitoring sub-system have also been prototyped. The event monitoring sub-system has been designed to de-couple the sampling of event data (from the data flow) from the request of events (from analysis programs). This de-coupling is achieved via a data-base which is periodically updated to contain a consistent snapshot of the data flowing in the crate. The same LDAQ functionality is applicable to the sub-farm DAQ.
+
+Based on the above hardware choices and software basis, a read-out crate prototype has been built. It covers the full internal functionality of the crate and is being used to test design ideas and to measure performance in certain areas. For example, the TRG module has been shown to be capable of performing part of its task (input from PMCs, some calculation on the input and then re-sending the result to one I/O module in the crate) at a rate compatible with the final ATLAS requirement of 100KHz (LVL1 rate).
+
+In the event builder area we have addressed some of the issues related to the general event builder process as well as performing technology evaluations [7].
+
+## 5 References
+
+[1]G. Ambrosini et al., The ATLAS DAQ and Event Filter Prototype "-1" project, presented at CHEP97, [http://atddoc.cern.ch/Atlas/Conferences/CHEP/ID388/ID388.ps](http://atddoc.cern.ch/Atlas/Conferences/CHEP/ID388/ID388.ps).
+
+[2]The ATLAS Collaboration, Technical Proposal for a general purpose experiment at the Large Hadron Collider at CERN. CERN/LHCC/94-43.
+
+[3]ATLAS T/DAQ steering group, Trigger and DAQ interfaces with Front-End Systems - Requirements Document (Version 1.0). [http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/FRONTEND/freq.ps](http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/FRONTEND/freq.ps).
+
+[4]D. Francis. Definitions, acronyms and abbreviations in DAQ prototype -1. DAQ/EF -1 Technical Note 46.
+
+[5][http://atddoc.cern.ch/Atlas/FrontEnd/Welcome.html](http://atddoc.cern.ch/Atlas/FrontEnd/Welcome.html).
+
+[6]Front-End DAQ Discussion group. Summary document and workplan. April 1996. [http://atddoc.cern.ch/Atlas/FrontEnd/document/draft.ps](http://atddoc.cern.ch/Atlas/FrontEnd/document/draft.ps)
+
+[7]Event Builder Working Group. Summary document and workplan. August 1996. [http://atddoc.cern.ch/Atlas/EventBuilder/document/summary.ps](http://atddoc.cern.ch/Atlas/EventBuilder/document/summary.ps).
+
+[8]G. Ambrosini et al. Operating System Studies for DAQ Applications. presented at CHEP97, [http://atddoc.cern.ch/Atlas/Conferences/CHEP/ID387-392/ID387_392.ps](http://atddoc.cern.ch/Atlas/Conferences/CHEP/ID387-392/ID387_392.ps).

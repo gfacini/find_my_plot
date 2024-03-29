@@ -1,0 +1,113 @@
+# Pile-up Simulation for Atlas Calorimeters
+
+S. Simion.
+
+CERN, 19 June 1998
+
+###### Abstract
+
+This note describes some technical details about the pile-up code.
+
+## 1 Pile-up simulation
+
+Fully-simulated minimum-bias events are added at reconstruction time. Calorimeter data for these events are usually read from a separate file, in a format described below.
+
+### Calorimeter Data Format for minimum-bias events
+
+Each calorimeter cell is represented on 2 words, namely a 32-bit integer containing the cell IDentifier, and a 32-bit float containing the non-calibrated cell energy. These two words are stored consecutively. Only active cells are present. Each event consists of a list of cells, stored in increasing order of the cell ID (to minimize the number of cache misses when the cells are scattered into ENER matrices.) The file **minbias.data** starts with a 10,000 word header describing the event lengths, followed by the list of events themselves. The data are unformatted (for fast access); the internal representation is the same on HPUX and AIX systems. This format allows random access to any event, either using **lseek** and **read** system calls, or via memory mapping.
+
+Data from memory mapped files are easily accessed, in the same way as the elements of an ordinary vector. In addition, if the same data are accessed frequently, subsequent reads become very fast if the amount of memory is large enough to hold the entire file. If there is not sufficient memory, however, I/O will occur in order to satisfy the page faults.
+
+All the jobs running on the same machine and using the file **minbias.data**, should access the same single file (not copies of it) thus sharing the same memory region to which the file has been **mmap**-ed.
+
+The routine **rusage.c** is provided to monitor the resource usage. Called for each event, this routine shows the real (elapsed) time, the user (CPU) time, and the paging activity. On HPUX systems it also shows the number of memory pages used by file mapping. If there is enough memory, the paging activity should be very low, and the real time close to the CPU time. Otherwise, the real time may increase to 20 sec/event, and paging activity is high. In such case one may restrict the range of min-bias events to be used. It is normal that the first (up to 50) pile-up events take some time to simulate, as the file **minbias.data** is progressively loaded into memory.
+
+Currently, the program uses 6275 minimum-bias events which occupy 168 Mbytes.
+
+### Pile-up program flow
+
+Pile-up simulation is controlled by the routine **CLPILE**. It generates a list of min-bias events to be added: an average of 2.3 events per bunch crossing at low luminosity, and 23.0 events at high luminosity. The number of events follows a Poisson distribution. Normally thebunch crossing number ranges from -3 (three bunch crossings after the main event) to 25 (25 bunch crossings before the main event), with the possibility to skip the bunch crossing number zero. (This is useful when used in conjunction with the standard Atlas background addition, in which case events from bunch crossing number zero are read from the "B" stream.) The events are then routed to PIW which simulates the electronic shaping and adds the weighted energy to the ENER matrices.
+
+PIW makes use of pre-calculated shaping weights, which are defined for each cell type and for each bunch crossing. PIW also decodes the cell IDentifier and extracts the Atlas region number IREG, the electronic cell type IDelec and the cell position inside the ENER matrices.
+
+The routine PIW is the hot spot of the program. A large fraction of the time is actually spent accessing the ENER matrices to add the energy: Q(i)=Q(i)+E, because of cache misses. All other computations are rather fast, but the routine should be compiled with -O2 on AIX and -O3 on HPUX.
+
+### Electronic shaping data
+
+The electronic types are listed below. IDelec is the key to access the pulse data from the PULSE_S common. An example is shown.
+
+\begin{table}
+\begin{tabular}{|l|l|l|} \hline
+**Calorimeter** & **Sampling** & **IDelec** \\ \hline EM barrel & S1 & 1 to 59 \\ \cline{2-3}  & S2 & 60 to 116 \\ \cline{2-3}  & S3 & 117 to 143 \\ \hline not used & & 144 \\ \hline EM endcap & S1 & 145 to 188 \\ \cline{2-3}  & S2 & 189 to 232 \\ \cline{2-3}  & S3 & 233 to 252 \\ \cline{2-3}  & S1’ & 253 to 259 \\ \cline{2-3}  & S2’ & 260 to 266 \\ \hline Barrel presampler & & 267 to 274 \\ \hline HEC & S1 & 275 to 288 \\ \cline{2-3}  & S2 & 289 to 302 (302 not used) \\ \cline{2-3}  & S3 & 303 to 316 (303 and 316 not used) \\ \cline{2-3}  & S4 & 317 to 330 (317 and 318 not used) \\ \hline Tilecal & & 331 \\ \hline FCAL & S1 to S3 & 332 to 334 \\ \hline EC presampler & & 335 to 346 \\ \hline \end{tabular}
+\end{table}
+Table 1: Electronic cell types for Atlas calorimeters.
+
+C This is an example on how to access the pulse shape data
+
+COMMON/PULSE_S/QP
+
+DIMENSION QP(12800),LP(12800)
+
+EQUVALENCE QP,LP)
+
+Delece = 1
+
+! refers to any of the first 8 strips
+
+L_|Delec = LP(|Delec)! where to find the pulse
+
+IF (L_|Delec.EQ.0) GOTO 999
+
+! no information found
+
+NBX = LP(L_|Delec)! the number of bunch crossings
+
+NMX = LP(L_|Delec+1)! which one is at peak
+
+w1 = QP(L_|Delec+2)! the first weight stored
+
+wpeak = QP(L_|Delec+1+NMX)! this should be 1.0
+
+wlast = QP(L_|Delec+1+NBX)! the last weight (end of the undershoot)
+
+## 2 Multiple Sampling
+
+In addition to the CREG/ENER matrices, the ZEBRA banks CREG/MULS/ENER are created optionally (the MULS flag must be set to 1). Five energies are then stored for each calorimeter cell, as if the response were sampled at -50 ns, -25 ns, 0, 25 ns and 50 ns with respect to the peak. The five samples are stored consecutively; so the MULS/ENER banks may be viewed as Fortran vectors with subscripts (Isample, Iphi, Ieta). The usual CREG/ENER matrices are only created, but not filled. Further processing of the MULS/ENER matrices is left to the user.
+
+## 3 Electronic Noise
+
+If multiple sampling is required, correlated1 electronic noise is added to the MULS/ENER banks. Gaussian noise is generated following the CORGEN approach. The noise magnitude and the autocorrelation function are taken from the NOISE_S common. The electronic cell type IDElec is used to access this information. The common starts with 2 words for each cell type, the first is the noise magnitude, and the second is an index to the normalized
+
+ autocorrelation vector: ON(2*IDelec-1)=SIGMA, ON(2*IDelec)=Indx,
+
+ON(Indx)=R(25 ns), ON(Indx+1)=R(50 ns), ON(Indx+2)=R(75 ns), ON(Indx+3)=R(100 ns).
+
+Sometimes Indx will be 0, in which case uncorrelated noise is generated.
+
+Currently Indx has one of the following values: 700 (EM calorimeters, sampling 2 and 3); 704 (EM strips); 708 to 792 (HEC) or 0 (Tilecal and Forward calorimeters).
+
+The noise autocorrelation function is very difficult to predict in the case of 0T electronics because of the cable coupling. Noise measurements in an Atlas-like setup are needed to complete the simulation.
+
+## 4 Digital Filtering
+
+There are two, technically different, practically equivalent ways of doing digital filtering (DF). The first requires the five samples to be present, and the MULS/ENER data to be 
+
+[MISSING_PAGE_FAIL:4]
+
+## References
+
+* [1] Y. Jacquier et al., Atlas Note LARG-80, September 1997.
+* [2] R.L. Chase et al., Atlas Note LARG-10, March 1995.
+* [3] W.E. Cleland and E.G. Stern, Nucl. Inst. Meth A338 (1994) 467.
+* [4] C. de La Taille, Atlas Note LARG-35, February 1996.
+* [5] Y. Tikhonov et al., Atlas Note LARG-7?, April 1998 [Endap Presampler].
+* [6] BNL and Milano / Specification Requirements for Warm Preamplifiers.
+* [7] Y. Jacquier, _Preamplificateur de courant bas-bruit pour le calorimetre electromagnetique d'Atlas_, Ph.D. thesis, LAL 97-56.
+* [8] M. Bosman, I. Efthymiopoulos, A. Kiryunin, P. Loch, private communications.
+* [9] IBM Publication No. SC09-1705-00, _AIX Version 3.2 for RISC System/6000: Optimization and Tuning Guide for Fortran, C and C++_.
+
+\begin{table}
+\begin{tabular}{|l|l|l|} \hline
+**Parameter** & **Value** & **What it does** \\ \hline icnEV2 & & Last min–bias event to be added. \\ \hline icnPRT & & Print flag. \\ \hline icnMLS & 0 or 1 & Multiple sampling on/off. \\ \hline icnDF & 0 or 1 & Digital Filtering. If icnMLS=1 this flag has no effect. If icnMLS=0 and icnDF=1, then the program will use DF weights optimized to minimize electronic noise (X=0.) \\ \hline \end{tabular}
+\end{table}
+Table 2: CNOI datacard and its parameters.

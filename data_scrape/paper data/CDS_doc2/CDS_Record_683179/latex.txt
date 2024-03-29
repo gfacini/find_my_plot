@@ -1,0 +1,102 @@
+**ATLAS Internal Note**
+
+**SOFT-NO-004**
+
+**20 October 1993**
+
+An algorithm for ECAL cluster reconstruction
+
+**P. Schwemling**
+
+LPNHE - University of Paris-VI,VII.
+
+October 14, 1993
+
+**Abstract**
+
+We present in this note an algorithm to reconstruct electromagnetic showers
+
+deposited in the electromagnetic calorimeter of the ATLAS detector. This algorithm,
+
+conceptally very simple, allows a subsequent shape analysis, and has the advantage
+
+not to make any a priori hypothesis about the shape of the clusters to be
+
+reconstructed.
+
+Introduction
+
+Electromagnetic cluster reconstruction is of importance for many physics studies that could be conceived using the ATLAS detector. It is well known that proper lepton identification is needed to discover new phenomena, since channels where leptons appear in the final state are often (relatively) clean. For example, at LHC, to cover the Higgs mass range \(80<m_{H}<130\) GeV, one may search for the decay \(H\to\gamma\gamma\). To observe this signal, one needs to have as good resolution as possible on the photon position (to have a good resolution on the Higgs mass spectrum), and one needs to reject efficiently isolated \(\pi^{0}\)'s, which may simulate isolated photons. One would like to use also the decay channel \(H\to l^{+}l^{-}l^{+}l^{-}\), where one needs to be able to tag non-isolated leptons (coming for example from \(b\)-quark decays) at large rapidities and low transverse energies. From a "technical" point of view, this means that one needs an algorithm that does not produce clusters with a simple fixed shape, but takes advantage of the good granularity of the ATLAS electromagnetic calorimeter system, and produces clusters whose structure can be analysed further to figure out whether its _shape_ identifies it as a gamma or as a \(\pi^{0}\) for example, or whether one could _isolate a substructure tagging the presence of an electron_.
+
+## 2 Formal description of the algorithm
+
+In this section we define what we call an electromagnetic cluster, and which "topological" properties it should have ; then we will explain how these ideas are implemented in practice.
+
+### How to define an electromagnetic cluster
+
+The simplest way to define an electromagnetic cluster is to try to find a local energy deposition maximum within a window of fixed size in \(\eta\) and \(\Phi\), to center the cluster around this local maximum, and to define as a "cluster" the window which is best centered around the local maximum. This clustering algorithm is conceptually close to pattern recognition algorithms that are of common use in image processing techniques, and is very well suited as a trigger algorithm, because of its speed.
+
+When one tries to do pattern recognition, one knows in advance what one is looking for, and there is no objection to use this a priori knowledge in the algorithm. However, if one wants to analyse the shape of the cluster (maybe to find clusters that are in fact due to more than one particle very close to each other), one cannot make such a priori hypotheses. This is why we prefer to see a cluster as a set of "topologically connected" calorimeter cells, where we mean by "topologically connected cells" cells that have at least one corner or one side in common. This is the definition that ALEPH uses for its own calorimeter clustering algorithm [1]. It allows us to build clusters whose longitudinal and transversal shape is not fixed a priori, and can be studied at a later stage. For example, all the fine structure that is obvious in figure 1 can be disentangled to extract the contributions from each individual particles.
+
+## 3 Implementation
+
+The algorithm can be described as follows:
+
+* In a first step, one looks for electromagnetic cells containing energy deposition above a certain threshold (called treshold_1 below). Ideally, this treshold should be set to a value close to or slightly above the average noise level, to provide efficient noise rejection while loosing as few "active" cells as possible. In other words, this step looks for cells containing enough energy to be considered as actually coming from real particles. We call this set of cells set_1 hereafter.
+* In the second step, one loops over all cells belonging to set_1 and one looks for a cell containing energy above a second treshold (called hereafter threshold_2). This treshold should be set to a value significantly higher than the previous one (e.g. if threshold_1 is set to something like 150 MeV, threshold_2 could be as high as 0.5-1.0 GeV). It can be interpreted as a test we use to decide whether a given cell belongs for sure or not to a cluster. We call this cell the cluster starting cell. It should be noted that some simple variations around this scheme certainly deserve some studies : one could for example apply the cuts threshold_1 and threshold_2 on the transverse energy instead of the total energy.
+* Once we have found a cluster starting cell, we build a cluster around it. This is done recursively : we try to add to the cluster the neighbours of the cluster starting cell; next we try to add the neighbours of the neighbours and so on, until we do not find any more cell that we can add to the cluster. To be added to an already partly reconstructed cluster, a cell just has to belong to set_1, the set of cells containing energy above threshold_1. Practically, there are two ways to implement this recursive algorithm. These two ways are mathematically rigorously equivalent and thus produce the same results.
+
+Figure 1: Two typical clustersThe first way is to loop over all cells in set_1, checking for each cell if it is one of the neighbours of one of the cells of the partly reconstructed cluster. The code one gets is easy to understand, and such an approach is memory inexpensive. However, it is highly inefficient, because one cell only has eight neighbours and one loops uselessly over all other cells. Furthermore, it is easy to see that the total processing time is roughly proportional to the square of the number of cells in set_1; this is unacceptable, because it increases very fast with the number of cells to consider. For example, for an event \(H\to l^{+}l^{-}l^{+}l^{-}\), one gets something like \(\simeq 8000\) cells to group into clusters. On an HP-715 workstation, this leads to processing times that are over one day per event; this is just ridiculously too high. * The second way is to explicitly use recursion, using a stack that keeps track of the number of closest neighbours that have been already considered for each cell stored in the stack. The cells whose eight neighbours have not been all considered get stacked, and progressively, as the algorithm proceeds, the ones that have been fully processed get unstacked. To make things clearer, let us consider the first steps of the algorithm. 1. Initialisation step : We start with the cluster starting cell. Since no of the closest neighbours of this cell has been considered, we push it onto the stack, and it gets to the top of stack. (Figure 2 2 2. Termination step : If the stack is empty, the algorithm is finished. 3. Processing step : Get the top of the stack. If all its closest neighbours have been considered, remove it from the stack. The new top of the stack is the cell that was stacked just before the top of the stack. If all the closest neighbours of the top of stack have not been considered, try to find among them a cell that can be added to the cluster. If one is found, it becomes the new top of the stack (figure 3), and one goes back to the processing step. If one does not find such a cell, one just goes back to the processing step without doing anything else. In FORTRAN, this approach implies to manage by hand the stacking and unstacking mechanisms. This makes the code not as understandable as in the first approach. Furthermore, one needs here an easy and fast way, knowing the coordinates of one cell, to access the contents of the closest neighbours. The simplest way to do that is to just map the calorimeter on a 3-d array PTR_ECEL(I,J,K), where I is the \(\eta\) cell position, J its \(\varphi\) position and K the sampling layer. With this algorithm, the total processing time is only proportional to the number of cells in set_1, which leads to a much smaller time than with the first approach. Again on an HP-715, the processing time is of the order of a few minutes. We have thus decided to use this second approach, because it is clear that it is the only workable one. We have described here how we reconstruct electromagnetic clusters in the ECAL. Obviously, the same algorithm can be applied to the preshower as well, and we did that. However, the thresholds have different values from the ones used for the ECAL clustering.
+
+Figure 3: Processing step. A new cell just has been stacked.
+
+Figure 2: Initialisation step. The stack contains only the cluster starting cell
+
+## 4 Practical Implementation
+
+### The code
+
+The code has been written in such a way that it shoud be as much as possible independant from the actual memory management system that is used, and as modular as possible. This implies that there is no information that may be used outside the algorithm that gets stored in commons. All the useful informations are stored in banks, and only in banks.
+
+Practically, the code is organized as follows, in three separate parts:
+
+* A routine called FILL_ECEL, looking for cells above threshold_1, to build set_1. This routine fills for each cell in set_1 a bank containing all the relevant information: cell position in \(\eta\) and \(\varphi\), calibrated cell energy, sampling layer and calorimeter number (1 stands for barrel, 2 for end-caps). This routine may be seen as an interface between the raw data and the clustering code : if for example one would like to apply the algorithm on real data, one just would have to rewrite this routine, so that it would fetch the hits from the raw data banks instead of reading from the DICE common blocks. We could have considered barrel and end-caps to be separate detectors, storing the cells of both detectors in different banks. However, the information one needs in both detectors to perform the reconstruction is the same, so it makes sense to use only one bank, keeping track of which detector the cell belongs to. In addition, this feature would make it easy to build clusters belonging at the same time to both detectors; this feature may be useful. Of course, the same applies for the preshower.
+* Two routines called FIND_ECLU and GET_ECEL_NEIGHBOUR. FIND_ECLU contains the clustering algorithm, as described above. GET_ECEL_NEIGHBOUR is used to find the closest neighbours of a cell, as it should be obvious from its name.
+* A routine called FILL_ECLU. This routine computes some useful quantities to analyse an electromagnetic cluster : total energy, average coordinates in \(\eta\) and \(\phi\)...
+
+Similarly, for the preshower the three routines are called FILL_PSCE, (to look for preshower cells above the first threshold), FIND_PSCL (to look for clusters), FILL_PSCL (to compute useful quantities).
+
+### The data structures
+
+We use bare ZEBRA memory management, the banks being accessed in the way proposed in [2]. The banks we use are the following:
+
+* Path : /SECT/ECAL/ECEL This bank contains information about calorimeter cells in set_1.
+
+* Path : /SECT/ECAL/ECLU This bank contains information about calorimeter clusters.
+* Path : /SECT/PRES/PSCE This bank contains information about preshower cells in set_1.
+* Path : /SECT/PRES/PSCL This bank contains information about calorimeter clusters.
+
+One could use a tree structure like the one described in [2], see figure 4. However, we didn't proceed this way, because for the time being there is no DELETE possibility. Since we create special ECEL banks to keep information about individual cells, using the tree structure of figure 4 would lead us to a duplication of the information. This is both a waste of memory space (mostly) and (additionally) computing time. Furthermore, the tree structure of figure 4 only handles many-to-one relationships, and we wanted to keep enough generality to be able to handle other relations like many-to-one or many-to-many. This is why we handle the relations "by hand", using classical pointer techniques (figure 5). It should be stressed that the exact way the relations between the banks are stored is not very important. It would be very easy to modify it, as long the relation between the ECLU bank and the ECEL bank is defined as in figure 6
+
+## 5 Prospects
+
+Having built electromagnetic clusters, the next step is obviously to properly associate them to each other (if coming from the decay of the same particle) and/or match
+
+Figure 4: A possible tree structure to handle many-to-one relationships.
+
+Figure 5: How the many-to-one relationship may be handled using a pointer chain.
+
+Figure 6: Entity-Relationship description of the relation between ECAL cells and ECAL clusters.
+
+them to the corresponding reconstructed charged track, if any. This way one can build an object that could be called "reconstructed particle". With this algorithm, the reconstructed particle gets, in addition, some informqtion related to its nature. Some of this information can be easily deduced from the structure of the electromagnetic clusters : an example is given in figures 7 and 8
+
+Furthermore, we are presently studying some examples of physics events showing the interest of our clustering method as compared to a simple window clustering. It concerns rather tricky events where two electrons are produced nearby. The results will be described in a forthcoming note.
+
+Figure 7: Upper left : a 10 Gev electron, sampling layer 1. Upper right : a 10 GeV \(\pi^{0}\), sampling layer 1. Down left : same 10 GeV electron sampling layer 2. Down right : same 10 GeV \(\pi^{0}\), sampling layer 2. It is obvious that the electron creates a shorter shower than the \(\pi^{0}\).
+
+Figure 8: Transverse shapes : Left, a 10 GeV electron. Right, a 10 GeV \(\pi^{0}\). One clearly sees the \(\pi^{0}\) tends to be “broader”
+
+## References
+
+* [1] ALEPH Internal Note, Status of Reconstruction Algorithms for ALEPH, Version 3 (Draft), J. Knobloch and P. Norton eds. ALEPH Internal Note 133, Fast clustering algorithm for the \(e/\gamma\) calorimeter, J.P. Albanese et al., 09-11-1984.
+* [2] ATLAS Internal Note SOFT-NO-002 : Oh-Oh-Ah-Ah-Rh....! Object Oriented Approach for ATLAS Reconstruction, Pavel Nevski, 13 July 1993.

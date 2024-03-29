@@ -1,0 +1,349 @@
+**ATLAS Internal Note**
+
+**DAQ-NO-105**
+
+**12 June 1998**
+
+A Readout Buffer for ATLAS
+
+**Authors : D.Calvet, J.M.Conte, O.Gachelin, M.Huet, I.Mandjavidze, M.Mur, P.Le D. Keywords : ROB, ROB Complex, ROBin, event manager.**
+
+_Abstract_
+
+This paper describes the design and implementation of a ROB Complex for the Atlas experiment. This version is developed for the sequential strategy of the level-2 trigger and responds to requirements of the event building for the event filter.
+
+NoteNumber : xxx
+
+Version : 01
+
+Date : 12 June 1998
+
+Reference : [http://www-dapnia.cea.fr/Phys/Sei/exp/ATLAS/tpr/Saclay_rob.ps](http://www-dapnia.cea.fr/Phys/Sei/exp/ATLAS/tpr/Saclay_rob.ps)
+
+[MISSING_PAGE_EMPTY:2]
+
+## 1 Introduction
+
+In the Atlas experiment, during the time necessary for the level-2 trigger to take a decision, detector raw data are stored in buffers called Readout Buffers (ROB). We describe here a version of the ROB developed for the sequential strategy. We first explain the concept of a ROB with multiple inputs, the ROB Complex. Then we present the analysis and the design of a complete ROB with a more refined design of the memory part. We continue with an implementation of this part. We conclude with projects concerning new investigations about ROBs.
+
+## 2 ROB Complex concept
+
+The level-2 trigger of the Atlas experiment is designed to provide a rejection factor of 100. Therefore, data to be transmitted to the next step in the Trigger/DAQ system, the Event Filter, will be only 1% of data stored in level-2 buffers. Only 1 to 3% of the global set of data is used by the level-2 trigger to take a decision. Consequently, less than 5% of data will be provided by the ROBs. The consequence is that the performance of the output port of the ROB is less demanding than the input port. A possible implementation of the ROB consists of grouping several input ports with high data flow for an output port with lower bandwidth. A modelling of the level-2 trigger shows that the quantity of data required from ROBs is different from one detector to another. An optimization can be obtained in adapting the number of input ports to match the traffic on the output port (Table 1) [1].
+
+A possible organisation for the level-2 Readout Buffers consists of grouping on a separate component one input port connected by a high data rate link (1 Gbit/s) to the electronics of the detectors, a memory organised to store event fragments delivered at the input port and a small local intelligence to manage this memory. The ROB Complex [2] is made of the merging of one or several of these input port components, an output port on an other separate component, a common intelligence to manage the requests of the data consumers and the preparation of
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|} \hline Detector types & Detector links number & Input port occupancy at 1 Gbit/s grouping & optimised ROB occupancy at 155 Mbit/s \\ \hline \hline _Pixel_ & 81 & 0.62 & & \\ \hline _SCT_ & 256 & 0.87 & 6 & 0.39 \\ \hline _TRT_ & 256 & 0.80 & 2 & 0.49 \\ \hline _EM Calorimeter_ & 704 & 0.59 & 4 & 0.49 \\ \hline _Hadron Calorimeter_ & 120 & 0.51 & 1 & 0.56 \\ \hline _Muon Trigger_ & 32 & 0.08 & 8 & 0.24 \\ \hline _Muon Chamber_ & 256 & 0.40 & 8 & 0.46 \\ \hline _Trigger_ & 16 & & & \\ \hline \end{tabular}
+\end{table}
+Table 1: ROB grouping and input/output port occupancies (05/98).
+
+data to be sent on network, and finally a performing local link between all these components (Figure 1).
+
+For convenience, in the rest of this paper the ROB Complex will be called ROB.
+
+## 3 ROB Analysis
+
+A User Requirement Document describes functionnalities and performances required from the ROB[3]. An other document is dedicated to the input part [4].
+
+For the analysis and design of the ROB the UML notation [5] has been used.
+
+### Interaction with external actors
+
+Four main actors have been identified as interacting with the ROB: the level-2 trigger system, the Event Filter, the monitor and the run control. The two first concern the main data flow. Monitoring deals with particular data sets and run control delivers messages to synchronize all components in the Trigger/DAQ system.
+
+#### 3.1.1 level-2 trigger and event filter activities
+
+The ROB receives its data from a Readout Driver (ROD) through a Readout Link (ROL) [6]. From some detectors, a particular set of data are prepared for the level-2 trigger. This data set is included in the raw data block provided by the front end electronics. On the consumer side, Feature Extractors (FEX) [7] request specific event fragments according to criteria such as event identifier and trigger type. Event filter requests partial or full data from an event accepted by the level-2 trigger. The supervisor delivers to all ROBs a request concerning the deletion of a block of events which have been rejected by the level-2 trigger. Event filter can also request for event deletion if the event builder protocol foresees an acknowledgement. For
+
+Figure 1: The ROB Complex organisation
+
+specific ROBs, the level-2 trigger system will deposit results from its own computations. A time-out procedure is envisaged for non requested events.
+
+#### 3.1.2 Run Control
+
+The ROB must be initialised and configured. It can be preloaded with data in case of emulation. The ROB includes an internal state machine. It receives commands from an external main run controller to synchronize with the whole Trigger/DAQ system.
+
+#### 3.1.3 Monitoring
+
+An external monitor must be able to request the ROB for specific data stored in the ROB or for statistics concerning the working of the ROB.
+
+#### 3.1.4 Use Case Diagram
+
+The interactions of the external actors with the ROB have been collected in a use case diagram. Only the main data flow with the level-2 trigger and the event filter is represented in this diagram (Figure 2).
+
+### Components
+
+In a first time, the design has been limited to the level-2 trigger and event filter activities. Run control and monitoring will be added later.
+
+According to the specifications, as seen above, we have identified three main components: the part including input port and memory called ROBin, the local ROB manager called ROB controller and the management of the connection to the switching network towards other actors of the Trigger/DAQ system, the ROB to Switch Interface (RSI). Some designs foresee separate networks for the level-2 and the event filter systems. In that case two RSI are required.
+
+Figure 2: ROB external actors for the main data flow activity.
+
+Before describing these components in more details, we outline the data entities used in the ROB context.
+
+#### 3.2.1 Data entities
+
+Data and requests are both considered in the same time due to the fact that all theses entities are received or sent and managed by the ROB.
+
+_Detector raw data_ are provided by the ROD to the ROB to be stored during the level-2 activity. Data stored in the memory is managed using the event identifier to get access. In the ROB context they become _event fragment_. When located in the ROBin it is _robin event fragment_. After merging in the ROB it provides a _robin event fragment_ or simply an _event fragment_ in response to an _event fragment request_. When only a part of the event fragment is required by a _RoI fragment request_, the ROB builds a _RoI fragment_. The ROB receives requests from the outside by the RSI. Event fragments corresponding to the same event are removed from the whole ROB components on a _event delete request_ (Figure 3).
+
+_Detector raw data_ block is formatted by the Readout Driver in a contiguous block made of a header including the event identifier, a data block and a trailer.
+
+At present time, we assume the same format as described in "ATLAS Readout Link Data Format" [8] and confirmed by the DAQ/EF prototype -1 specifications [9].
+
+The _robin event fragment_ is built from the detector raw data block and a header specific to the ROBin. The robin event fragment is stored in the ROBin memory. Few information is added at that level. In particular we include, in the header, the global size of the block as counted at the input of the ROBin. A status specific to ROB is also added.
+
+Figure 3: Interaction between ROB and outside
+
+An _event fragment request_ is emitted by the event filter and, for specific trigger types, the feature extractors to ask the ROB to transmit all data concerning an event. The requester has to provide its own identifier and the event identifier. In that case, a rob event fragment is built and returned to the requester.
+
+The _rob event fragment_ or _event fragment_ is built by the merging of all robin event fragments. A new header is added to the global block. The rob event fragment is built only on request. It can be either copied into a common block or only virtually built by linking all robin event fragments. In view of increasing performances, the transmission over network is designed to transfer linked buffers.
+
+The _Rol fragment request_ is specific to the level-2 trigger context (see Atlas Technical Proposal 10). Most of the feature extractors need only a part of data concerning a Region of Interest (RoI). This RoI has been identified by the level 1 trigger. Feature extractors make a request including their own identifier, the event identifier, the RoI type and the coordinates of this RoI.
+
+The _Rol fragment_ is a sub group of the event fragment. It is built according to the parameters included in the RoI fragment request.
+
+The _level-2 event fragment_ provided by some detectors contains a set of data specific to the level-2 trigger (for instance, tower energy sum in the electromagnetic calorimeter). A particular event fragment can be built based on this data set. The latter is included in the detector raw data.
+
+The _level-2 result fragment_ is provided by components of the level-2 trigger system. It has to be stored into the ROB and to be transferred when event builder requests all data concerning an event. Only data from accepted events will be stored in ROBs. We assume that specific ROBs will be dedicated to the storage of such data. Unlike detector data, level-2 data will be provided to ROB by the RSI.
+
+An _event delete request_ is sent to all ROBs, when the supervisor of the level-2 trigger has decided to reject a group of events (typically 100), with the list of the event identifiers to be removed from the ROB storage. According to the DAQ requirements, this request is also sent by the event filter after successful event building completion.
+
+#### 3.2.2 ROB Complex
+
+As already defined, a ROB is made of a variable number of ROBins (1 to 8), a ROB controller and a RSI (Figure 4).
+
+The _ROB to Switch Interface_ (RSI) receives requests from diverse components of the Trigger/DAQ system through the switching network on a unique input port. It returns on a unique output port connected to the switching network the responses to previous requests. The RSI is an independent entity which manages one or several queues of requests and sends the contents of one or several queues of responses. In the present design of the ROB we assume that the whole traffic for level-2 and event filter can be supported by a unique switching network.
+
+The _ROB controller_ gets requests from the queues prepared by the RSI, analyses the requests and activates internal components according to the type of the request. If request concerns the data contained in ROBins, the ROB controller prepares new requests to be transferred to the concerned ROBins. When a ROBin has responded to one request it sends an acknowledgement in response queues piled down by the ROB controller. When the response to the request is completed, the ROB controller asks the RSI to transmit this response
+
+The _ROBin_ is an event manager. It includes a buffer which contains robin event fragments. Detector raw data to be stored in the ROBin are provided by a ROD through a high performance input port. Event fragments are identified by an event identifier and a bunch crossing identifier. Event or RoI fragments are provided to the ROB controller in response to requests. Request queues are either included in the ROBin or can be accessed by the ROBin in case of location in the ROB controller. Response queues can be located in ROBin or ROB controller. For some requests, corresponding action can be performed independently of the response messaging, then response is just a way to signal the completion of the action.
+
+## 4 ROB design
+
+### Interaction between ROB components
+
+RSI, ROB controller and ROBin are independent functional identities. However, in this design, these three entities are tightly coupled through a local bus. They can share resources like message queues or data buffers.
+
+Although the buffer management be a general activity, we present here the way we intend to instantiate this functionality. Buffers must be shared by the three separate entities and the problem concerns the autonomy of the buffer. One solution consists in a unique buffer manager managing completely all the buffers located in the different modules. Each module makes requests to this central object. An other solution is to give to each module the possibility to create its own buffers and give access to other modules. Buffer is returned to its owner after last
+
+Figure 4: Main components of the ROB.
+
+access. The second solution is chosen to be more flexible for the present ROB implementation. It is also used for messaging.
+
+### ROB to Switch Interface
+
+The RSI is mainly composed of a message receiver and a response sender. It prepares the buffers for the reception of messages and places these buffers at the ROB controller disposal. For the responses, the buffers are prepared by the entity that fills them. The RSI has just to transmit them on the network.
+
+### ROB controller
+
+The main functionality of the ROB controller is to carry out the requests. According to the request, messages are dispatched to the executing entity.
+
+#### 4.3.1 Event/RoI fragment builder
+
+An event fragment is made of a header which is built for this entity and of several data blocks provided by ROBins. Data provided by the level-2 trigger system can be kept in the ROB controller. It is also included in the event fragment when built. To be directly deliverable, all the components of the event fragment are deposited in a specific set of linked buffers prepared by the ROB controller. ROBin data can be either transferred in these buffers or buffers located in ROBins can be directly linked to the chain of buffers. When the structure to receive the event fragment is prepared, the corresponding requests are sent to the ROBins.
+
+To ensure the completion of all the ROBin responses a _fragment table_ is created. It includes an identifier, a state indicator to know if response is completed or not, an identification of the requested ROBins and an identification of the ROBins having answered. It includes also a time-out counter.
+
+### ROBin
+
+ROBin is composed of three components: an input port, an event manager and a request manager (Figure 5).
+
+#### 4.4.1 Input port and derandomizer
+
+Input port is connected to a Readout Driver through a Readout Link. Data are provided totally asynchronously at a up to 1 Gbit/s rate. A 4-Byte parallel port accepting a 30 MHz rate is implemented according to the S-Link protocol [11]. A 33rd bit distinguishes the control words from the data words. Raw data block is preceded with a _start of event_ and followed by an _end of event_ control words.
+
+To separate the input data flow, not controlled by the ROBin, from the storage in the event buffer, a derandomizer is added behind the input port.
+
+#### 4.4.2 Event manager
+
+The event manager takes in charge the access to the event buffer. It manages the transfer of data from the derandomizer to the buffer. It performs the requests concerning events received from the ROB controller. It is based on an _event store_ to buffer data, an _event table_ to store location of data and two lists to manage its occupancy.
+
+The event manager has to:
+
+* provide an event fragment,
+* provide a special level-2 data block based on level-2 event fragments,
+* provide RoI fragment
+* delete event fragment
+
+The level-2 results will be preferentially stored in the ROB controller to avoid useless transfers to the ROBin. In that case, ROBins can be suppressed and the event management of the ROBin will be transferred in the ROB controller.
+
+For test purpose, fake events can be downloaded in the event buffer, from the ROB controller, at the initialization time.
+
+The _event store_ is a memory. It is organised in pages to ease its management. Events are stored into one or several pages according their length. One page cannot contain more than one event.
+
+An _event table_ makes the correspondence between the event identifier and the page where the beginning of event is located. This table is built by the event manager. It receives unordered requests concerning events with their identifier. The event table must be organised to give fast access to the corresponding page number.
+
+Figure 5: Main components of the ROBin.
+
+The _page_ is the smallest granularity at the event store level. All pages have the same size. A current value is 1 KByte corresponding to the size of blocks provided by the ROL running at 1 Gbit/s with a 100 KHz level 1 trigger rate.
+
+Two lists are used by the event manager. A _free page list_ is used for the event storage. Freed pages are returned when the event is deleted or transmitted to the event filter. A _used page list_ contains the used page number and the event identifier located in this page. This list is principle useless. It is due to an implementation of the event manager in two parts (see implementation paragraph 6.2 & 6.3).
+
+#### 4.4.3 Request manager
+
+The request manager receives requests from the ROB controller, activates event manager functionnalities and sends a responses when the corresponding action is completed. It acts as a remote proxy for the requests from the ROB controller to the ROBin. In case of different priorities assigned to requests, several requests queues are implemented corresponding to priorities. Management of the priorities is assumed by the polling order of these message queues.
+
+#### 4.4.4 RoI extractor
+
+To respond to RoI fragment requests, the ROB must extract RoIs from the event fragments. This task can be performed by the ROB Controller or the ROBin. The two possibilities have their drawbacks. In the first, the whole event fragments are transferred to the ROB controller corresponding to an increased ROB bus traffic, but the local RoI building is simplified. In the latter, the data to be transferred is minimized but the global RoI fragment building is very much more complex. The choice between the two versions will be done after bench tests.
+
+## 5 ROB implementation
+
+Interconnection between ROBin, ROB controller and RSI must support a traffic greater than the network links. It has to distribute requests and collect data messages().The PCI bus
+
+Figure 6: ROB organisation
+
+with its 1 Gbit/s (32 bits 33 MHz version) is able to support a bandwidth compatible with an output port at 100 Mbit/s (155 Mbit/s ATM or 100 Mbit/s Fast Ethernet ports). But, for faster output ports like 622 Mbit/s ATM or 1 Gbit/s Giga Ethernet ports a 2 Gbit/s (64 bits 33MHz) PCI version should be required.
+
+A first implementation is based on PCI bus located on a VME CPU board (CES RIO2 [12]). The ROBins are located on PCI Mezzanine Cards (PMC), the ROB controller functionality is located in the CPU of the mother board and the RSI on an other PMC (Figure 7).
+
+Extension boards will be added to increase the number of ROBins up to 5. This extension mode is useful to study the principle of the Multi-ROBin implementation. This solution has some limitations and is difficult to extend.
+
+A second implementation consists in using the CompactPCI standard [13] based on the PCI bus with a more industrial and flexible approach. Connectors are more robust, the card format is greater and the power delivered is increased.
+
+## 6 ROBin implementation
+
+ROBin is implemented in a PMC form factor.
+
+According to the present design, the components are:
+
+* the input port,
+* the event store,
+* the connection to the PCI bus.
+
+Figure 7: ROB implementation in the VME standard.
+
+The most demanding part of the ROBin is the up-side part from the input port to the event storage where the complexity is reduced and the rate very high. This part is hardwired instead the other functionnalities are implemented by software in a local processor to give more flexibility.
+
+### Hardware resources
+
+The Figure 8 shows the main hardware components of the ROBin.
+
+Input port and derandomizer
+
+The input port is a 32+1-bit parallel port. Received data are stored in an event FIFO, waiting to be transferred to event memory. The FIFO size is 64 KBytes, allowing for a complete derandomization between input port and event memory.
+
+Incoming events are separated by a "start of event" and an "end of event" control words. These two words are not used for the input stream. They are stored in the FIFO.
+
+At present time, the synchronization with upstream link is not frozen; it will depend on the nature and protocol of the input link.
+
+Event buffer
+
+The memory has to accept a data rate of 30 MHz for 32 bits. With a 66 MHz memory, about 50% of time is dedicated to write access. The remaining time is sufficient for read access because output data flow is significantly lower than input.
+
+SDRAM has been chosen for its speed and its high capacity. This type of memory, very widely used in PC world, is cost effective. We have today 4 Mbytes for the event buffer in view to accept long latency in the level-2 system and 8 to 16 Mbytes in the future.
+
+Figure 8: Hardware implementation of the ROBin.
+
+This memory is organised in pages. One event sits on one or more pages according to its size. Each page cannot contain more than one event. Minimal size for a page is 1KByte due to SDRAM organisation in rows with 256 words width and columns.
+
+Lists of free and used pages
+
+Two 16-bit FIFOs are dedicated to this purpose. Free page FIFO is accessed in write by the local processor and in read by the input logic. Used page FIFO is accessed in write by the input logic and in read by the local processor.
+
+PCI access
+
+A PLX 9080 PCI bridge [14] is used to manage the access to the ROB bus. This device includes input and output DMAs and also input and output circular message queues compatible with I2O protocol [15].
+
+Local processor
+
+The selected local processor is an Intel i960Jx [16]. A 256KByte SSRAM is associated to this processor to download program and to store processed data.
+
+Glue logic
+
+The hardwired logic is located in a FPGA. The logic is downloaded by a JTAG port accessed through the PCI bridge.
+
+### Input management
+
+The storage of detector data in the event memory is made in two steps. The first consists in the transfer of data up to the memory. The second is the building of the event table containing the location of the event in the memory.
+
+The Figure 9 shows the sequence of actions for the input management. Data is automatically transferred from input port to input FIFO with only the link control. For the transfer from the FIFO to the memory the operation is delimited by the access to the two markers located at the beginning and the end of the event. When a new "start of event" is detected, input control gets a new page from the free page queue. At the end of the first page transfer from FIFO to event memory, input control puts the page number in "used page FIFO". If after first page filling, the "end of event" marker is not reached, input control gets a new page and continue transfer from FIFO to memory in the same way. In the used page FIFO a status bit is used to mark the first and last pages for an event.
+
+As long as the used page queue is not empty the CPU gets new page number in this queue. If the page contains the beginning of an event it s marked by a status bit. Then the CPU gets in the memory the event identifier. It can now build the event table containing the correspondence between event Id and the page number. The last page number containing the same event is also marked by a marker. As long as this marker is not found the CPU continues to build the event table for the same event.
+
+At the input stage errors can be detected and controlled:
+
+* No control of the continuity of the event identifier is made at that level. It is made by CPU when filling the event table.
+* As long as input FIFO is not "almost full" (to be defined: how many events?) control logic does not care of availability of free pages in event memory.
+* In case of input FIFO "almost full" and no free page available, ROBin has to warm a partner (to be defined: ROD or supervisor of the trigger)
+* if a "start of event" occurs without previous "end of event", the status of the previous event is signalled. Resynchronization is made when a boundary is considered as correct.
+* if no "start of event" occurs behind a previous "end of event", a status bit is added to the page number transferred to the "used page queued".
+
+Error detected by the hardwired logic are marked in the used page list. Statistics on errors are built by the CPU.
+
+### Event management
+
+The event management is the kernel of the ROBin. The main event storage is hardwired as described above. Functionnalities concerning event access and event deletion are performed by the local processor.
+
+Communication between ROB Controller and RobIn is based on Request-response protocol, because their relation is asynchronous. The request call returns when the request is deposited. When the ROBin has finished the work corresponding to the request, it deposits a response in a message box for the ROB controller. Every request is characterised by an identifier used by ROB Controller to correlate a response with the corresponding request. Requests feature use a buffer that contains request information (list of events to be deleted) or response data (event fragment data, RoI data,.... ). Each response contains a status that shows the completeness of the action and the identifier of the corresponding request.
+
+The ROBin must be able to:
+
+Figure 9: Event input management
+
+* provide a complete robin event fragment identified by the trigger identifier,
+* provide a RoI event fragment identified by the trigger identifier, the RoI type and location,
+* provide a set of data particular to the level-2 trigger (from ROD or preprocessed locally in RobIn),
+* delete a batch of event fragments provided in a list; in that case it is not foreseen to send a response to the ROB controller; only local counters are used to take into account the result of the operation.
+* provide statistics on its working.
+
+### Requests management
+
+Request are deposited by ROB Controller into a circular queue. The request manager is an active object polling on queue to respond to requests. If priorities have to be used in the request management, more dedicated queues could be implemented. The different components of the messaging unit are shown in Figure 10.
+
+Circular message queue.
+
+PLX 9080 owns a circular queue mechanism to facilitate the management of messages. It is based on a free message queue and a posted message queue, both accessible from local CPU and Host CPU through PCI bus (I2O protocol).
+
+Figure 10: Messaging unit of the ROBin
+
+Message
+
+The request message can be as well in the Host memory or in the local CPU memory. The message location depends on different resource load. The owner preallocates buffers to receive message. For messages to be delivered with the same form to all ROBins it seems better to keep message content on the Host side to decrease its load. Each Robin makes access only one time to the message, while the Host has to make copies in the ROBins as many times as the ROBin number. The bench tests will guide the selected solution.
+
+Free message queue
+
+After allocation of message boxes, their location is deposited in the free message queue. As the selected messaging unit is an "inbound message unit" the free message queue can only be accessed for write by the local CPU. If the local CPU has reserved message boxes in its own memory it can easily fill the free message queue. If the Host CPU reserve message boxes, it has to ask to the local CPU to write their location in free message queue. This mechanism is heavier than the first one. It must be balanced with the results of the bench test as explained above.
+
+Posted message queue
+
+After deposit of a request in one message box, the Host writes location of this message box in a posted message queue. Two mechanisms allows the local CPU to know if that posted message queue is not empty: either an interrupt is generated or a status bit is set. We prefer to poll on status bit to avoid time loss for interrupt management.
+
+## 7 Current status
+
+Figure 11: Photography of the present version of the ROBin (scale 1:1)
+
+A first version of the ROBin has been built (Figure 11). It includes the PCI bridge, the processor and its memory. A complete version is under design, including the event memory and the input port.
+
+Software is under development. It will be used first to evaluate the ROB Complex architecture (October 1998) before to be integrated in the Pilot Project application testbed (december 1998). It will be developed as much as possible compatible with the Pilot Project reference software.
+
+## 8 Future
+
+After the complete realisation of the present version of PMCs, a new implementation on a CompactPCI support will be made. This solution allow to increase the number of ROBins in the ROB Complex.
+
+When possible, it is always better to use commercial product. The CPU board has always been selected in catalogues of builders, in VME or CompactPCI version. The output port, after a local implementation, is now a commercial product. For the ROBin part, including the configurable input port, no products were corresponding to our needs. Now, it is possible to find PMCs with CPU and memory but the difficulty is to manage simultaneously an input data flow at 1 Gbit/s rate and data supplying. In parallel with our custom ROBin development, we intend to evaluate a new candidate [17] with configurable input port.
+
+## 9 Conclusion
+
+The complete version with the event memory will allow the measurement of performances using the PCI bus as medium between ROBin and ROB controller. The present investigations show that this approach is promising.
+
+At the present level of development we have not found dramatic problem concerning the implementation of a ROBin on a PMC. However it seems that the implementation in the CompactPCI form factor could bring some advantages.
+
+* [1]Atlas Internal Note DAQ-NO-107, by A.Amadon et al., "Architecture C Performance from Paper Models".
+* [2]ROBIN: A Functional Demonstrator for the ATLAS Trigger/DAQ Read-Out Buffer,O.Gachelin & al, in Proc. Second Workshop on Electronics for LHC Experiments, Balatonfured, Hungary, 23-27 Septembe4r 1996, pp 204-207.
+* [3]ATLAS ROB: Read-out Buffer for the ATLAS Experiment at LHC. User Requirement Document. Reference: ROB-URD-V1.2.0. O.Boyle, Y.Ermoline and R.McLaren
+* [4]ROB-IN: Input Module for the Demonstrator ROB. User Requirement Document. Reference: ROB-IN-URD-V2.0.0. O.Boyle and R.McLaren.
+* [5]The UML specification documents. G.Booch, I.Jacobson and J.Rumbaugh. Santa Clara, CA.: Rational Software Corp. (http:www.rational.com).
+* [6]Trigger & DAQ Interfaces with Front-End Systems: Requirement Document. Version 1.0. Atlas Trigger/DAQ Steering Group.
+* [7]Atlas Internal Note DAQ-NO-79, by Level-2 Requirement Group. ATLAS Level-2 Trigger User Requirements Document. Reference: LVL2-URD-1.00.
+* [8]ATLAS Read-Out Link Data Format- Version 1.1. R.McLaren and O.Boyle
+* 1 Technical Note No 50. The event format in the ATLAS DAQ/ EF prototype -1. C.Bee et al.
+* [10]The Atlas Collaboration, Technical Proposal for a General purpose pp Experiment at the Large Hadron Collider at CERN, CERN/LHCC/94-39, December 1994. Available also on: _[http://www.cern.ch/pub/Atlas/TP/tp.html_](http://www.cern.ch/pub/Atlas/TP/tp.html_).
+* [11]An application of S Link, a data link interface specification, in the Atlas readout system. R.A.Mc Laren et al. Available on: _[http://www.cern.ch/HSI/s-link/introduc/atlas.ps_](http://www.cern.ch/HSI/s-link/introduc/atlas.ps_)
+* [12]RIO2. Creative Electronic Systems S.A. Route du Pont-Butin 70, CH-1213, Petit-Lancy 1 / Geneva
+* [13]CompactPCI from PICMG: PCI Industrial Computers Manufacturers Group. _[http://www.picmg.com_](http://www.picmg.com_)
+* [14]PLX 9080 from PLX Technology Inc. 390 Potreo Avenue Sunnyvale, CA 94086. _[http://www.plxtech.com/products/9080/previews/9080_ds/9080.htm_](http://www.plxtech.com/products/9080/previews/9080_ds/9080.htm_)
+* [15]I2O. See I2O Special Interest Group at _[http://www.i2osig.org/index.html_](http://www.i2osig.org/index.html_)
+* [16]i960Jx from Intel. Available from _[http://developer.intel.com/design/i960/_](http://developer.intel.com/design/i960/_)
+* [17]MFCC 8441. Creative Electronic Systems S.A. Route du Pont-Butin 70, CH-1213, Petit-Lancy 1 / Geneva

@@ -1,0 +1,405 @@
+# Running the Level-2 Trigger Software of the ATLAS Experiment on a Large Commercial Cluster
+
+J. T. Baines
+
+A. Bogaerts
+
+S. George
+
+F. Giacomini
+
+S. Gonzalez
+
+R. Hauser
+
+M. Sessler
+
+T. Shears
+
+S. Toprogge
+
+RAL, Chilton, Didcot, UK
+
+CERN, Geneva, Switzerland
+
+RHBNC, University of London, Egham, UK
+
+CERN, Geneva, Switzerland
+
+C
+
+University of Wisconsin, Madison, USA
+
+Michigan State University, East Lansing, USA
+
+University of Mannheim, Mannheim, Germany
+
+CERN, Geneva, Switzerland
+
+CERN, Geneva, Switzerland
+
+###### Abstract
+
+This note describes the porting and the evaluation of the so-called Reference Software developed within the Second Level Trigger group of the ATLAS experiment on the Paderborn SCI Cluster (PSC2), a large compute cluster installed at the Paderborn Center for Parallel Computing (PC\({}^{2}\)). The PSC2 consists of 96 dual-CPU PCs interconnected using the Scalable Coherent Interface (SCI). Communication is based on the Message Passing Interface (MPI).
+
+Extensive studies have been carried out in order to understand both the intrinsic performance of the prototype trigger system and the performance and scalability of the Reference Software.
+
+ATLAS, Trigger, Level-2, LVL2, Reference Software, MPI, SCI, PSC2, Paderborn 99
+
+## 1 Introduction
+
+In this section we explain the reasons behind the effort of porting the Second Level Trigger software (also know as the Reference Software) of the ATLAS experiment [1] to a large compute cluster that is commercially available.
+
+This section is also a brief introduction to the Paderborn SCI Cluster (PSC2), its hardware and software architecture.
+
+So far the PSC2 has been used for three kinds of tests: characterisation of the components of the trigger system, performance of the Reference Software communication framework and performance of the trigger algorithms in a real distributed environment. A section of this note is devoted to each of these tests. The appendixes present the design of part of the software and give some practical indications on how to run the Level-2 software on the PSC2.
+
+### Motivation
+
+The current estimate for the size of the ATLAS Level-2 trigger system is ~500 processors of 1000 MIPS and ~1000 data sources (Read-Out Buffers, ROBs) interconnected by a network capable of transferring data at a rate of ~5 GB/s [2]. A portable, technology-independent software package (the "Reference Software" [3]) was developed to study the implementation of such a system using various hardware platforms and networking technologies. The actual port of the software to the PSC2 was relatively easy (see Appendix C. The benefits are obvious: apart from having access to a much larger cluster than the testbeds especially constructed for this purpose, the test also allowed the evaluation of a completely commercial solution, including software.
+
+### PSC2 Architecture
+
+The PSC2 (Paderborn SCI Cluster) is a massive parallel system with distributed memory. 96 low-cost nodes are connected as a \(12\times 8\) 2D torus using SCI rings (Figure 1). It is currently ranked 351\({}^{\text{th}}\) in the TOP500, the list of the fastest computers in the world [4].
+
+#### 1.2.1 Hardware
+
+Each node is a Siemens Primergy PC running the Solaris operating system and is equipped with:
+
+* two Intel Pentium II running at 450 MHz;
+* 512 MB of RAM;
+* 4 GB local hard disk;
+* a Dolphin PCI-SCI card D310, with two link controllers LC2, each offering a link speed of 500 MB/s;
+* a FastEthernet interface for LAN access.
+
+Figure 1: Topology of the PSC2.
+
+Access to the system is granted only via a front-end node.
+
+#### 1.2.2 Software
+
+Applications running on the PSC2 rely on an efficient implementation of the Message Passing Interface (MPI) called ScaMPI and provided by Scali [5]. Scali also provides several tools to manage, monitor and control the different system components. Amongst these the most important is mpirom which is the program used to start a user's application on a set of nodes. The ScaMPI User's guide [6] provides a basic description of the ScaMPI implementation and its use. The implementation of the message passing layer of the Level-2 Trigger software on top of MPI is described in Appendix A.
+
+Access to the PSC2 is regulated by the Computing Center Software (CCS), a resource management software for networked high-performance computers [7]. CCS in particular gives the possibility to allocate a subset of the system and to run an application on it (ccsalloc). In the latter case it can be considered a wrapper around mpirom. Appendix C describes how to run the Reference Software using ScaMPI and CCS.
+
+## 2 Measurements with a simplified version of the Reference Software framework
+
+In order to investigate the intrinsic performance of the system and its behaviour under heavy I/O load, a simplified version of the Reference Software framework, called chain, has been developed. chain preserves the overall components and infrastructure of the general
+
+Figure 2: The 96 nodes are rack-mounted and closed in 6 cabinets.
+
+software, such as nodes of type supervisor, trigger processor (also known as steering processors) and data source, and the architecture within an individual node, with several worker threads and one single communication thread. This section presents the results obtained with chain, while its design is postponed until Appendix B.
+
+### Supervisor characterisation
+
+The maximum frequency of a single Supervisor is 16.3 kHz, measured with one Supervisor, 10 Steerings and 10 ROBs.
+
+### Steering characterisation
+
+The setup consisted of 1 Supervisor, 1 Steering, 10 ROBs and 30 events allowed into the system, sufficient to saturate a single steering processor. Two sets of measurements were made, in each case scanning over the size of the data fragments sent by each ROB:
+
+* vary the number of worker threads. Each thread treats one event, making requests to ROBs for data as required (in this case, one RoI per event). This form of parallelism allows more efficient CPU usage (one thread may run whilst another is blocked waiting for data) and profits from multi-CPU machines (in this case two). As expected, the data accepted by the steering increases with the number of threads, with no further improvement beyond three as shown in Figure 3. Input is also more efficient for larger data sizes (Figure 4). 
+* vary the number of ROBs contributing RoI data to each worker thread. Since the RoI data is collected in parallel, it is expected that the input rate increases with the number
+
+Figure 4: The same as the previous picture, but plotted differently to show explicitly the dependence of the input data rate on the ROB fragment size.
+
+Figure 3: Input data rate into a steering processor as a function of the number of worker threads for different sizes of the ROB data fragments. In this case a single ROB provides all RoI data for a given event.
+
+of ROBs until the input port into the processor becomes saturated, apparently at \(\sim\)40 MB/s for large data sizes (Figure 5). Again, the latter are more efficient (Figure 6).
+
+The increase in input rate obtained by multiple ROBs contributing to the same event (Figure 5) or to different events (Figure 3) is similar.
+
+### ROB characterisation
+
+The ROB I/O capacity was tested by connecting one ROB emulator to a sufficient number (9) of steering processors. The achievable access frequency and output data rate as a function of the fragment size are shown in Figure 7.
+
+### System scaling
+
+The size of the system was increased by adding Steering/ROB pairs and measuring the amount of data the ROBs send to the steering processors. Each Steering handled 3 events concurrently; each event required input from 4 ROBs. The data fragment size from each ROB was varied from 64 bytes to 16 KB. The total ROB-to-Steering throughput as function of the system size is shown in Figure 8. The dependence on the ROB data fragment size is made more explicit in Figure 9.
+
+## 3 Reference Software testbed measurements without algorithms
+
+This section presents the results obtained running the framework of the Reference Software on the PSC2. The measurements were done according to the plan specified in [8].
+
+Running on 96 nodes it has been possible to push the scalability limits of the software much farther than what achievable with other testbeds. In particular it has been demonstratedthat the supervisor rate scales perfectly at least up to 12 supervisors in the system and the overall system rate scales perfectly at least up to 42 Steering-ROB pairs.
+
+### Supervisor scaling
+
+The task of the Supervisor is to schedule the farm of steering processors, to distribute the Level-1 information, to collect the resulting Level-2 information, to signal ROBs to delete rejected events and to pass positive decisions on to the next selection level. To achieve the design frequency of 75 kHz (upgradable to 100 kHz) the Supervisor is itself implemented as a farm. The frequency scales almost linearly with the size of the farm well above 100 kHz as shown in Figure 10.
+
+### System scaling
+
+To test the I/O scaling (mainly determined by the network capacity) the size of the system is increased by adding Steering/ROB pairs and measuring the amount of data the ROBs send to the steering processors. This usually depends on the size of the ROB data fragments. This hypothetical traffic pattern would arise if each event contains one RoI located in a single ROB. Figure 11 shows the frequency at which events (RoIs) are handled as a function of the system size for data fragments of 1, 4 and 8 KB. Figure 12 shows the corresponding amount of data sent by the ROBs.
+
+### Data collection
+
+Often RoIs span several ROBs or it may be necessary to read the data of an entire detector. The data collection protocol allows ROBs to send their data concurrently. Without some form of flow control the requesting steering processor may be overrun by data as shown in Figure 13. Catastrophic reduction in bandwidth sets in beyond ~20 ROBs. It is perhaps the result of overloading the input port of the processor. Further investigation is needed to better understand this effect.
+
+## 4 Reference Software testbed measurements with algorithms
+
+This section describes the running of a sequence of three real event selection algorithms (for Calorimeter, TRT and SCT) on a distributed system. A latency plot has been obtained running one supervisor emulator, one trigger processor and one ROB emulator, showing an average event latency of 3.7 ms.
+
+Figure 10: Supervisor scaling showing the achieved rate as function of the farm size.
+
+The use of sequential selection reduces the network and processor requirements and allows more complex algorithms to be run at lower rates. To validate the principle of multi-step data transfers and processing a testbed run was made with the Reference Software including algorithms for three detectors: Calorimeter EM clustering [9], TRT (Hough transformation) tracking [10] and SCT precision tracking [11]. The supervisor and ROB emulators were preloaded with a data file containing ~3000 jet events with no pileup, preselected to contain at least one Level-1 EM RoI. ~15% of the events contained two RoIs. The menu consisted of three consecutive steps (Calorimeter, followed by TRT and finally by SCT/Pixel) each selecting 20 GeV electrons. The applied cuts were close to those describedin [2], but without tuning for detector effects. The fraction of events accepted after each step was 0.19, 0.05 and 0.02.
+
+The latency is measured in the Supervisor as the time interval between sending the event request and the reception of the event response. It includes communication, data preparation and actual processing time (steering and feature extraction). Communication delays contribute \(\sim\)500 \(\upmu\)s. The RoI data size is \(\sim\)10-20 KB, contributing another \(\sim\)300 \(\upmu\)s for each RoI/detector combination. The distribution in Figure 14 reveals clearly the sequential execution of the three algorithms: Calorimeter EM clustering predominantly below 4 ms, subsequent TRT tracking between 4 and 7 ms and final SCT precision tracking extending beyond 7 ms. The effect of rejection at early stages in the sequential process is shown explicitly in Figure 15: 50% of the events finish within 3.1 ms, 95% within 7.2 ms and 99% within 10.8 ms. The average latency is 3.7 ms.
+
+It should be noted that the actual CPU processing time per event is less than the latency suggests. The total latency includes contributions from Supervisor and ROB (emulators) during which the CPU of the trigger processor is idle. In addition, only one of the two CPUs is exploited. Assessing the processing time, requiring a thread-safe implementation of algorithms, is the subject of future work.
+
+## 5 Conclusions
+
+The Reference Software implements the full functionality of the ATLAS Second Level Trigger. The Supervisor and ROBs which require special hardware are emulated.
+
+A first set of measurements was made with the Reference Software without algorithms to test the impact of the networking technology. The results produced on the commercial MPI/SCI cluster at the University of Paderborn are similar to those obtained on other testbeds using optimised networking software for ATM, Fast/Gigabit Ethernet and SCI [12]. The larger size of the PSC2 allowed to verify scaling of the trigger rate (essentiallylimited by the size of the Supervisor farm) up to 120 kHz and system scaling up to at least ~45 Steering/ROb pairs. The current implementation of the full Reference Software rather than the networking technology seems to limit the I/O performance of in particular the Steering and ROB emulator. A simplified implementation of these (the "chain") has been used to explore the I/O limits of the PSC2. Tests have shown: * a maximum frequency of 16 kHz per Supervisor; * a maximum input rate of ~40 MB/s into a steering node obtained by using multiple steering worker threads (which increases the request rate) or multiple ROBs sending RoI data fragments (in parallel) or a combination of both; * a maximum ROB output data rate of ~40 MB/s (for large data sizes) and a maximum access frequency of ~13 kHz (for small data sizes); * system scaling up to at least ~90 nodes (40 Steering/ROB pairs) with an aggregate bandwidth of ~800 MB/s. These results will be used to further investigate and improve the I/O capacity of the full Reference Software. Finally, a test on a small subset of the system was made to measure the latency of a trigger decision using the full Reference Software with feature extraction algorithms for three detectors: Calorimeter, TRT and SCT/Pixel showing an average latency of 3.7 ms, well within the budget of 10 ms. Future work will include running a complete set of algorithms (notably including the muon detector) on the full size cluster to investigate the obtainable trigger frequency.
+
+## Appendix A Appendix: Message passing layer over MPI
+
+The Reference Software for the ATLAS Second Level Trigger defines a technology independent interface for the communication between different nodes. The communication package can then be implemented for a variety of interconnects. One of these variants is based on the Message Passing Interface (MPI) standard [13]. The implementation of the message passing layer over MPI consists in writing MPI-specific subclasses for the basic classes Node, Buffer, Group and NodeFactory, which are the main components of the interface. Many ideas are in common with the corresponding implementation over SCI [14].
+
+### Design and implementation
+
+Communication between two nodes as defined by the Reference Software relies on four basic classes:
+
+* a **Buffer** represents a piece of raw memory that the message passing layer can transfer, never interpreting the contents, to other nodes;
+* a **Node** represents a process. Buffers can be sent to or received from nodes. If the environment is multi-threaded, identification of the sending or receiving thread,dispatching of buffers to threads and other related aspects are left to higher software layers. However it is required that in a process only one thread could receive;
+* a **Group** is a set of nodes. Buffers can be multicast to all the nodes in a group or received from any node in a group;
+* a **NodeFactory** is used to create an instance of one of the above classes.
+
+#### a.1.1 Local resources
+
+The MPI implementation includes a class (MPILocalNode) whose purpose is to manage local resources. In this case these are limited to buffers used for sending and receiving data. Based on information in the configuration an MPILocalNode can pre-allocate buffers in order to reduce memory allocation overhead in a running system.
+
+A single instance of MPILocalNode exists. It is owned by the MPINodeFactory, but its services are available also to other classes. Its construction depends on several parameters whose default values can be overridden in the configuration. Such parameters are passed to the MPILocalNode constructor via a utility class called MPILocalNodePar.
+
+#### a.1.2 Nodes
+
+The MPINode class is where the communication protocol is managed. It is derived from Node, whose interface specifies three main operations: a non-blocking send(), a blocking and a non-blocking receive().
+
+The send() implementation is just a wrapper around MPI_Send(). Even if in principle MPI_Send() is a blocking call, in practice in ScaMPI, but also in other MPI environments, most of the times it is non-blocking. Only a major problem in the system or on one of its nodes can result in a real blocking call; such a situation is considered exceptional and with negligible effects for the average behaviour of an applications.
+
+A blocking receive() is implemented as a sequence of steps:
+
+1. (blocking) call to MPI_Probe() waiting for an incoming message;
+2. get the message size with MPI_Get_count();
+3. allocate a Buffer of the right size;
+4. call to MPI_Recv(); the call is in principle blocking, but it must succeed immediately because MPI_Probe() at step 1 already succeeded. Moreover there cannot be a race condition with another thread because in a process there can be only one receiving thread.
+
+A lighter implementation of receive() would be possible avoiding the call to MPI_Probe() and passing to the MPI_Recv() a buffer large enough to contain the largest possible message.
+
+A non-blocking receive() is implemented as a (non-blocking) call to MPI_probe(), possibly followed by a blocking receive(), which must succeed immediately.
+
+#### a.1.3 Buffers
+
+There are two types of buffers to be used for MPI, MPIRecvBuffer for receiving and MPISendBuffer for sending. Both derive from SingleBuffer, which derives from Buffer. SingleBuffer is a Buffer whose data is contiguous in virtual memory. The distinction between MPIRecvBuffer and MPISendBuffer allows some flexibility in the allocation/deallocation by the MPILocalNode, for example a type can be pre-allocated whereas the other is allocated on demand from the heap. It should be noted that at application level only the type Buffer is visible. The MPI message passing layer must be able to manage situations where an application gets an MPIRecvBuffer from the receive() and passes it straight away to the send().
+
+#### a.1.4 Groups
+
+A Group is a collection of nodes. The original design for Group assumed that the application creates an empty group and then adds some nodes to it as they are dynamically created. But this design did not allow to profit from multicast capabilities that some technologies offer. To accommodate this need Group has become a pure abstract base class and another class, DynamicGroup, has been derived from it to allow insertion/removal of nodes. A static group instead is associated to a set of nodes, identified by a name, right from its creation. MPIGroup is derived from DynamicGroup. A static group in MPI, if requested, is simply an MPIGroup which some nodes are added to at creation time (such nodes are created if they do not already exist). The main operations on a group are essentially the same defined for a Node: non-blocking send(), non-blocking and blocking receive(). The implementation of these operations for an MPIGroup is very similar to the corresponding operations for an MPINode. There is actually a relaxation of the semantics of the receive(), so that it can return a Buffer received from any node in the system and not only from a node belonging to that group. This should not affect an application based on the Reference Software as it is at the moment of writing, since the only Group used in there is a Group containing all the nodes in the system.
+
+#### a.1.5 Node Factory
+
+In object-oriented terms a Factory defines an interface for creating an object letting subclasses decide which class to instantiate [15]. The interface of the message passing layer foresees a NodeFactory which is responsible for creating communication objects of the right type, in this case of the MPI type. To do this it is necessary to derive from NodeFactory an MPINodeFactory. To guarantee that only one exists, it is implemented according to the Singleton pattern [15]. Using MPI in the Reference Software has raised the problem of where to call MPI_Init(). Since an application should be technology-independent it does not have in principle the possibility to call any MPI function, MPI_Init() included. The right place where to call MPI_Init() would then be the MPINodeFactory constructor. But there the command line arguments, which are needed for the call, are not visible. In some cases there is a clean solution that consists in building the arguments for MPI_Init() directly in the MPINodeFactory constructor. Unfortunately this is not always possible especially because the definition of these parameters is not part of the MPI standard. Where not possible, like for the ScaMPI version, the call to MPI_Init() has to be put just after main(), surrounded by proper conditional compilation statements. Appendix C contains a detailed explanation on this and other modifications to the Reference Software in order to have it properly running on the PSC2.
+
+#### 5.0.1 Configuration
+
+Creating instances of some of the classes introduced in the previous sections may require reading some parameters from the configuration.
+
+\begin{tabular}{l l} Technology & (usually found in network.conf) defines whether communication \\  & should occur over UDP, TCP or MPI and which corresponding \\  & NodeFactory should be built. If Technology is not specified or if it \\  & is different from UDP and TCP, MPI is assumed. The option of \\  & specifying a different protocol than MPI must be enabled also at \\  & compile time, adding -DUSE_IP to the compilation command. \\ \end{tabular}
+
+Other configuration parameters are node-dependent and are specified in a Context called MPI within a node specification, in nodes.conf:
+
+\begin{tabular}{l l} use\_send\_buffer\_pool & decides the use of a pool of addresses for send buffers. Default is \\  & false (in the configuration 0 means false, everything else means \\  & true); \\ send\_buffer\_pool\_size & number of send buffers to pre-allocate from the heap, if a send pool \\  & is used. Default is 127; \\ send\_buffer\_size & size of a send buffer, if a pool is used. Default is 8 KB; \\ use\_recv\_buffer\_pool & decides the use of a pool of addresses for receive buffers. Default is \\  & false; \\ recv\_buffer\_pool\_size & number of receive buffers to pre-allocate from the heap, if a receive \\  & pool is used. Default is 127; \\ recv\_buffer\_size & size of a receive buffer, if a pool is used. Default is 8 KB. \\ \end{tabular}
+
+Most of the times these parameters are the same for all the nodes in the system, so there is the possibility to specify a single Context, again called MPI, at configuration top level (usually in network.conf). If such context exists values specified there are overridden by those possibly specified at node scope.
+
+The Technology parameter is used in an initialisation file (see MPIInit.cxx) in order to decide which NodeFactory should be used. The other parameters are used in MPILocalNode; they are read and checked for consistency in the utility class MPILocalNodePar.
+
+Default and invalid values for parameters are defined in a special header file (see mpidef.h).
+
+### Performance
+
+Table 1 shows the result of a simple benchmark program giving bandwidth and latency values for different message sizes. Latency is defined as the ping-pong time divided by two. Bandwidth is measured streaming data from one sender to one receiver.
+
+## Appendix B Appendix: Design of "chain"
+
+### System architecture
+
+The distributed architecture of chain is shown in Figure 16. It is very similar to the architecture used in the Reference Software, with a farm of Supervisors, a farm of trigger processors (or Steerings) and a farm of ROBs. For each event a Supervisor generates, it schedules a Steering by sending an event request to it. Based on the contents of the request, the Steering requests data from one or more ROBs and when the data responses come back it sends a decision back to the Supervisor. Each Supervisor can have multiple outstanding event requests. Unlike the Reference Software there is no "event clear" message to the ROBs for rejected events.
+
+chain uses some of the packages of the Reference Software, as shown in Figure 17.
+
+\begin{table}
+\begin{tabular}{|r|c|c|} \hline
+**size** & **bandwidth** & **latency** \\ (bytes) & **(MB/s)** & **(\(\mu\)s)** \\ \hline
+**4** & 0.3 & 20 \\ \hline
+**8** & 0.7 & 20 \\ \hline
+**16** & 1.2 & 22 \\ \hline
+**32** & 2.4 & 23 \\ \hline
+**64** & 4.8 & 26 \\ \hline
+**128** & 7.8 & 28 \\ \hline
+**256** & 14 & 31 \\ \hline
+**512** & 20 & 39 \\ \hline
+**1024** & 34 & 51 \\ \hline
+**2048** & 47 & 67 \\ \hline
+**4096** & 61 & 99 \\ \hline
+**8192** & 70 & 165 \\ \hline
+**16384** & 74 & 304 \\ \hline \end{tabular}
+\end{table}
+Table 1: Bandwidth and latency results for the message passing layer based on MPI.
+
+### Messages
+
+As apparent from Figure 18 there are four types of messages flowing through the system. They all have methods to set/get the identifier for the sending thread (requester), the sending node (source), the receiving node (target) and the event, but at the moment they do not derive this common behaviour from a base class. For each message type there are also two functions to write it into and to read it from a Buffer. Figure 18 shows the rest of the interface for each message type.
+
+Figure 16: Distributed architecture of chain.
+
+Figure 17: chain needs config, msg (together with a technology-specific implementation), os and, in some cases, status
+
+Figure 18: Application-specific messages used in chain.
+
+An EventRequest contains a list of RoI descriptors, whose number corresponds to the number of ROBs that will contribute data to an event. It is assumed that an RoI is contained in a single ROB; alternatively the number of RoIs per event can be viewed as the number of ROB fragments per RoI with one RoI per event.
+
+The message payload is written by the sender and read by the receiver.
+
+Application-dependent information (e.g. event identifier and sequence number) is set in the message constructor, whereas framework-dependent information (e.g. sender and receiver node identifiers) is set by the communication thread. On the receiving side, information contained in a received buffer is usually copied into an appropriate message object and immediately released. Only in the case of a DataResponse, in order to avoid a large memory copy, the Buffer becomes part of the message passed to the application which has the responsibility to release it.
+
+### Run control
+
+Apart from the messages introduced in the previous section, there are others used for run control.
+
+Run-control functionality is assumed by the supervisor node with identifier equal to 1, which then must be present. Before starting its own job, this Supervisor has to start all the other components in the system, the ROBs first, then the Steerings and finally the other Supervisors. To start a group of nodes the Run Control sends a START message to all of them and waits for a START_ACK message to come back. When the run-control Supervisor has finished its job it stops all the other components in the reversed order, first the other Supervisors, then the Steerings and finally the ROBs. Then it quits. To stop a group of nodes the run control sends a STOP message to all of them and waits for a STOP_ACK message to come back.
+
+### Node architecture
+
+On any node in the system the same application runs, which behaves as a Supervisor, a Steering or a ROB according to its node identifier. By convention a node is a Supervisor if it has a node identifier between 1 and 20, a Steering if the node identifier is between 21 and 100 and a ROB if it is between 101 and 1000. The Supervisor with node identifier equal to 1 must be present (see Section B.3, "Run control").
+
+The application is multi-threaded; there can be one or more worker threads, which do the actual job, and one communication thread, which does the whole input/output. It should be noted that unlike what happens in the Reference Software, the communication is done exclusively in the communication thread, both the input and the output. This allows grater flexibility in managing data flow, though it increases the overhead. For example a steering node can ask data only to a few ROBs at a time to avoid input congestion. Before exiting the application the different threads are joined using a semaphore.
+
+Though the base architecture for each node is similar, with one or more worker threads relying for communication on one single I/O thread, the way these threads interface to each other changes with the node role.
+
+Figure 19 shows a class diagram representing the supervisor node architecture: one or more supervisor threads (SuperT) register themselves to the I/O thread (SuperDespatchT).
+
+Generaled EventRequests are then inserted in a queue and extracted by the despatcher which sends them to a trigger processor in a round-robin fashion. The I/O thread also listens for incoming EventResponses which are then despatched to the appropriate channel.
+
+Each SuperT processes a certain number of events as specified in the configuration (see Section B.5). When it has finished it unregisters itself from the SuperDespatchT. Upon receiving a STOP message from the Run Control, the despatcher can quit itself and the whole application only if all the worker threads have finished.
+
+Figure 20 shows a class diagram representing the ROB node architecture; as before, one or more worker threads (RobT) register themselves to the communication thread (RobDespatchT). Incoming DataRequests are inserted in a shared queue and extracted by the workers. DataResponses produced by the workers are inserted in a second shared queue, extracted by the I/O thread and sent to the requesting steering node.
+
+When the RobDespatchT receives a STOP message from the Run Control, it passes a special DataRequest to each RobT which is interpreted as an End-of-Run command. When all the worker threads have unregistered, it sends a STOP_ACK to the Run Control and quits.
+
+Part of the steering node architecture is identical to the ROB, shown in Figure 20, where DataRequest/Response is replaced by EventRequest/Response and ROB is replaced with Steer. Also the technique used to end the application is similar to the one used for a ROB. Figure 21 shows an additional interface between worker and I/O threads due to the communication with the ROBs. Each SteerT creates a DataRequestChannel and a DataResponseChannel that it uses to pass DataRequests to and receive DataResponses from the despatcher for each event. The number of DataRequest/Responses depends on the number or RoIs per event.
+
+Figure 19: Class diagram showing the collaboration between worker (SuperT) and I/O (SuperDespatchT) threads in a supervisor node.
+
+### Configuration
+
+The following parameters are available to configure a run:
+
+/SkeletonRobDataSize size of a DataResponse. Default is 1 KB;
+
+Figure 21: Class diagram showing part of the collaboration between worker (SteerT) and I/O (SteerDespatchT) threads in a Steering node. The rest of the collaboration is very similar to what shown in Figure 20 for the ROB.
+
+Figure 20: Class diagram showing the collaboration between worker (RobT) and I/O (RobDespatchT) threads in a ROB node.
+
+/MaxOutDataRequests maximum number of outstanding DataRequests on a steering node. Default is 5;
+
+/MaxOutEventRequests maximum number of outstanding EventRequests on a supervisor node. Default is 16;
+
+/NumRolsPerEvent number of RoIs per event. Default is 1;
+
+/SupervisorWorkerThreads number of worker threads per supervisor node. Default is 1;
+
+/SteeringWorkerThreads number of worker threads per steering node. Default is 1;
+
+/RobWorkerThreads number of worker threads per ROB node. Default is 1;
+
+/SupervisorRun/NoEvents number of events to process per SuperT. Default is 1000.
+
+## Appendix C Appendix: How to run the Reference Software on the PSC2
+
+The Reference Software cannot run as it is on the PSC2. To comply with the resource management and access rules imposed by the CCS it needs some modifications, both in the source code and in the use of the configuration.
+
+### Source code adaptation
+
+CCS allows only one executable to be run on the system. Since the Reference Software is composed of three different applications, a wrapper (called "t2") has been written around those, which runs as a Supervisor, a Steering or a ROB according to the node identifier. The "chain" software was already designed with that requirement, so no particular changes were needed.
+
+CCS does not allow to pass different command line arguments to different nodes, thus making it impossible to use that approach to pass the identifier of the local node to each application. The local node identifier is then inferred from the MPI rank. The mapping between node identifiers and MPI ranks is managed by the MPINodeFactory and requires that:
+
+* the MPINodeFactory is built as soon as possible, but after the MPI_Init() call;
+* the order in which nodes are specified in the configuration (namely in nodes.conf) be the same as the list of nodes chosen by ccsalloc when starting a new run. Some tools have been developed to partly automatise the procedure.
+
+### Configuration files
+
+Running on many tens of nodes requires a major editing effort to adapt the nodes.conf and machines.conf files to a new system configuration. The generation of machines.conf is done once for all with a program called make_machines that produces an entry for each possible machine in the PSC2. The generation of nodes.conf is instead done, including the division of the \(\eta/\varphi\) space between all the ROBs, by a program called make_nodes, which has the following usage:
+
+make_nodes <# of supers> <# of steers> <# of robs>It should be noted that each node in the generated file points to a generic (and inexistent) machine in machines.conf. In fact a proper association between nodes and machines would be impossible to achieve since the nodes are chosen by ccssalloc when the application is started and at that time the configuration should be already available. This fact is in any case irrelevant since the machine information is used neither by the application nor by the message passing layer. The only useful information there are the node identifier, which will be matched against the MPI rank, and the Region boundaries for the ROBs.
+
+The machine information, in particular the hostname, is instead fundamental for the Run Control, which uses TCP/IP to connect and communicate with the different nodes in the system.
+
+A special nodes.conf file, called nodes_rc.conf, is generated for the Run Control by a program called change_nodes, which modifies the Host entry for each node according to the list of nodes chosen by ccssalloc.
+
+To accommodate the existence of two versions of nodes.conf there are also two top level configuration files (e.g. example.conf and example_rc.conf), which are identical apart from the fact that one includes nodes.conf and the other includes nodes_rc.conf.
+
+### How to run
+
+This section provides a recipe for running the Reference Software on the PSC2.
+
+The basic shell environment is defined in a script called t2env.csh in SHOME. In particular it provides the definition of the environment variables T2ROOT and T2BIN.
+
+To run the software two windows1 are needed on the psc-master, which is the front-end machine to the PSC2. One window is for the Run Control and one for starting the application.
+
+In the application window the environment variable T2CONFIG should point to
+
+SHOME/etc/config/example.conf, whereas in the Run Control window it should point to
+
+SHOME/etc/config/example_rc.conf.
+
+debug.conf should include the following:
+
+ErrorDest = "Erl";
+
+ErlResources = {
+
+ServerNode = "psc-master";
+
+ServerProtocol = "TCP";
+
+ServerPort = 8518";
+
+Assuming the run is on 1 Supervisor, 1 Steering and 1 ROB, in the application window:
+
+# ST2BIN/make_nodes 1 1 1 > ST2ROOT/etc/config/nodes.conf
+# ccsalloc -n 3 scampi -- ST2BIN/t2
+
+It usually helps to specify the options -init_comm_world, -inter_eager_size and
+
+-inter_eager_number after scampi (more details in the ScaMPI User's Guide [6]).
+
+In the Run Control window:
+
+# ST2BIN/erl_server >& /dev/null < /dev/null &
+# ST2BIN/change_nodes.shpscl41pscl51pscl61
+# ST2BIN/t2rc
+
+where the string "pscl41pscl51pscl61" is (part of) the output of ccsalloc. The ERL server can be started once and let it run in the background forever.
+
+## Acknowledgements
+
+We are deeply indebted to the University of Paderborn for making the PSC2 cluster available. We would never have been able to carry out the program without the expert help of Andreas Krawinkel and Axel Keller, University of Paderborn, whom we thank warmly. We also thank Hans Westgaard Ry, Scali Computer AS, for helping us to make optimal use of MPI.
+
+## References
+
+* Technical Proposal for a General-Purpose pp Experiment at the Large Hadron Collider at CERN, CERN/LHCC/94-43 (1994).
+* [2] ATLAS DAQ, HLT, and DCS Technical Proposal, CERN/LHCC/2000-17 (2000).
+* [3] The Atlas Level 2 Reference Software, ATLAS internal note, ATL-DAQ-2000-019 (2000).
+* [4] TOP500 Supercomputing Sites [http://www.top500.org/](http://www.top500.org/)
+* Design and Implementation', in _SCI: Scalable Coherent Interface. Architecture and Software for High-Performance Compute Clusters_, Springer-Verlag Lecture nodes in Computer Science (1999). [http://www.scali.com/whitepaper/other/scampidesign.pdf](http://www.scali.com/whitepaper/other/scampidesign.pdf)
+* [6] ScaMPI User's Guide [http://www.scali.com/download/doc/ScaMPI_UG_191.pdf](http://www.scali.com/download/doc/ScaMPI_UG_191.pdf)
+* [7] A. Keller, M. Brune, A. Reinefeld, _Resource Management for High-Performance PC Clusters_, Proceedings of 7th International Conference, HPCN Europe 1999, Amsterdam, Springer (1999). [http://www.uni-paderborn.de/pc2/people/kel/public/99002.pdf](http://www.uni-paderborn.de/pc2/people/kel/public/99002.pdf)
+* [8] A Minimum Set of Measurements to be made on the Application Testbeds, ATLAS internal note ATL-DAQ-99-005 (1999).
+* [9] First Implementation of Calorimeter FEX Algorithms in the LVL2 Reference Software, ATLAS internal note, ATL-DAQ-2000-020 (2000).
+* [10] Global Pattern Recognition in the TRT for the ATLAS LVL2 Trigger, ATLAS internal note, ATL-DAQ-98-120 (1998).
+* [11] Performance of a LVL2 Trigger Feature Extraction Algorithm for the Precision Tracker, ATLAS internal note, ATL-DAQ-99-123 (1999).
+* [12] Results from the Level-2 Pilot Project Testbeds, ATLAS internal note, ATL-COM-DAQ-2000-035 (2000).
+* [13] Message Passing Interface (MPI) Forum [http://www.mpi-forum.org](http://www.mpi-forum.org)

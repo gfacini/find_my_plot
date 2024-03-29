@@ -1,0 +1,387 @@
+**Trigger monitoring and rate predictions using Enhanced Bias data from the ATLAS Detector at the LHC**
+
+The ATLAS Collaboration
+
+A data-driven method for performing offline rate and CPU usage predictions for any algorithmic selection in the ATLAS High Level Trigger at the Large Hadron Collider is described. To assure statistical sensitivity in the most relevant kinematic regions, a mix of events is selected by the Level 1 trigger system that emphasises higher energies and object multiplicities. This sample, referred to as 'enhanced bias', is constructed in such a way that the selection bias is removable with event weights. The use of enhanced bias data to calculate the rates of HLT trigger chains along with complex combinations such as group rates, the total rate and unique rates is described, along with methods for performing extrapolations of rates to different instantaneous luminosities and for performing predictions of trigger CPU usage.
+
+The process by which ATLAS collects and processes monitoring data in the High Level Trigger is outlined, this allows for CPU and readout system resource utilisation within the trigger to be studied at differing levels of granularity.
+
+###### Contents
+
+* 1 Introduction, the ATLAS Trigger Systems
+* 2 The Enhanced Bias Mechanism
+	* 2.1 Taking Enhanced Bias Data
+	* 2.2 Predicting Trigger Rates
+	* 2.3 Calculating Enhanced Bias Weights
+	* 2.4 Luminosity Extrapolation Functions
+	* 2.5 Calculation of Chain and Luminosity weights
+		* 2.5.1 Single L1 item
+		* 2.5.2 Single HLT Chain, One Seed
+		* 2.5.3 Union of Multiple L1 Items
+		* 2.5.4 Union of Multiple HLT Chains, All One-to-One
+		* 2.5.5 Union of Multiple HLT Chains, All-to-All
+		* 2.5.6 Union of Multiple HLT Chains, All One-to-Many, One Seed
+		* 2.5.7 Union of Multiple HLT Chains, Many-to-Many
+		* 2.5.8 Intersection of Multiple HLT Chains, All One-to-One
+	* 2.6 Unique Rates, Overlaps and Coherent Prescales
+	* 2.7 Practical Rates Calculation Examples
+	* 2.8 Validation of Predicted Rates
+* 3 Monitoring the High Level Trigger
+	* 3.1 Obtaining Monitoring Data
+	* 3.2 Processing Monitoring Data
+	* 3.3 Displaying Processed Monitoring Data
+	* 3.4 Performing CPU Usage Predictions
+	* 3.5 Example Cost Monitoring Use Cases
+* 4 Conclusion
+* A Union of multiple HLT chains, many-to-many, pseudocode
+
+## 1 Introduction, the ATLAS Trigger Systems
+
+This document focuses on the ATLAS trigger systems used during Run 2 of the LHC (since 2015) at a proton-proton centre of mass energy \(\sqrt{s}=13\) TeV.
+
+ATLAS utilises a two level trigger system briefly outlined below, more details on the trigger in Run 1 and Run 2 is found at [1] and [2]. The ATLAS detector is described in [3]. The data-driven rate prediction methods described in Section 2.2 allow for trigger strategies to be developed for current and future LHC conditions which respect the physics goals of the collaboration and the limitations of the trigger and DAQ (Data Acquisition) systems. Similar methods for CPU usage predictions are described in Section 3.4 which estimate the size of the computing farm required to apply the HLT (High Level Trigger) filteringdescribed by a trigger menu to different LHC conditions. This allows the collaboration to estimate the amount of computing resources required in the future and to plan accordingly. Resource utilisation studies from Run 1 are presented in [4] and [5].
+
+The mechanisms by which CPU and ROS (Readout System) monitoring data are collected both online for monitoring purposes and on the grid for CPU usage predictions are detailed in Section 3.
+
+The Level 1 trigger systems at ATLAS are implemented in hardware, they run synchronously with the LHC clock which allows for 40 MHz of possible bunch-crossings. In current operations, collisions occur within bunch-crossings at up to 31 MHz.
+
+The L1Calo subsystem uses a sliding-window algorithm to find local transverse energy maxima up to \(|\eta|<4.9\)1 within two grids of trigger towers, each tower in the barrel covering \(0.1\times 0.1\) in \(\eta\times\phi\). One grid comes from the electromagnetic calorimeters and one from the hadronic calorimeters. Different algorithm variants are used for electron/photon, tau and jet identification based on window size and isolation requirements. Jet identification is performed over jet elements which are \(0.2\times 0.2\) in \(\eta\times\phi\) sums over trigger towers. L1Calo additionally forms global sums of the scalar total transverse energy and vector missing transverse energy.
+
+Footnote 1: ATLAS uses a right-handed coordinate system with its origin at the nominal interaction point (IP) in the centre of the detector and the \(z\)-axis along the beam pipe. The \(x\)-axis points from the IP to the centre of the LHC ring, and the \(y\)-axis points upward. Cylindrical coordinates (\(r,\phi\)) are used in the transverse plane, \(\phi\) being the azimuthal angle around the \(z\)-axis. The pseudorapidity is defined in terms of the polar angle \(\theta\) as \(\eta=-\ln\tan(\theta/2)\).
+
+L1Muon operates with fast Resistive Plate Chambers (RPC) in the barrel (\(|\eta|<1.05\)) and Thin Gap Chambers (TGC) in the end-caps (\(1.05<|\eta|<2.4\)), it locates the coincidence between hits in different layers of the muon spectrometer within geometrical regions whose extent are based on six pre-programmable \(p_{\mathrm{T}}\) thresholds.
+
+Both L1Calo and L1Muon output Trigger Objects (TOBs) which encode the type, location, energy and isolation status of identified objects. These are provided as inputs to the L1Topo subsystem which performs geometric and kinematic selections on the TOBs. The final L1 decision is formed by the L1 Central Trigger Processor (CTP) using the TOBs and L1Topo output. Up to 512 trigger selections are available at L1, which are configured to require different combinations and multiplicities of the inputs to the CTP. Each selection is assigned a prescale value \(n\) where \(n\geq 1\), the CTP accepts at random \(1/n\) events satisfying the trigger selection.
+
+Upon issue of a L1 accept from the CTP, the ATLAS detector is read out at a rate of up to 100 kHz. Some events which pass the L1 acceptance criteria are vetoed due to constraints of the detector readout system. This is due either to a L1 accept being issued very recently (typically within the four previous bunch crossings), referred to as simple dead-time. Or, if \(x\) events were accepted within the \(y\) previous bunch crossings, this style of veto is referred to as complex dead-time and the veto parameters are set based on the readout specifics of ATLAS subdetector systems.
+
+Events accepted by the L1 trigger are filtered by the HLT, a computer farm of up to approximately 40,000 CPU cores. A supervisor application assigns incoming events to free cores for processing.
+
+All event-data fragments from the ATLAS subdetectors are stored in the Data Collection Network (part of the Readout System) while HLT filtering is taking place [6]. The CPU core working on a given event will request only the fragments required to execute the specific selections it is running.
+
+Event selections in the HLT are referred to as chains, as they chain together a sequence of selection steps. The collection of all trigger chains is called the trigger menu. Each chain specifies a set of L1 TOB seeds which if present will activate the chain, providing that it also passes a HLT prescale check. A chain with prescale \(n\) has a \(1/n\) probability of activating when seeded. Chains are comprised of steps, where a step is a sequence of algorithms. A typical step will execute multiple feature-extraction algorithms. In general, feature extractors request event-data fragments from within a rectangular (in \(\eta\times\phi\)) Region of Interest (RoI) around the seeding TOB from L1 and run reconstruction algorithms over this sub-set of the event data. Each step terminates on a hypothesis algorithm which uses the reconstructed features to form a boolean decision whether the chain should remain active or if it should deactivate.
+
+The trigger steering algorithm executes the first step of each activated chain. Should at least one chain pass its first step, the second step of all remaining active chains is executed. This sequential processing continues until either no chains are left active, in which case the processing halts and the event is rejected, or until one chain passes its final step. In this case, the event is accepted and all other active chains will continue executing until they too pass the event or are deactivated.
+
+The output of single algorithms and entire steps is cached, the partial-event data requested by feature-extraction algorithms is also cached and any subsequent requests for the same algorithm/step (within the same RoI) or data fragment(s) within the event processing returns the local cached version.
+
+Events which are accepted by the HLT are transferred to CERN's Tier-0 computing centre at a rate of around 1 kHz on average for physics events with full event-data.
+
+## 2 The Enhanced Bias Mechanism
+
+The rate of events passed by any trigger selection is calculable from a sample of data recorded with zero trigger bias (for example, triggered at random), based on the probability of the selection to pass events in the unbiased sample. However, most selections of particular interest at a hadron collider, for example high \(p_{\mathrm{T}}\) leptons, come from processes whose cross sections are much smaller than the total inelastic cross section meaning an unfeasibly large data sample would be required.
+
+Enhanced bias data samples differ in that they are overweighted in high \(p_{\mathrm{T}}\) events which are likely to be selected by the trigger. The data are collected using a variety of L1 triggers of all signature types, combinations and \(p_{\mathrm{T}}\) ranges to produce a compact dataset which has the statistical power to assess the trigger rate of algorithmic selections on the data of the type typically performed by the HLT.
+
+Enhanced bias data are taken with an invertible trigger menu such that a single weight is calculable per event which corrects for the prescales applied during the enhanced bias data taking and restores an effective zero bias spectrum. The procedure to collect and derive weights for an enhanced bias datasets is described in detail in Sections 2.1 and 2.3.
+
+### Taking Enhanced Bias Data
+
+Each enhanced bias dataset reflects the configuration of the L1 trigger and the beam parameters of the LHC (most importantly the average pileup, \(\langle\mu\rangle\)) at the time it is taken. A new enhanced bias dataset is required when either of these changes significantly.
+
+Five trigger chains are used to collect enhanced bias data in ATLAS, each chain targets a group of physics signatures with similar rate and each is multi-seeded by around 10-30 L1 items except for the random chain which accepts events with zero trigger bias.
+
+The collection of an enhanced bias dataset occurs in parallel with standard data taking. Hence it must be taken using the same set of L1 prescales being used to take physics data. The enhanced bias chains are constructed so that for each event, each chain will be activated, or not, by the whole set of L1 items it includes. This is necessary to preserve the information on the correlation of the L1 items.
+
+For highly discriminating (e.g., 'primary', high \(p_{\mathrm{T}}\)) L1 items which are unprescaled at L1 in the main operating menu, the relevant enhanced bias HLT chains are directly seeded from their set of unprescaled L1 items.
+
+For chains whose set of L1 seeds are prescaled at L1 in the main operating menu, this is achieved by using a random trigger at L1 (with a typical rate of 5 kHz). These enhanced bias chains maintain an internal list of L1 items that they are to select, and pass the event if one or more of the L1 items from this internal list passed raw at L1 (before any L1 prescales were applied) in the random event.
+
+Events recorded by enhanced bias chains are only biased by the L1 system, no additional selection is applied at the HLT above the application of HLT prescales, to control the output rates.
+
+An example enhanced bias menu with five chains is presented in Table 1. These chains are enabled in parallel with standard physics data taking for a period of one hour, the data are recorded to a special output stream and do not interfere with physics data taking. The combined output rate of all enhanced bias chains is targeted at 300 Hz, this equates to a data sample of approximately 1 million events. The dataset is replicated to various grid sites for use in rate predictions.
+
+Of these 1 million events, around 150,000 satisfy the L1 primary isolated electron trigger (\(p_{\mathrm{T}}\geq 22\) GeV) and 90,000 the L1 primary muon trigger (\(p_{\mathrm{T}}\geq 20\) GeV). At lower thresholds, 320,000 satisfy a single L1 jet requirement (\(p_{\mathrm{T}}\geq 30\) GeV) and 35,000 satisfy a L1 requirement of one or more muons with \(p_{\mathrm{T}}\geq 4\) GeV and one or more other muons with \(p_{\mathrm{T}}\geq 6\) GeV (for B physics). Thus a single sample is obtained that contains sufficient statistical power to determine the rate of all primary, supporting and backup chains which together make up a trigger menu.
+
+### Predicting Trigger Rates
+
+In ATLAS, the reprocessing of a recent enhanced bias dataset is performed weekly on the grid. This is used to validate updates to the current software release and trigger menu before these are deployed on the live system. Part of this validation is the calculation of the rates of individual chains, groups of chains and the entire menu using enhanced bias weighting.
+
+The trigger is re-executed over all events in the enhanced bias sample using the trigger menu which is to be validated. This stage is performed on the grid. In the reprocessing, all L1 items and HLT chains are run unprescaled. This yields an ntuple containing the raw trigger decision for all L1 items and all HLT chains in the menu for every event in the one million event enhanced bias sample. The effects of prescales are applied after the reprocessing via weighting factors to make full use of the statistics available within each enhanced bias dataset.
+
+Rates are derived from this ntuple, along with an optional list of prescale values to apply. As well as the rates for individual L1 items and HLT chains, more complex combinations are also considered. Theseinclude the total rate of all HLT chains defined within different physics groups, the total rate at L1 and the HLT, the unique rate of a chain (or group of chains) and a chain's overlap with all other chains in the menu.
+
+The rate of a chain, or combination of chains (such as the total rate of all HLT chains), and its error are
+
+\[R=\frac{\sum_{e=1}^{N}w(e)}{\Delta t},\;\;\;R_{\rm Err}=\frac{\sqrt{\sum_{e=1}^ {N}w(e)^{2}}}{\Delta t}. \tag{1}\]
+
+Where \(R\) is the rate in Hz and \(R_{\rm Err}\) its statistical error, the sum runs over all \(e=1,2,\ldots,N\) events in the enhanced bias dataset, the weight \(w(e)\) is the effective number of events passed by the chain/combination in event \(e\) and \(\Delta t\) is the time period over which the enhanced bias data sample was collected, typically around one hour. The obtained rate corresponds to the average instantaneous luminosity over this time period.
+
+The weight \(w(e)\) is expressed as
+
+\[w(e)=w_{\rm EB}(e)w_{\rm C}(e)w_{\cal L}(e). \tag{2}\]
+
+Here for event \(e\), \(w_{\rm EB}(e)\) is the enhanced bias weight (\(w_{\rm EB}(e)\geq 1\)), \(w_{\rm C}(e)\) is the chain/combination weight (\(w_{\rm C}(e)=0\) if the chain/combination does not pass, or is bounded \(0<w_{\rm C}(e)\leq 1\) if the chain/combination does pass, based on the prescale value(s) being applied to the chain(s)) and \(w_{\cal L}(e)\) is a luminosity extrapolation weight (\(w_{\cal L}(e)>0\)). The following sections detail the calculation of \(w_{\rm EB}(e)\), \(w_{\rm C}(e)\) and \(w_{\cal L}(e)\) for various scenarios.
+
+### Calculating Enhanced Bias Weights
+
+An enhanced bias weight is calculated for each event in the sample. It is a property of the event and corrects for the online prescales used to take the enhanced bias sample. For each event, \(e\), the weight \(w_{\rm EB}(e)\) is
+
+\[\frac{1}{w_{\rm EB}(e)}=1-\prod_{j=1}^{\rm EB\ Chains}\left(1-\frac{r_{je}}{p_{ j}}\right). \tag{3}\]
+
+\begin{table}
+\begin{tabular}{l l c c c c} \hline \hline Name & Seeding & Output [Hz] & Input Range [kHz] & E.g. Items & E.g. HLT Prescale \\ \hline Random & Random & 60 & \(>500\) & Random & Fixed \\ Low & Random & 60 & 50–500 & MU6, JET15, 2\(\times\)EM7 & 4 \\ Medium & Random & 60 & 20–50 & TAU30, EM18, 3\(\times\)JET15 & 1 \\ Primary & Direct & 110 & 0.1–20 & TAU60, MU20, XE50 & 350 \\ High & Direct & 10 & \(<0.1\) & JET400, XE80 & 4 \\ \hline \hline \end{tabular}
+\end{table}
+Table 1: Example enhanced bias trigger menu with five chains covering low-\(p_{\rm T}\) to high-\(p_{\rm T}\) signatures. Seeding denotes if the chain is seeded with random events, where the discrimination on the set of L1 items of interest is applied in the HLT. Or, directly seeded by the set of (unprescaled) L1 items of interest. Output rate dictates at what rate events passing this chain are recorded, controlled via prescales. Input range is indicative of the unprescaled rate of L1 items being included in the chain’s selection, ‘E.g Items’ lists a small number of L1 items which fall in this range where thresholds are in GeV (EM=Electron/photon, MU=Muon, XE=\(E_{\rm T}^{\rm miss}\)). ‘E.g Prescales’ is indicative of the prescale required for the HLT chain to obtain the target output rate. For the totally random chain a fixed prescale is used, for the random-seeded ‘Low’ and ‘Medium’ chains this depends on \(\langle\mu\rangle\) while for the direct seeded chains it depends on the luminosity. For the latter three columns, \({\cal L}=1\times 10^{34}\) cm\({}^{-2}\)s\({}^{-1}\) and \(\langle\mu\rangle=30\) are assumed.
+
+Where the product runs over the \(j=1,2,3,4,5\) enhanced bias chains used to take the dataset, with raw decision \(r_{je}\) (the decision before the application of any prescale) and total prescale \(p_{j}\) (here it is assumed that the enhanced bias chain's prescales were constant over the data taking period).
+
+### Luminosity Extrapolation Functions
+
+Two principal factors in instantaneous luminosity determination at a collider such as the LHC are the number of colliding bunches, \(N_{B}\), and the mean number of inelastic proton-proton collisions per bunch-crossing, \(\left\langle\mu\right\rangle\). The instantaneous luminosity, \(\mathcal{L}\), scales linearly in both of these quantities:
+
+\[\mathcal{L}=N_{B}\left\langle\mu\right\rangle k \tag{4}\]
+
+where \(k\) is a constant of proportionality. For proton-proton collisions at \(\sqrt{s}=13\) TeV, \(k\sim 0.157\) where \(\mathcal{L}\) is measured in multiples of \(10^{30}\) cm\({}^{-2}\)s\({}^{-1}\).
+
+A luminosity extrapolation is used to take an _enhanced bias_ dataset with properties \(\left\langle\mu\right\rangle^{\text{EB}}\), \(N_{B}^{\text{EB}}\), and use it to predict rates for a _target_ luminosity defined by \(\left\langle\mu\right\rangle^{\text{T}}\) and \(N_{B}^{\text{T}}\). Two of \(\left\langle\mu\right\rangle^{\text{T}}\), \(N_{B}^{\text{T}}\) and \(\mathcal{L}^{\text{T}}\) must be specified, with the third parameter calculable via \(k\) from (4).
+
+For individual HLT chains or L1 items, the luminosity weight is \(w_{\mathcal{L}}=X\) and there is no dependence on the event properties. For combinations, an averaging procedure is required, examples are given in Section 2.5. Table 2 details some common extrapolation strategies and their use cases, here \(w_{\text{DT}}\) is used to correct for L1 deadtime. This depends on the L1 trigger configuration during the enhanced bias data taking and is typically a few percent, \(w_{\text{DT}}\sim 1.03\). For chains that scale exponentially instead of linearly with pileup, a scale factor \(f\) is extracted from fits to the data.
+
+These formulations hold only under the assumption that the probability of each chain accepting an unbiased event is \(\ll 1\). It does not account for saturation effects of high-probability triggers as \(\left\langle\mu\right\rangle\) grows large, or for non-linear combinatorial effects. More advanced techniques are required to properly simulate \(\left\langle\mu\right\rangle\) extrapolation, for example the overlay of additional unbiased events during the reprocessing.
+
+\begin{table}
+\begin{tabular}{l l l} \hline \hline  & Extrapolation Function & Comments \\ \hline Linear & \(X(\mathcal{L}^{\text{T}})=\frac{\mathcal{L}^{\text{T}}}{\mathcal{L}^{\text{ EB}}}w_{\text{DT}}\) & The majority of HLT chains exhibit linear scaling in \(\mathcal{L}\) \\ Only \(\mu\) Dependent & \(X(\left\langle\mu\right\rangle^{\text{T}})=\frac{\left\langle\mu\right\rangle^{ \text{T}}}{\left\langle\mu\right\rangle^{\text{EB}}}w_{\text{DT}}\) & For HLT chains with a fixed input rate, for example chains seeding from a random L1 trigger. \\ Exp. \(\mu\) Dependent & \(X(N_{B}^{\text{T}},\left\langle\mu\right\rangle^{\text{T}},f)=\frac{N_{B}^{ \text{T}}}{N_{B}^{\text{EB}}}e^{f(\left\langle\mu\right\rangle^{\text{T}}- \left\langle\mu\right\rangle^{\text{EB}})}w_{\text{DT}}\) & For chains whose rate is sensitive to changes in \(\left\langle\mu\right\rangle\) which follow an exponential trend. \\ Independent & \(X=w_{\text{DT}}\) & Fixed rate monitoring chains, for example, whose rate is independent of LHC conditions. \\ \hline \hline \end{tabular}
+\end{table}
+Table 2: Examples of luminosity extrapolation functions, \(X\), for individual trigger chains, see text for discussion of symbols.
+
+### Calculation of Chain and Luminosity weights
+
+Depending on the topology of a combination of chains, different procedures are required to calculate, per-event, the chain weight, \(w_{\text{C}}(e)\), which accounts for prescales on the chains that were passed, and the luminosity weight, \(w_{\mathcal{L}}(e)\), which accounts for luminosity and pileup extrapolation.
+
+Rates are calculated for individual chains, for the union of multiple chains (group & total rates) and for the intersection of chains (overlaps). The appropriate algorithms for different combination topologies are described below.
+
+In the following, a set of \(i=1,2,\ldots,\,N^{\text{L1}}\) L1 items and \(j=1,2,\ldots,\,N^{\text{HLT}}\) HLT chains in event \(e\) with raw decisions (before any prescales) \(r_{ie}^{\text{L1}}\), \(r_{je}^{\text{HLT}}\) and prescale values \(p_{i}^{\text{L1}}\), \(p_{j}^{\text{HLT}}\) is considered. Further details and discussion of the weighting algorithms is available in [7]. Each chain (or, for L1-only rates, each L1 item) is assigned a luminosity extrapolation function, \(X\), from Section 2.4.
+
+#### 2.5.1 Single L1 item
+
+For a single L1 item, \(i\), the luminosity extrapolation weight \(w_{\mathcal{L}}\) and chain weight \(w_{\text{C}}(e)\) are
+
+\[w_{\mathcal{L}}=X_{i},\quad w_{\text{C}}(e)=\frac{r_{ie}^{\text{L1}}}{p_{i}^{ \text{L1}}}. \tag{5}\]
+
+#### 2.5.2 Single HLT Chain, One Seed
+
+For a single HLT chain, \(j\), seeded by a single L1 item \(i\) the luminosity extrapolation weight \(w_{\mathcal{L}}\) and chain weight \(w_{\text{C}}(e)\) are
+
+\[w_{\mathcal{L}}=X_{j},\quad w_{\text{C}}(e)=\frac{r_{ie}^{\text{L1}}r_{je}^{ \text{HLT}}}{p_{i}^{\text{L1}}p_{j}^{\text{HLT}}}. \tag{6}\]
+
+Note that for the cases of a single L1 item or single HLT chain, the luminosity extrapolation weight does not depend on the event, \(e\).
+
+#### 2.5.3 Union of Multiple L1 Items
+
+For the union of multiple L1 items \(i=1,2,\ldots,N^{\text{L1}}\), the luminosity extrapolation is not necessarily constant and is taken instead here as a weighted average of correlated items to approximate how the relative contributions from each component in the union will affect the total. This corresponds to an ad-hoc assumption on the correlation of the growth of the triggers with \(\langle\mu\rangle\). The luminosity extrapolation weight, \(w_{\mathcal{L}}(e)\), and the chain union combination weight, \(w_{\text{C}}(e)\), are calculated via
+
+\[\begin{split} w_{\mathcal{L}}(e)&=\frac{\sum_{i=1}^ {N^{\text{L1}}}X_{i}r_{ie}^{\text{L1}}/p_{i}^{\text{L1}}}{\sum_{i=1}^{N^{ \text{L1}}}r_{ie}^{\text{L1}}/p_{i}^{\text{L1}}}\\ w_{\text{C}}(e)&=1-\prod_{i=1}^{N^{\text{L1}}} \left(1-\frac{r_{ie}^{\text{L1}}}{p_{i}^{\text{L1}}}\right).\end{split} \tag{7}\]
+
+This expression is utilised when evaluating the total rate of all L1 items.
+
+#### 2.5.4 Union of Multiple HLT Chains, All One-to-One
+
+For the union of multiple, parallel, HLT chains \(j=1,2,\ldots,N^{\text{HLT}}\) each with a single unique L1 seed \(i=1,2,\ldots,N^{\text{L1}}\) where \(N^{\text{HLT}}=N^{\text{L1}}\) and \(i=j\), the weighting approach is a combination of (6) and (7).
+
+\[\begin{split} w_{\mathcal{L}}(e)&=\frac{\sum_{j=1}^{N ^{\text{HLT}}}X_{j}r_{je}^{\text{L1}}r_{je}^{\text{HLT}}/p_{j}^{\text{L1}}p_{j }^{\text{HLT}}}{\sum_{j=1}^{N^{\text{HLT}}}r_{je}^{\text{HLT}}r_{je}^{\text{HLT }}/p_{j}^{\text{L1}}p_{j}^{\text{HLT}}}\\ w_{\text{C}}(e)&=1-\prod_{j=1}^{N^{\text{HLT}}} \left(1-\frac{r_{je}^{\text{L1}}r_{je}^{\text{HLT}}}{p_{j}^{\text{L1}}p_{j}^{ \text{HLT}}}\right).\end{split} \tag{8}\]
+
+#### 2.5.5 Union of Multiple HLT Chains, All-to-All
+
+For the union of a set of HLT chains \(j=1,2,\ldots,N^{\text{HLT}}\) each seeded by an identical set \(i=1,2,\ldots,N^{\text{L1}}\) of L1 items, the probabilities factorise and the weights are expressed via
+
+\[\begin{split} w_{\mathcal{L}}(e)&=\frac{\sum_{j=1}^ {N^{\text{HLT}}}X_{j}r_{je}^{\text{HLT}}/p_{j}^{\text{HLT}}}{\sum_{j=1}^{N^{ \text{HLT}}}r_{je}^{\text{HLT}}/p_{j}^{\text{HLT}}}\\ w_{\text{C}}(e)&=\left[1-\prod_{i=1}^{N^{\text{L1 }}}\left(1-\frac{r_{ie}^{\text{L1}}}{p_{i}^{\text{L1}}}\right)\right]\left[1- \prod_{j=1}^{N^{\text{HLT}}}\left(1-\frac{r_{je}^{\text{HLT}}}{p_{j}^{\text{ HLT}}}\right)\right].\end{split} \tag{9}\]
+
+In ATLAS trigger menus, a common topology used by monitoring chains is a HLT chain which is multi-seeded by many L1 items, often to collect a sample of events from a set of related L1 items. These weighting formula are applicable to this All-to-One subset of the All-to-All topology.
+
+#### 2.5.6 Union of Multiple HLT Chains, All One-to-Many, One Seed
+
+Here the union of multiple HLT chains is computed imposing the restriction that each HLT chain \(j=1,2,\ldots,N^{\text{HLT}}\) is seeded by exactly one L1 item from \(i=1,2,\ldots,N^{\text{L1}}\), however L1 items may seed multiple chains in the combination. This is a very common seeded arrangement in ATLAS and is used, for example, for the calculation of most group rates along with the total rate of all HLT chains.
+
+The calculation of the luminosity extrapolation weight, \(w_{\mathcal{L}}(e)\), is the same as in equation (8) because all HLT chains here have exactly one seed. The chain union combination weight, \(w_{\text{C}}(e)\), is expressed below. Here \(M_{ij}\) is a matrix which encodes the seeding relationship between the \(i\) L1 items and the \(j\) HLT chains. \(M_{ij}=1\) if chain \(j\) is seeded by item \(i\), otherwise \(M_{ij}=0\).
+
+\[w_{\text{C}}(e)=1-\prod_{i=1}^{N^{\text{L1}}}\left(1-\frac{r_{ie}^{\text{L1}}} {p_{i}^{\text{L1}}}\left[1-\prod_{j=1}^{N^{\text{HLT}}}\left(1-\frac{M_{ij}\;r_ {je}^{\text{HLT}}}{p_{j}^{\text{HLT}}}\right)\right]\right) \tag{10}\]
+
+#### 2.5.7 Union of Multiple HLT Chains, Many-to-Many
+
+This is the generic case for which the combination of the two levels does not factorise. It can handle every topology, however it scales exceedingly poorly with increasing numbers of L1 seeds as this procedure requires the summation of \(2^{N^{\mathrm{L1}}-1}\) sub-weights per event, one for every combination of the set of L1 seeds. Hence it is strongly recommended, where possible, to alter group topology away from the many-to-many case such that one of the factorising algorithms above is applicable.
+
+The combination weight, \(w_{\mathrm{C}}(e)\), is calculated via the expression below for \(j=1,2,\ldots,N^{\mathrm{HLT}}\) HLT chains with an arbitrary seeding relationship to \(i=1,2,\ldots,N^{\mathrm{L1}}\) L1 items which is encoded in \(M_{ij}\) (see Section 2.5.6). \(\sum_{S^{\mathrm{L1}}}\) is a sum over all \(2^{N^{\mathrm{L1}}-1}\) possible combinations of the set of L1 items. See equation (35) from [7] for further discussion.
+
+\[w_{\mathrm{C}}(e)=\sum_{S^{\mathrm{L1}}}\left(\prod_{i\in S^{ \mathrm{L1}}}\frac{r_{ie}^{\mathrm{L1}}}{p_{i}^{\mathrm{L1}}}\right)\left( \prod_{i\notin S^{\mathrm{L1}}}\left(1-\frac{r_{ie}^{\mathrm{L1}}}{p_{i}^{ \mathrm{L1}}}\right)\right)\cdot\left(1-\prod_{j=1}^{N^{\mathrm{HLT}}}\left(1- \left[1-\prod_{i\in S^{\mathrm{L1}}}\left(1-M_{ij}\right)\right]\frac{r_{je}^ {\mathrm{HLT}}}{p_{j}^{\mathrm{HLT}}}\right)\right) \tag{11}\]
+
+The luminosity extrapolation weight is the weighted average over all HLT chains and L1 combinations. An algorithmic implementation to calculate both the luminosity extrapolation weight, \(w_{\mathcal{L}}(e)\), and chain union combination weight, \(w_{\mathrm{C}}(e)\), for this case is presented in Appendix A.
+
+#### 2.5.8 Intersection of Multiple HLT Chains, All One-to-One
+
+For the intersection calculation, all chains in the combination are required to pass. For the one-to-one topology of multiple parallel HLT chains \(j=1,2,\ldots,N^{\mathrm{HLT}}\) each with a single unique L1 seed (\(i=j\)) this corresponds to
+
+\[w_{\mathrm{C}}(e)=\prod_{j=1}^{N^{\mathrm{HLT}}}\left(\frac{r_{je }^{\mathrm{L1}}r_{je}^{\mathrm{HLT}}}{p_{j}^{\mathrm{L1}}p_{j}^{\mathrm{HLT}} }\right). \tag{12}\]
+
+\(w_{\mathcal{L}}(e)\) for this case is identical to (8).
+
+### Unique Rates, Overlaps and Coherent Prescales
+
+A chain's rate is the applicable quantity when calculating the size of the dataset which will be collected by the chain. However, this ignores correlations between trigger chains. Any non-zero correlations will act to reduce the HLT total rate, such that it is smaller than the sum of the rate of all individual chains in the menu. A chain's unique rate is the subset of its rate which is uncorrelated with all other chains in the menu, after prescales are applied. In ATLAS, specialised HLT chains which are specific to particular physics analysis are required to have a unique rate which is small when compared to the total HLT physics rate of 1 kHz.
+
+The expression to obtain the unique rate of the \(N_{\mathrm{th}}\) chain in the set of \(j=1,2,\ldots,N\) chains, \(C\), is
+
+\[\text{Unique Rate of Chain }C_{N}=R(C_{1}\cup C_{2}\cup\ldots\cup C_{N})-R(C_{1} \cup C_{2}\cup\ldots\cup C_{N-1}). \tag{13}\]Where the rate of the union of the chains \(R(C_{1}\cup C_{2}\cup\ldots\cup C_{N})\) will be calculated with equations (1), (2) and typically equation (10) (depending on the topology of the menu). By excluding more than one chain from the right half of the equation, the unique rate of groups of chains is calculable.
+
+When a chain's rate is larger than its unique rate, it must have at least partial overlap with other chains in the menu. For chains \(A,\,B\) with rates \(R(A),\,R(B)\) and rate of intersection \(R(A\cap B)\) (from (1), (2), and (12)), the overlap calculation is
+
+\[\text{Overlap of Chain A with Chain B}=\frac{R(A\cap B)}{R(B)}. \tag{14}\]
+
+Another mechanism utilised by ATLAS is that of coherent prescaling. This is used for groups of HLT chains with a common seed where the desire is to run all members of the group in unison, typically because the end users wish to compare the chains against each other. If \(N\) HLT chains all with common prescale value \(p\) were to run normally, the probability that all would activate simultaneously is, from prescale considerations, \(1/p^{N}\) which quickly approaches zero as \(p\) and \(N\) grow. Chains placed within a coherent prescale group with the same prescale undergo their prescale check in unison and all will activate or none will. More generally, the lowest common prescale value between chains in the group is factored out and applied coherently.
+
+The prediction of group and total rates in a menu utilising coherent prescales requires additional modification to the above algorithms. For each group, the Common Prescale Factor (CPF) is identified as the smallest HLT prescale among all chains in the group. All chains in the group are assigned a reduced-prescale value which is their HLT prescale divided by the CPF. When utilising the union algorithms above, chains in coherent prescale groups are separated and combined in their own product over the group using their reduced-prescale values, this product is then additionally weighted by the reciprocal of the CPF.
+
+### Practical Rates Calculation Examples
+
+To demonstrate the procedures described in this section, an illustration enhanced bias menu is introduced which is comprised of just two chains EB_A with prescale PS\({}_{\text{A}}\) = 50 and EB_B with prescale PS\({}_{\text{B}}\) = 75. The two chains are assumed to have different, unprescaled, L1 seeds and neither apply any additional selection at the HLT. It is assumed that they are enabled for 60 seconds during an LHC physics run and they collect five events between them: the enhanced bias sample. It is further assumed that the sample is taken at an instantaneous luminosity \(\mathcal{L}=1\times 10^{34}\) cm\({}^{-2}\)s\({}^{-1}\).
+
+For each event in the sample, the enhanced bias weight, \(w_{\text{EB}}(e)\), is calculated following equation (3), the result is listed in Table 3.
+
+An estimation of the rate is desired for a hypothetical HLT chain, HLT_C. It is assumed that the prediction is required for a luminosity which is 50% higher than the enhanced bias sample, \(\mathcal{L}=1.5\times 10^{34}\) cm\({}^{-2}\)s\({}^{-1}\). HLT_C is defined to have the following properties: it seeds from one of the same L1 items as EB_A, it scales linearly with luminosity hence its luminosity extrapolation function is simply \(X_{\text{C}}=1.50\) and a prescale factor PS\({}_{\text{C}}\) = 2 is to be applied at the HLT.
+
+The results in Table 3 are used along with the equations in (6) to calculate the chain's total weight, \(w(e)\), per event as in (2). This is illustrated in Table 4. The final rate is obtained via equation (1), the sum of the event weights, \(\sum w(e)\), is 97.68. The root sum of the square of the event weights \(\sqrt{\sum w(e)^{2}}\) is 57.68 and the time denominator for normalisation was taken to be 60 s, yielding a rate prediction of \(1.6\pm 1.0\) Hz.
+
+As a second example, an estimation of the combined rate (union) of (HLT_C \(\cup\) HLT_D) is desired, again an extrapolation in luminosity by +50% is to be applied. HLT_D is defined to have the following properties: a single L1 seed, which is common with EB_B, an exponential dependence on pileup with \(f=1.39\) (from Table 2) such that the luminosity extrapolation function is \(X_{\text{D}}=2.0\) and a prescale \(\text{PS}_{\text{D}}=5\), to be applied at the HLT.
+
+The luminosity extrapolation and chain combination weights in this example are calculated using the equations in (8). This is presented in Table 5. In this case, \(\sum w(e)=146.9\) and \(\sqrt{\sum w(e)^{2}}=68.9\), normalised to 60s this yields a combined rate prediction of \(2.4\pm 1.1\) Hz.
+
+\begin{table}
+\begin{tabular}{c c c c c c} \hline \hline Event, \(e\) & HLT\_C Pass? & \(w_{\text{EB}}(e)\) & \(w_{\text{C}}(e)\) & \(w_{\mathcal{L}}(e)\) & \(w(e)\) \\ \hline
+1 & Yes & 50.00 & 0.50 & 1.50 & 37.50 \\
+2 & No & 75.00 & 0.00 & 1.50 & 0.00 \\
+3 & Yes & 30.24 & 0.50 & 1.50 & 22.68 \\
+4 & Yes & 50.00 & 0.50 & 1.50 & 37.50 \\
+5 & No & 30.24 & 0.00 & 1.50 & 0.00 \\ \hline \hline \end{tabular}
+\end{table}
+Table 4: Calculation of per-event effective number of weighted events accepted by HLT_C chain. A prescale value of 2 and a luminosity extrapolation of 1.5 are assumed.
+
+\begin{table}
+\begin{tabular}{c c c c} \hline \hline Event, \(e\) & EB\_A Pass? & EB\_B Pass? & \(w_{\text{EB}}(e)\) \\ \hline
+1 & Yes & No & 50.00 \\
+2 & No & Yes & 75.00 \\
+3 & Yes & Yes & 30.24 \\
+4 & Yes & No & 50.00 \\
+5 & Yes & Yes & 30.24 \\ \hline \hline \end{tabular}
+\end{table}
+Table 3: Calculation of per-event enhanced bias weight for an illustrative data sample with five events collected by two enhanced bias chains.
+
+\begin{table}
+\begin{tabular}{c c c c c c} \hline \hline Event, \(e\) & HLT\_C Pass? & HLT\_D Pass? & \(w_{\text{EB}}(e)\) & \(w_{\text{C}}(e)\) & \(w_{\mathcal{L}}(e)\) & \(w(e)\) \\ \hline
+1 & Yes & No & 50.00 & 0.50 & 1.50 & 37.50 \\
+2 & No & Yes & 75.00 & 0.20 & 2.00 & 30.00 \\
+3 & Yes & Yes & 30.24 & 0.60 & 1.64 & 29.76 \\
+4 & Yes & No & 50.00 & 0.50 & 1.50 & 37.50 \\
+5 & No & Yes & 30.24 & 0.20 & 2.00 & 12.10 \\ \hline \hline \end{tabular}
+\end{table}
+Table 5: Calculation of per-event effective number of weighted events accepted by the union of (HLT_C \(\cup\) HLT_D). See text for the assumptions made for prescales and luminosity extrapolation functions.
+
+### Validation of Predicted Rates
+
+Two examples of the enhanced bias mechanism in use are given in Figure 1. In Figure 1, predicted rates are presented over a range of transverse energies. The smooth \(p_{\mathrm{T}}\) spectra obtained via the enhanced bias weighting procedure illustrate the statistical power of the data sample over several orders of magnitude in rate.
+
+In Figure 1, HLT rate predictions are compared to actual online rates for all 957 physics chains in a trigger menu for which there was a non-zero rate online. The online rates are corrected for prescales at both levels and the difference in rate between the prediction and online is normalised to the combined statistical error from both samples. A deadtime correction \(w_{\mathrm{DT}}=1.03\) is applied to the prediction. The Gaussian fit in the range \(-3\) to \(3\) indicates that the prediction for the majority of HLT chains is normally distributed. A tail is visible to negative significance for a small number of chains where the predicted rate was too low. This is due to a small bias arising from the chosen set of L1 seeds of the enhanced bias dataset and their available statistics. The mean fractional statistical error is \(10\%\) for the predicted rates and \(2\%\) for the online rates.
+
+## 3 Monitoring the High Level Trigger
+
+### Obtaining Monitoring Data
+
+Two types of monitoring of the High Level Trigger farm are available. 'Online' monitoring provides real-time analytic data on high level quantities such as the number of CPU cores available to accept new events and the average event processing time, along with online monitoring histograms for physics and performance. For more on the ATLAS online Information Service, see [8, 9]. The second type, which
+
+Figure 1: (a) rates \(p_{\mathrm{T}}\)-scan for various items at L1 derived from enhanced bias data. (b) Comparison of 957 HLT chain rate predictions from enhanced bias minus actual rates from online monitoring for the same LHC conditions, normalised to the combined statistical error and fitted to a Gaussian function in the range \(-3\) to \(3\). Overflow entries outside the range of the graph are included in the first or last point.
+
+will be described here, is referred to as 'offline' monitoring. It is not real-time, but provides much greater detail on resource usage within the HLT farm.
+
+The ATLAS cost monitoring framework consists of a suite of tools which are executed on a sample of events processed by the HLT, irrespective of whether the events passes or fails the HLT selection. A monitoring fraction of 10% is chosen so as to sample a representative sub-set of all events. Given HLT execution can reach 100 kHz, this implies 10 kHz of monitoring data, or \(6\times 10^{5}\) events per luminosity block (an interval which is defined to be approximately 60 seconds of data taking).
+
+For each monitored event, tools are executed to collect statistical data on the event. They are executed after the HLT has finished processing.
+
+* Execution tool: Collects monitoring data from executed steps and their algorithms, notably execution time and cached status2. Footnote 2: If multiple chains request the same algorithm to be executed on a region of interest, then the algorithm is only executed once and cached by the trigger steering for use in all subsequent requests.
+* Readout system tool: Collects monitoring data from every request made to the readout system for event-data fragments. Summarises which fragments were requested, if they were retrieved over the ROS network or were cached locally, and the size of the fragments in the request in KiB.
+* HLT Result tool: Collects a summary of the trigger decision and prescale status of all active chains.
+* LVL1 Result tool: Collects a summary of all 512 L1 trigger item's raw, after prescale and after veto (i.e. after dead-time consideration) decisions.
+* Region of Interest tool: Collects a summary of all TOBs from L1 which seed the HLT. Also allows for emulation of the CTP.
+
+For a typical long run (1000 luminosity blocks), around 2.75 TiB of monitoring data are generated. The data are initially buffered locally on the HLT's processing units and are exported to Tier-0.
+
+The monitoring data is written to a special calibration stream as serialised C++ objects. Upon closing of these byte-stream data files, a transformation is executed automatically at Tier-0 which de-serialises the monitoring data and writes it to temporary flat ntuples, comprising of branches of primitives and vectors of primitives in the ROOT format. This stage is fast and starts in parallel with the ongoing data taking, hence all events are typically available to analyse as ROOT ntuples within a couple of hours of the end of the run. The temporary ntuples are removed once they are processed.
+
+### Processing Monitoring Data
+
+The collection of monitoring data in ROOT ntuples for a given run is processed in a single application as the set of monitoring events from a given luminosity block can be spread out over multiple files, depending on when the HLT cores which processed them wrote their data to Tier-0.
+
+The processing framework defines a series of Monitors, each of which is responsible for monitoring one aspect of the event. Examples include the Algorithm, Chain and Global Monitors which tabulate resource usage (CPU time and data-fragment requests) of individual algorithms, chains, and all chains (respectively) allowing for resource usage to be monitored at different levels of granularity. Another monitor, the Full Event monitor, selects a small number of events at random whose CPU usage was above a pre-set threshold. Here a detailed execution summary of every algorithm in the event in order is output to allow for the event's execution profile to be studied in detail.
+
+In order to limit processing time and to study the evolution of HLT processing conditions within a run, Monitors have defined time ranges in which they activate, three time ranges are used.
+
+* All: Monitor every event.
+* Luminosity Block: Monitor all events within a specific luminosity block.
+* Prescale Set: Monitor a configurable number of luminosity blocks from the starting luminosity block of a new prescale configuration being applied3. Footnote 3: Changing the prescale configuration in ATLAS forces the start of a new luminosity block.
+
+A typical configuration is to monitor the first three luminosity blocks of the first two prescale sets from the start of physics data taking and also single luminosity blocks, with a sampling rate of 1 luminosity block in every 150 until the end of the run.
+
+For each time range, each Monitor holds a collection of Counters. In the Chain Monitor each counter will represent a different HLT trigger chain, whereas in the Global Monitor, each counter will represent a different luminosity block. Each Counter, dependent on its type, will register a set of monitored variables and specify if these variables are to be tabulated per-call, per-event or per-event-normalised, and if histogramming is required. Per-call and per-event differ for Counters which may be called multiple times per event, such as in the Algorithm monitor. For example, an algorithm with two executions within an event, taking 5 ms and 10 ms respectively, would receive two per-call fills but only one per-event fill, with a per-event time of 15 ms. The per-event-normalised tabulation additionally allows for a denominator to be set at the end of the event, this is typically the total time spent by all algorithms active in the event, allowing for each algorithm to express its resource usage as a fractional value. Figure 2 shows a schematic of the per-event processing.
+
+A standard run takes around 20 hours to process, plus a couple of hours to read out all Counters. It will write of the order of 500,000 histograms in a 500 MiB ROOT archive and one Comma Separated Value (CSV) table per Monitor and time range with one row per Counter, summarising the Counter data within that time range. Processing metadata and menu configurations are written into machine and human readable JavaScript Object Notation (JSON) files.
+
+### Displaying Processed Monitoring Data
+
+Monitoring data are automatically made available to the collaboration via a dynamic PHP website which presents navigation trees based on the same hierarchy as shown in Figure 2. The JSROOT [10] package is used to perform HTTP partial-reads of the ROOT histogram archives and render histograms from specific folders as SVG. Data tables a parsed from their CSV files into JSON via asynchronous JavaScript and displayed in JavaScript tables which include functionality to search and re-order the data.
+
+Example monitoring distributions are given for two of the many algorithms used by ATLAS in Figure 3; calorimeter topological clustering and electron tracking. This monitoring data was collected over to 180 s of data taking at \(\mathcal{L}=1\times 10^{34}\) cm\({}^{-2}\)s\({}^{-1}\). Histograms are filled with a weight \(w=10\) to correct for the 10% random sampling fraction. Topological clustering can run either within a Region of Interest or as a full-scan of the detector, giving a characteristic double peaked structure.
+
+A summary of the CPU consumption for all chains as assigned to physics groups is shown in Figure 4 for the same online period. The fractions shown are of fractions of utilised resources. As a fraction of the total available resources, overall 40% of 40,000 CPU cores were utilised in processing 64 kHz of input events from L1 at a mean pileup, \(\langle\mu\rangle\), of around 30.
+
+### Performing CPU Usage Predictions
+
+In Section 2.2, the procedure to predict the rate of individual HLT chains and whole trigger menus was described. An equivalent procedure allows for an estimation of the number of HLT processor cores which will be required to run a given trigger chain, or menu.
+
+Monitoring ntuples are generated for this case by running the trigger menu to be profiled over an enhanced bias dataset on the grid. Unlike with rate estimations, L1 and HLT prescales are applied during the trigger execution. This is due to the algorithm caching mechanism in the ATLAS HLT, this has the effect of inter-correlating the HLT chains such that prescales can not be simulated later via the application of weights.
+
+Figure 2: Schematic of HLT monitoring structure. From top to bottom: Event Processor \(\rightarrow\) Monitors \(\rightarrow\) Time Ranges \(\rightarrow\) Counters \(\rightarrow\) Variables \(\rightarrow\) Histograms. A single path through the tree is illustrated, corresponding to the monitoring of the ROS request rate of a calorimeter topological clustering algorithm. Dotted and dashed lines indicate additional elements in the tree which are not shown.
+
+The output monitoring ntuple is processed as described in Section 3.2 except the weight \(w=10\) which was used to correct for the online sampling fraction is replaced with the enhanced bias weight from equation (3). If the prescale set applied on the grid is not designed for the same luminosity as the enhanced bias dataset then an additional weight is applied to perform this extrapolation. One possible luminosity extrapolation factor is the ratio between the extrapolation target L1 rate and the enhanced bias sample L1 rate, multiplied by the ratio of the extrapolation target \(\langle\mu\rangle\) to the enhanced bias sample \(\langle\mu\rangle\). This assumes that the mean increase in processing time is linear in \(\langle\mu\rangle\), other form factors may be more applicable depending on the menu.
+
+By normalising the total CPU usage to the enhanced bias dataset collection time (\(\Delta t\), from equation (1)) the number of processor cores required to execute a given HLT chain, or full menu, is obtained. This allows for forward looking predictions to be made about the number of processing cores required for higher luminosity conditions than current.
+
+As prescales are applied in a way such that the statistical power of the dataset is reduced, the statistical error on the CPU utilisation by prescaled chains is poorer than the statistical error on their rate predictions.
+
+Figure 3: Monitoring data for two HLT algorithms, topological clustering of calorimeter data and inner detector electron track identification. Shown are execution time per call (a) and per event (b), plus event execution time expressed as a fractional of the total execution time of all algorithms in the event (c) and number of executions per event (d). Errors are statistical.
+
+### Example Cost Monitoring Use Cases
+
+Reviews are performed using the cost monitoring data from the online systems to monitor the resource usage with changing LHC conditions and to optimise, where possible, the trigger menu. Some examples are described below.
+
+* Group CPU monitoring, as in Figure 4, revealed a physics group to be utilising a large fraction of CPU resources, yet no individual chains had particularly high usage. This was found to be due to the aggregate effect of a large number of chains. By cleaning the menu of redundant chains from this physics group, the overall CPU usage of the menu was reduced.
+* Some individual chains were observed to have very high CPU usage (8-10% of the total CPU). By investigating deeper into these chains' execution profile, the most expensive algorithms to execute were identified and the chains' execution ordering was re-optimised.
+* Cost monitoring tools were used to investigate rare events which take an exceptionally long time to process such that they time out their HLT processing unit after three minutes and are written to a special debug data stream. The Single Event monitor from Section 3.2 was used in these occasions to explore the event execution in detail and identify the algorithms with slow execution profiles.
+
+## 4 Conclusion
+
+The enhanced bias mechanism allows for fast data-driven rate predictions to be performed utilising dedicated ATLAS datasets of manageable size. These datasets contain events only biased by the L1 decision which over sample high \(p_{\mathrm{T}}\) triggers and other interesting physics signatures. The datasets are
+
+Figure 4: CPU usage of groupings of chains as a percentage of utilised computing resources.
+
+collected with a small collection of enhanced bias trigger chains which allow for a single weight to be derived per event which corrects for the online prescales applied to the event.
+
+Rate and CPU usage predictions make use of the enhanced bias weights, along with luminosity extrapolation and prescale emulation weights. Following from this, the rates of the union and intercept of groups of chains are calculable. These techniques are employed in the prediction of group rates, the total rate, unique rates and overlaps between chains.
+
+To monitor resource usage of the HLT, cost monitoring tools are used to collate monitoring data during the trigger execution. These data are processed in typically around 24 hours and allow trigger developers to monitor CPU and readout system resource usage from the live system at different levels of granularity. High levels include the total resource utilisation of the trigger, or the totals for all HLT chains within a physics group. Low levels include the resource utilisation of a single HLT chain or algorithm. The data are utilised by the collaboration to optimise, debug and develop the ATLAS trigger menu.
+
+## Appendix A Union of multiple HLT chains, many-to-many, pseudocode
+
+This unoptimised pseudo-code computes the per-event luminosity extrapolation weight, \(w_{\mathcal{L}}(e)\), and chain union combination weight, \(w_{\text{C}}(e)\), for the most generic case of an arbitrary seeding relationship between a set of HLT chains and L1 items, see Section 2.5.7.
+
+``` floatweightChains=0.0//w_C(e) floatweightLuminosity=0.0//w_L(e) floatlumiNumerator=lumiDenominator=0.0 intmL1=sizeofsetofL1items assert(mL1<32) intsubPatterns=power(2,mL1-1) forintp=1tosubPatterns: bitset<32>pattern=bitset(p)//32-bitbinaryrepresentationofp floatprobOfPattern=1.0//ProbabilityforthispatterntopassL1 intcounter=-1 foreachL1iteminthesesetasll: counter+=1 floatpass=1.0ifll.passistrueelse0.0 ifpattern.bit_at(counter)is1://L1chainisbeingexploredbythispattern probOfPattern=pass/11.prescale l1.activated=true else: probOfPattern*=1.0-(pass/l1.prescale) l1.activated=false probOfKeepingPattern=1.0//ProbabilityfortheHLTtoalsopassthispattern foreachHLTiteminthesesetashlt: ifhlt.passisfalse: continue floatactivated=0.0 foreachL1itemwhichseedshltasll: ifl1.activatedistrue: activated=1.0 break floatweightHLT=activated/hlt.prescale probOfKeepingPattern*=1.0-weightHLT lumiNumerator+=hlt.lumiExtrapFactor*weightHLT*probOfPattern lumiDenominator+=weightHLT*probOfPattern weightChains+=probOfPattern*(1.0-probOfKeepingPattern) weightLuminosity=lumiNumerator/lumiDenominator
+
+## References
+
+* [1] ATLAS Collaboration, _Performance of the ATLAS Trigger System in 2010_, Eur. Phys. J. **C72** (2012) 1849, arXiv: 1110.1530 [hep-ex].
+* [2] ATLAS Collaboration, _2015 start-up trigger menu and initial performance assessment of the ATLAS trigger using Run-2 data_, (2016), url: [https://cds.cern.ch/record/2136007](https://cds.cern.ch/record/2136007).
+* [3] ATLAS Collaboration, _The ATLAS Experiment at the CERN Large Hadron Collider_, JINST **3** (2008) S08003.
+* [4] R. Ospanov, _Resource utilization by the ATLAS High Level Trigger during 2010 and 2011 LHC running_, Phys. Procedia **37** (2012) 1900.
+* [5] E. Lipeles, R. Ospanov and D. Schaefer, _Resource utilization by the ATLAS High Level Trigger during 2010 and 2011 LHC running_, J. Phys. Conf. Ser. **396** (2012) 012046.
+* [6] ATLAS Collaboration, _ATLAS high-level trigger, data-acquisition and controls: Technical Design Report_, (2003), url: [https://cds.cern.ch/record/616089](https://cds.cern.ch/record/616089).
+* [7] V. Lendermann et al., _Combining Triggers in HEP Data Analysis_, Nucl. Instrum. Meth. **A604** (2009) 707, arXiv: 0901.4118 [hep-ex].
+* [8] S Kolos, G Boutsioukis and R Hauser, _High-Performance Scalable Information Service for the ATLAS Experiment_, Journal of Physics: Conference Series **396** (2012) 012026, url: [http://stacks.iop.org/1742-6596/396/i=1/a=012026](http://stacks.iop.org/1742-6596/396/i=1/a=012026).
+* [9] I Soloviev and A Sicoe, _New Persistent Back-End for the ATLAS Online Information Service_, (2014), url: [https://cds.cern.ch/record/1703443](https://cds.cern.ch/record/1703443).
+* [10] S Linev and B Bellenot, _JSROOT_, 2016, url: [https://root.cern.ch/js/](https://root.cern.ch/js/).

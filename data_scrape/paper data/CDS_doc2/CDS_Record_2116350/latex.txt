@@ -1,0 +1,222 @@
+**Abstract**
+
+A study of the robustness of the ATLAS pixel neural network clustering algorithm is presented. The sensitivity to variations to its input is evaluated. These variations are motivated by potential discrepancies between data and simulation due to uncertainties in the modelling of pixel clusters in simulation, as well as uncertainties from the detector calibration. Within reasonable variation magnitudes, the neural networks prove to be robust to most variations. The neural network used to identify pixel clusters created by multiple charged particles is most sensitive to variations affecting the total amount of charge collected in the cluster. Modifying the read-out threshold has the biggest effect on the clustering's ability to estimate the position of the particle's intersection with the detector.
+
+## 1 Introduction
+
+The reconstruction of charged particles requires precise measurements of the position of the particles as they traverse the detector. In dense environments multiple charged particles can be separated by distances comparable to the size of the read-out elements of the detectors. This would lead to multiple charged particles contributing to a single cluster of neighbouring read-out elements. Hence, in these environments it is particularly challenging to determine the position of charged particles in the detector. The ATLAS track reconstruction algorithm utilises artificial neural networks (NNs) to identify pixel clusters created by multiple charged particles in the ATLAS pixel detector and to estimate the positions of the particles as they traverse the detector. In this note, the robustness of these NNs is studied.
+
+The NNs are trained, with Monte Carlo (MC) simulated samples, to classify clusters according to the number of particles that created them, and to estimate their positions. The modelling of the simulated detector response and the charge calibration of the pixel detector may result in differences in the tracking performance between the recorded data and the simulation. This note presents the sensitivity of the NN clustering algorithm to a set of variations to their input.
+
+The study is limited to the NNs used for a) identifying the particle multiplicity of a cluster and b) estimating the positions of the particles. An incorrect estimate of the number of particles contributing to a cluster could lead to a decrease in track reconstruction efficiency when underestimating the number of particles. Overestimating the number of particles contributing could lead to an increase in the number of fake or duplicate tracks. A 50% increase in overestimating the number of particles contributing to a cluster or a 5% decrease in the correct identification rate of clusters with multiple particles contributing to them are both expected to have a significant impact. If the resolution of the estimated position of the particle within the cluster is degraded this results in a degradation of the resolution of the estimated track parameters. A 10% loss in resolution of the estimated position of the particle within the cluster is considered significant.
+
+The barrel of the pixel detector consists of four layers where the innermost layer (Insertable B-layer, IBL) [1, 2] was installed between run 1 and run 2 of the LHC. It differs in technology to the outer three layers. As such, all studies are performed separately for the IBL and the remainder of the pixel barrel detector.
+
+In Section 2 a brief introduction to the ATLAS pixel detector is given, highlighting the differences between the ATLAS pixel barrel and the IBL. In Section 3 the properties and functionality of the NNs are summarised. This is followed by a short review of the ATLAS track reconstruction algorithms in Section 4. The MC samples used for this study are listed in Section 5. The results of the study are presented in Section 6. Section 7 concludes with a summary of the study.
+
+## 2 The ATLAS Inner Detector
+
+The ATLAS detector consists of an inner tracking system, electromagnetic and hadronic calorimeters, and a muon spectrometer. For a full description of the ATLAS detector see Ref. [3]. The inner detector is immersed in a 2 T axial magnetic field, and consists of silicon pixel and microstrip detectors inside atransition radiation tracker. Together they provide charged particle tracking in the pseudorapidity1 region \(|\eta|<2.5\).
+
+Footnote 1: ATLAS uses a right-handed coordinate system with its origin at the nominal interaction point (IP) in the centre of the detector and the \(z\)-axis along the beam pipe. The \(x\)-axis points from the IP to the centre of the LHC ring, and the \(y\)-axis points upwards. Cylindrical coordinates \((R,\phi)\) are used in the transverse plane, \(\phi\) being the azimuthal angle around the \(z\)-axis. The pseudorapidity is defined in terms of the polar angle \(\theta\) as \(\eta=-\ln\tan(\theta/2)\). The angular distance is computed as \(\Delta R\equiv\sqrt{(\Delta\eta)^{2}+(\Delta\phi)^{2}}\).
+
+The pixel detector is a high-granularity silicon detector, segmented in \(R\phi\) and \(z\). It consists of four cylindrical layers in the barrel region and three disks in each end-cap. The position of a measurement in the pixel detector is given in the local coordinate frame, with the local \(x\) and \(y\) directions for the barrel modules approximately coinciding with the global \(R\phi\) and \(z\) directions, respectively.
+
+In the innermost layer (IBL), most pixels have dimensions \(50\times 250\)\(\mu\)m in the local \(x\times\) local \(y\) directions, whereas in the other layers of the pixel detector most have dimensions \(50\times 400\)\(\mu\)m. About 10% of the pixels have longer pitches, namely 400 \(\mu\)m in the IBL and 600 \(\mu\)m in the other layers.
+
+The pixel detector provides a measurement of the charge deposited, corresponding to the energy lost by a particle traversing a silicon sensor. The charge deposited in each pixel is a key quantity for determining whether a cluster has been created by multiple particles. The charge deposited in the detector is collected and amplified by a preamplifier in the front-end chip. Only pixels above a predefined threshold are read out. The recorded time-over-threshold (ToT), i.e. the period of time during which the preamplifier output signal is above this predefined threshold, increases approximately linearly with the deposited charge. The signal is digitised in clock cycles of the readout chip and converted to a charge value at the cluster reconstruction stage using parametrisations derived from calibration data. The IBL 4-bit pixel readout saturates at a ToT value of 15 clock cycles, in contrast to the pixel barrel 8-bit readout, saturating at a value of 255 clock cycles.2 To obtain a uniform response for all pixels, the ToT is tuned such that the average ToT for a charge deposition close to that deposited by a minimum ionising particle is the same for all pixels. A charge deposition of 16 000 (20 000) electrons was tuned to 10 (30) clock cycles for the IBL (the remainder of the pixel detector). The different charge depositions in the IBL and the pixel detector are motivated by different silicon sensor thickness (200 \(\mu\)m for the IBL and 250 \(\mu\)m for the pixel detector).
+
+Footnote 2: In practice, for the pixel barrel, this saturation level is seldom reached.
+
+## 3 Pixel Cluster Neural Networks
+
+This section will summarise the properties and functionality of the NNs and the techniques used to evaluate their performance. There are three sets of NNs used in the pixel clustering. The "particle multiplicity NN" is used to determine the number of particles associated with a pixel cluster. The "position NN" is used to assign the positions of those particles. The "error NN" is assigns an uncertainty on the estimated positions of the particles. Each is a multi-layer perceptron with two hidden layers.
+
+For a detailed description of the NNs and their implementation, see Ref. [4]. The performance of the particle multiplicity NN in data is presented in Ref. [5].
+
+### Neural Network Input and Output Nodes
+
+The particle multiplicity and position NNs share a common set of 60 input quantities, characterising the properties of pixel clusters. They are
+
+* a \(7\times 7\) pixel grid with the pixel charge (calibrated ToT) values in each pixel, where the central pixel is the geometrical centroid of the cluster,
+* an array of size 7 with longitudinal pixel pitches of the individual pixel to identify any column of pixels with longer pitches,
+* a barrel- or end-cap boolean indicating the detector region the cluster is located in,
+* an integer in the range \([0,3]\) indicating the layer or disk of the pixel detector, where 0 corresponds to the IBL,3 Footnote 3: It was investigated whether training separate NNs for the pixel barrel and the IBL would enhance the overall performance as compared to having this information given as an input. The gain was found to be negligible.
+* the local incidence angles on the pixel module for the candidate track,4\(\phi\) and \(\theta\). Footnote 4: For a cluster to which multiple particles have contributed, the local incidence angles of the track with highest \(p_{\mathrm{T}}\) are used.
+
+If a cluster is larger than 7 pixels in either direction, it is flagged as being created by multiple charged particles and is not fed to the particle multiplicity NN.
+
+The particle multiplicity NN is trained on simulated events with the number of particles traversing the pixel cluster as the target value. Each cluster is assigned a class according to the number of particles it is associated with: one, two, or three or more particles.
+
+The position NN is a set of three separate NNs, one for each of the three particle multiplicity classes introduced above. The output of the networks is a set of one, two or three pairs of local \(x\) and \(y\) positions, depending on the particle multiplicity. These NNs are trained with positions of the intersections of the particle trajectories with the pixel module with respect to the cluster centroid as target values.
+
+### Neural Network Validation Techniques
+
+The NNs are validated using a statistically independent sample by comparing their response to the target values on which they have been trained. The classification of cluster particle multiplicity is determined by tuneable thresholds put on the particle multiplicity NN output. After the thresholds are fixed, a cluster is identified as single-particle or multi-particle depending on the output values of the particle multiplicity NN. In the following, the performance of the particle multiplicity NN will be evaluated using as a metric
+
+* **single-particle fake rate:** fraction of single-particle clusters that are wrongly identified as multi-particle,
+* **multi-particle efficiency:** fraction of multi-particle clusters that are correctly identified as such.
+
+For the particle multiplicity NN studies, clusters with only one pixel are ignored as the performance of the particle multiplicity NN for these clusters is limited by the amount of information available.
+
+The performance of the position NN is evaluated by examining the residual distributions calculated as the differences between the position NN estimates and the target values. In particular, the mean and the width of the distributions are studied, where the width is computed as the root mean square. The truenumber of particles contributing to a cluster will be used to determine which of the three position NNs will be used. The study of the performance of the position NN is limited to clusters that are two or more pixels wide in the corresponding local direction. Clusters that are only one pixel wide have a resolution in the corresponding direction which is predominantly determined by the pixel pitch. As such the position estimate for these clusters can not be improved by a NN clustering algorithm or any other technique, leaving these clusters insensitive to any variation. Clusters with a larger size are, apart from the pixel pitch, also influenced by the track incidence angles and the charge distribution. The number of pixels in the local \(x\) direction will from hereon be denoted "rows", while the number of pixels in the local \(y\) direction will be denoted "columns".
+
+## 4 The ATLAS Track Reconstruction Algorithm and Pixel NN Utilisation
+
+The ATLAS track reconstruction in the inner detector begins with forming clusters in the silicon detectors from neighbouring measurements. Pixel clusters provide a three-dimensional position measurement and thus map directly into space points, which are exploited in the pattern recognition stage. Further details on the ATLAS track reconstruction algorithm is given in Ref. [6] and Ref. [7].
+
+Three space-points are combined into _seeds_, from which track candidates are built using a combinatorial Kalman filter [8]. Extending both towards the centre of the detector and outwards, additional space-points are added to the track candidate.
+
+Measurements that are shared by multiple track candidates are a natural consequence of clusters which have had multiple particles contributing to their formation. However shared measurements must be limited as they are also an indicator of poorly measured tracks and fake tracks. Identifying clusters created by multiple particles improves the cluster assignment and track reconstruction efficiency in dense environments and decreases the rate at which clusters are incorrectly assigned to multiple track candidates [9]. It is the role of the _ambiguity processor stage_ to determine if a cluster should be shared between multiple tracks, or not. At this stage, the pixel NNs are called. The pixel NNs supply the ambiguity processor with information regarding the probability that a cluster was produced by multiple particles and the positions of those particles. The ambiguity processor penalises tracks which share too many clusters in order to suppress the number of fake and duplicate tracks, unless the particle multiplicity NN identifies the cluster as one originating from multiple particles.
+
+## 5 Monte Carlo Samples
+
+This analysis uses simulated di-jet events, generated with Pythia 8.186 [10] at a centre of mass energy of \(\sqrt{s}=13\) TeV. Generator parameters corresponding to the A14 tune [11] are used together with the NNPDF2.3LO PDF set [12]. The sample is interfaced with a detailed GEANT4 [13] simulation of the ATLAS detector [14] and a pixel digitisation model.
+
+To ensure a high fraction of multi-particle clusters, a filter is applied that requires at least one hadronic jet in the event with transverse momentum between 1.5 and 2 TeV at generator level. A high momentum jet has a number of highly collimated particles which are likely to create multi-particle clusters. Independent subsets of this sample are used to train the NNs under investigation and to study their robustness.
+
+## 6 Pixel Cluster Neural Network Robustness Studies
+
+In this section, the results of the robustness studies will be presented.
+
+To study the robustness of the NN clustering algorithm, five different kinds of variations are applied to the input, manipulating the cluster charge and the track incidence angles.
+
+Cluster charge variations probe uncertainties in the measured charge, originating from charge calibration and simulation, which could potentially bias the training of the NNs. The following variations are performed and evaluated using the metrics described in Sec. 3.2
+
+* **Remapping the cluster charge distribution** will redistribute charge within the cluster, while keeping the total cluster charge and geometrical shape constant,
+* **Cluster charge smearing at the pixel level** will smear individual pixel charges in a cluster,
+* **Cluster charge scale** will scale the amount of charge in each pixel,
+* **Cluster charge subtraction** will remove a fixed amount of charge from each pixel,
+* **Incidence angle variation** smears the particles incidence angles.
+
+The findings for each variation are summarised in the following sections.
+
+### Remapping the Cluster Charge Distribution
+
+The charge collection model in the pixel detector includes parameters like cross-talk between pixels and charge diffusion which affect the charge distribution within a cluster. To emulate such an effect, the charge within a pixel cluster is redistributed, while ensuring the total cluster charge and geometrical shape is preserved.
+
+This variation is accomplished by letting each pixel in the cluster share a variable fraction of its charge with neighbouring pixels (where a neighbour is defined as a pixel having a common side and non-zero charge). This effectively smears the cluster's charge, resulting in the charge being more evenly distributed between the cluster's pixels. The cluster charge is considered more evenly distributed if the ratio between the charge of the pixel with most charge and the total cluster charge decreases. The procedure for performing the charge redistribution can be summarised as follows: for each pixel in the cluster with non-zero charge
+
+1. generate a fractional charge amount to be shared with neighbouring pixels following a normal distribution with a width of 0, 3, 7, 12, 15 or 20% times the charge deposited in the pixel.
+2. distribute this charge between the neighbouring pixels. This is done by randomly allocating fractions of the charge to the neighbouring pixels until the full amount has been distributed. The distribution is weighted by the pixel pitch of the sharing side (so that sharing charge across a longer side is more likely than across a shorter).
+
+If the resulting smeared cluster has its charge more evenly distributed between its pixels, the cluster is updated to the smeared version.
+
+In Fig. 1 the impact of remapping the cluster charge distribution on the single-particle fake rate and multi-particle efficiency are shown. The single-particle fake rate increases by approximately 5% for the pixel barrel when 20% of each pixel's charge is shared between neighbouring pixels. The IBL is less sensitive to the variation. No dependence is observed for the multi-particle efficiency. The particle multiplicity NN is stable against charge variation at the cluster level, considering the large fraction to be shared to see a degradation in performance.
+
+The single-particle position NN residual distribution widths as a function of charge smearing at the cluster level are shown in Fig. 2. The resolution degrades with increasing smearing. The observed effect is more pronounced for the pixel barrel than for the IBL. The same behaviour is observed for the two- and three-particle position NNs, for both the local \(x\) and the local \(y\) direction.
+
+For all particle multiplicities, the difference in the means between the residual distribution and the corresponding nominal distribution show no or a very small dependence ( \(<1\,\mu\mathrm{m}\) ) on this variation.
+
+Considering that the largest variation magnitude (\(\sigma_{\mathrm{smear}}=20\%\) of pixel charge) is a large smearing, the NNs may be deemed stable against this variation.
+
+### Cluster Charge Smearing at the Pixel Level
+
+This variation is probing the pixel charge resolution. It is performed by smearing each pixel's charge with a normal distribution with width equal to 0 (default), 1, 2, 3, 4, 5 and 6 units of \(\sigma_{\mathrm{smear}}\), defined as
+
+\[\sigma_{\mathrm{smear}}=\begin{cases}3\%\times[\mathrm{pixel~{}charge}],& \text{if [pixel charge]}>6000\text{ electrons}\\ 250\text{ electrons},&\text{if [pixel charge]}<6000\text{ electrons}\end{cases} \tag{1}\]
+
+Figure 1: Performance of the pixel neural network used to identify clusters created by multiple charged particles, as a function of the magnitude of smearing applied to the cluster (cluster level charge re-distribution). The left figure shows the rate at which the neural network wrongly identifies clusters with one generated particle as clusters with multiple particles. The right figure shows the rate at which the neural network correctly identifies clusters generated by multiple particles as such. The points have been staggered along the \(x\)-axis for visibility.
+
+The total charge in the cluster may be altered by this variation. The mean of the total cluster charge distribution is not altered, while the width of the distribution increases with increasing smearing. The magnitude of this variation is based on the residual difference between the calibrated charge (calculated from the pixels ToT) and the injected charge.
+
+In Fig. 3 the impact of smearing the charge at the pixel level on the single-particle fake rate and multi-particle efficiency is shown.
+
+The single-particle fake rate increases by approximately 10% for the pixel barrel and the IBL for the largest variation corresponding to six standard deviations. At this level, the multi-particle efficiency decreases by a few percent for both the pixel barrel and the IBL. The IBL is slightly more sensitive than the pixel barrel. The particle multiplicity NN is more sensitive to this variation than to the the cluster level charge variation. This behaviour is expected as this variation will decrease the measured charge resolution.
+
+The single particle residual distribution widths as a function of cluster charge smearing at the pixel level are shown in Fig. 4. The width grows with increasing smearing by roughly 9% and 12% for the local \(x\) and local \(y\) directions, respectively, for the largest variation magnitude. The same behaviour is observed for the two- and three-particle position NNs in both directions.
+
+For both directions and for all particle multiplicities, the difference in the means between the residual distribution and the corresponding nominal distribution show no or a very small dependence (\(<1\,\mu\)m) on this variation.
+
+As a variation magnitude of six standard deviations is a very large smearing, the particle multiplicity NN and the position NNs can be considered stable against this type of variation.
+
+Figure 2: Performance of the pixel neural networks used to estimate positions of particles in a pixel cluster, as a function of the magnitude of smearing applied to the cluster (cluster level charge re-distribution). The \(y\) axes show the ratio between the width (computed as the root mean square) of the residual distribution after smearing and the nominal width, where the residual is calculated as the difference between the neural network’s estimate and the intersection with the module of the simulated particle. The points have been staggered along the \(x\)-axis for visibility. “Rows” indicates the number of pixels in the cluster in the local \(x\) direction, while “columns” indicates the number of pixels in the local \(y\) direction.
+
+Figure 4: Performance of the pixel neural networks used to estimate positions of particles in a pixel cluster, as a function of smearing of the cluster charge at the pixel level. The \(y\) axes show the ratio between the width (computed as the root mean square) of the residual distribution after smearing and the nominal width, where the residual is calculated as the difference between the neural network’s estimate and the intersection with the module of the simulated particle. The points have been staggered along the \(x\)-axis for visibility. “Rows” indicates the number of pixels in the cluster in the local \(x\) direction, while “columns” indicates the number of pixels in the local \(y\) direction.
+
+Figure 3: Performance of the pixel neural network used to identify clusters created by multiple charged particles, as a function of smearing the cluster charge at the pixel level. The left figure shows the rate at which the neural network wrongly identifies clusters with one generated particle as clusters with multiple particles. The right figure shows the rate at which the neural network correctly identifies clusters generated by multiple particles as such. The points have been staggered along the \(x\)-axis for visibility.
+
+### Charge Scaling
+
+This variation is meant to emulate the uncertainty on the charge calibration scale. Such an uncertainty affects a whole front-end circuit and is coherently propagated to all pixels in the cluster. The charge calibration scale is expected to be accurate to 10%. This variation is performed by multiplying each pixel's charge by a factor equal to 0.7, 0.8, 0.9, 1 (default), 1.1, 1.2 and 1.3. Even if the varied pixel charge is below threshold, it is not removed from the cluster.
+
+In Fig. 5 the single-particle fake rate and multi-particle efficiency are shown as a function of a constant pixel charge scale factor. Both the single-particle fake rate and the multi-particle efficiency increase with the scale factor. At 30% scaling up, the single-particle fake rate increases more than 100% for both the IBL and the pixel barrel. The multi-particle efficiency saturates once the charge in the cluster is scaled up by \(\sim\) 20%. The saturation occurs as the as multi-particle efficiency approaches 100% efficiency. When scaling down the charge by 30%, the multi-particle efficiency decreases by more than 20% in both the IBL and the pixel barrel. The single-particle fake rate also decreases by at least 30% for both the IBL and the pixel barrel. Effectively by increasing or decreasing the total cluster charge the cluster will look more or less like a multi-particle cluster.
+
+The single-particle position NN residual distribution means and widths as a function of constant pixel charge scaling are shown in Fig. 6. The resolution decreases by a few percent for both scaling down and scaling up the charge. As expected the change in resolution is small as the relative weight of each pixel in the cluster remains constant under this variation. Greater degradations are observed in the resolution of two- and three-particle clusters, in particular in the local \(x\) direction for both the mean and the width. A 10% degradation in resolution is seen when the charge is scaled by a factor 0.7.
+
+A small dependence on this variation is seen in the mean local \(y\) residuals of the IBL. This implies that there are correlations used by the position NN that under this variation bias the result.
+
+Figure 5: Performance of the pixel neural network used to identify clusters created by multiple charged particles, as a function of constant coherent scaling of the charge in each pixel in the cluster. The left figure shows the rate at which the neural network wrongly identifies clusters with one generated particle as clusters with multiple particles. The right figure shows the rate at which the neural network correctly identifies clusters generated by multiple particles as such. The points have been staggered along the \(x\)-axis for visibility.
+
+### Charge Subtraction and Pixel Removal
+
+This variation is probing the sensitivity to pixel ToT threshold variations. It is performed by subtracting charge values of 0 (default), 100, 250, 500, 750 and 1000 electrons from each pixel in the cluster. If the resulting charge is below the ToT threshold (2500 electrons for the IBL, 3500 electrons for the remainder of the pixel barrel) the charge in that pixel is set to zero. The magnitude of the variations is based on the accuracy of the charge calibration scale, estimated to be 10%. In the simulated events, there are a small fraction of clusters where all pixels in the cluster fall below the threshold and subsequently not studied further.
+
+The dimensions of the cluster are determined prior to the modification of the cluster, to ensure studying the same subset of clusters before and after the variation.
+
+In Fig. 7 the results from subtracting fixed amounts of charge and subsequent removal of pixels from clusters are presented. The single-particle fake rate and multi-particle efficiency both decrease with increasing subtraction, with roughly 10% and 4% at 1000 electrons subtraction, respectively. This behaviour is
+
+Figure 6: Performance of the pixel neural networks used to estimate positions of particles in a pixel cluster, as a function of constant coherent scaling of the charge in each pixel in the cluster. The left plots show the difference between the mean of the residual distribution after scaling and the nominal mean, where the residual is calculated as the difference between the neural network’s estimate and the intersection with the module of the simulated particle. The right figures show the corresponding ratio between the residual distribution width (computed as the root mean square) after scaling and the nominal width. The points have been staggered along the \(x-\)axis for visibility. “Rows” indicates the number of pixels in the cluster in the local \(x\) direction, while “columns” indicates the number of pixels in the local \(y\) direction.
+
+expected as this variation will reduce the total cluster charge and possibly also its size, making the cluster more like a single-particle cluster both in terms of shape and overall charge. The kink observed when going from 400 electrons subtraction to 600 electrons subtraction for the IBL is due to clusters losing a pixel going below threshold, changing the cluster shape into single-pixel.
+
+The single-particle position NN residual distribution widths as a function of the number of electrons removed from each pixel in the cluster is shown in Fig. 8.
+
+The resolution degrades with increasing charge subtraction. For the local \(x\) direction, the IBL is more sensitive to the variation than the pixel barrel and reaches roughly 30% degradation at 600 electrons subtraction. A degradation is expected, from altering the relative weighting between pixel charges in the cluster and from pixels going below threshold and therefore removing information used by the position NN otherwise. The same behaviour is observed for the two- and three-particle position NNs in both directions, but less pronounced (\(<5\%\) everywhere).
+
+For both directions and for all particle multiplicities, the difference in means between the residual distribution and the corresponding nominal distribution show no or very small dependence (\(<0.5\,\mu\)m) under this variation.
+
+### Smearing the Incidence Angles
+
+The track-to-module local incidence angles are smeared using a normal distribution with mean zero and width equal to 0 (default), 10, 25, 40 and 50 mrad5 for both \(\theta\) and \(\phi\). This variation probes the sensitivity to the track angular resolution and to detector misalignment effects.
+
+Footnote 5: The overall angular resolution is approximately 0.1 mrad.
+
+In Fig. 9 the robustness of the particle multiplicity NN output against smearing the local incidence angles is shown. The same behaviour is observed for the pixel barrel and the IBL. At a smearing of 50 mrad,
+
+Figure 7: Performance of the pixel neural network used to identify clusters created by multiple charged particles, as a function of a constant subtraction of charge from each pixel in the cluster, with subsequent removal of pixel if its modified charge goes below threshold. The left figure shows the rate at which the neural network wrongly identifies clusters with one generated particle as clusters with multiple particles. The right figure shows the rate at which the neural network correctly identifies clusters generated by multiple particles as such. The number of pixels in the cluster is calculated before the variation is performed. The points have been staggered along the \(x\)-axis for visibility.
+
+the single-particle fake rate increases by 5%, while the multi-particle efficiency decreases by 1%. This behaviour is expected as a smeared incidence angle leads to a different prediction of the expected charge deposit.
+
+The single-particle position NN residual distribution widths as a function of local incidence angle smearing magnitude is shown in Fig. 10. The widths grow slightly with increasing angle smearing, and the pixel barrel is slightly more sensitive. A smearing of the angle is expected to degrade the resolution, as a smeared angle might not match a certain cluster shape or total cluster charge.
+
+For both directions and for all particle multiplicities, the difference in means between the residual distribution and the corresponding nominal distribution show no or very small dependence (\(<0.5\mu\)m) on this variation.
+
+Considering the smearing required to observe a degradation in performance is more than an order of magnitude larger than the track angular resolution, the particle multiplicity NN and the position NNs can be considered stable against this type of variation.
+
+### Summary of Robustness Studies
+
+Tables 1 and 2 summarise the results of the robustness studies for the pixel barrel and for the IBL, respectively, for the largest variation magnitudes considered. For the cluster charge distribution remapping, the pixel charge smearing and the local incidence angle smearing, these magnitudes should be considered extreme. For the charge scaling and the constant charge subtraction these magnitudes are closer to expected uncertainties. In addition to the results discussed in the previous sections, the tables also list results for the position NNs used to assign positions to clusters with two and three or more particles. The difference
+
+Figure 8: Performance of the pixel neural networks used to estimate positions of particles in a pixel cluster, as a function of a constant subtraction of charge from each pixel in the cluster, with subsequent removal of pixel if its modified charge goes below threshold. The \(y\) axes show the ratio between the width (computed as the root mean square) of the residual distribution after the variation and the nominal width, where the residual is calculated as the difference between the neural network’s estimate and the intersection with the module of the simulated particle. The points have been staggered along the \(x\)-axis for visibility. “Rows” indicates the number of pixels in the cluster in the local \(x\) direction, while “columns” indicates the number of pixels in the local \(y\) direction. The number of rows and columns are calculated before the variation is performed.
+
+Figure 10: Performance of the pixel neural networks used to estimate positions of particles in a pixel cluster, as a function of smearing the local track-to-module incidence angles. The \(y\) axes show the ratio between the width (computed as the root mean square) of the residual distribution after smearing and the nominal width, where the residual is calculated as the difference between the neural network’s estimate and the intersection with the module of the simulated particle. The points have been staggered along the \(x\)-axis for visibility. “Rows” indicates the number of pixels in the cluster in the local \(x\) direction, while “columns” indicates the number of pixels in the local \(y\) direction.
+
+Figure 9: Performance of the pixel neural network used to identify clusters created by multiple charged particles, as a function of smearing the local track-to-module incidence angles. The left figure shows the rate at which the neural network wrongly identifies clusters with one generated particle as clusters with multiple particles. The right figure shows the rate at which the neural network correctly identifies clusters generated by multiple particles as such. The points have been staggered along the \(x\)-axis for visibility.
+
+in the means of the residual distributions as compared to the nominal case show little (\(<3\mu\)m) or no dependence for all tested variations of the NN input variables.
+
+## 7 Summary and Conclusions
+
+The robustness of the artificial neural networks (NNs) used for identifying clusters with multiple charged particles and assigning positions in the ATLAS pixel detector have been studied.
+
+The particle multiplicity NN can be considered robust against variations which do not change the total charge of the cluster. However, it is sensitive to the uncertainty in the charge calibration scale. Both the single-particle fake rate and the multi-particle efficiency increase as the charge in the cluster is scaled up. When scaling up the charge by 20%, the single-particle fake rate increases by more than 70% for both the IBL and the pixel barrel. When scaling down the charge by 20%, the multi-particle efficiency decreases by more than 10% in both the IBL and the pixel barrel. Charge mis-calibration has the potential to impact track reconstruction performance.
+
+Biases in the position estimates are smaller than 3 \(\mu\)m for all variations and working points considered, both in the local \(x\) and local \(y\) directions, so are considered immune from all of the variations studied. However the resolution of the measurements is sensitive to subtracting charge from the cluster, with potential pixel removal if the modified pixel charges go below threshold. The resolution is degraded by 15% (5%) in the local \(x\) direction, and 10% in the local \(y\) direction, for the IBL (pixel barrel), when subtracting 400 electrons from each pixel in the cluster. For the other variations such large levels of degradation is not reached or reached only for variation magnitudes much larger than those expected based on the current detector knowledge.
+
+## References
+
+* [1] M Capeans et al., _ATLAS Insertable B-Layer Technical Design Report_, CERN-LHCC-2010-013. ATLAS-TDR-19 (2010), url: [http://cdsweb.cern.ch/record/1291633](http://cdsweb.cern.ch/record/1291633).
+* [2] ATLAS Collaboration, _ATLAS Insertable B-Layer Technical Design Report Addendum_, CERN-LHCC-2012-009. ATLAS-TDR-19-ADD-1 (2012), Addendum to CERN-LHCC-2010-013, ATLAS-TDR-019, url: [http://cdsweb.cern.ch/record/1451888](http://cdsweb.cern.ch/record/1451888).
+* [3] ATLAS Collaboration, _The ATLAS Experiment at the CERN Large Hadron Collider_, JINST **3** (2008) S08003.
+* [4] ATLAS Collaboration, _A neural network clustering algorithm for the ATLAS silicon pixel detector_, JINST **9** (2014) P09009, arXiv: 1406.7690 [hep-ex].
+* [5] ATLAS Collaboration, _Measurement of performance of the pixel neural network clustering algorithm of the ATLAS experiment at \(\sqrt{s}\) = 13 TeV_, ATL-PHYS-PUB-2015-044 (2015), url: [https://cds.cern.ch/record/2054921](https://cds.cern.ch/record/2054921).
+* [6] ATLAS Collaboration, _Performance of the ATLAS Silicon Pattern Recognition Algorithm in Data and Simulation at \(\sqrt{s}=7\) TeV_, ATLAS-CONF-2010-072 (2010), url: [https://cds.cern.ch/record/1281363](https://cds.cern.ch/record/1281363).
+* [7] ATLAS Collaboration, _Concepts, Design and Implementation of the ATLAS New Tracking (NEWT)_, ATL-SOFT-PUB-2007-007 (2007), url: [http://cdsweb.cern.ch/record/1020106](http://cdsweb.cern.ch/record/1020106).
+* [8] R. Fruwirth, _Application of Kalman filtering to track and vertex fitting_, Nucl. Instrum. Meth. **A262** (1987) 444.
+* [9] ATLAS Collaboration, _The Optimization of ATLAS Track Reconstruction in Dense Environments_, ATL-PHYS-PUB-2015-006 (2015), url: [https://cds.cern.ch/record/2002609](https://cds.cern.ch/record/2002609).
+* [10] Sjostrand, Torbjorn and Mrenna, Stephen and Skands, Peter Z., _A Brief Introduction to PYTHIA 8.1_, Comput. Phys. Commun. **178** (2008) 852, arXiv: 0710.3820 [hep-ph].
+* [11] ATLAS Collaboration, _ATLAS Pythia 8 tunes to 7 TeV data_, ATL-PHYS-PUB-2014-021, 2014, url: [http://cdsweb.cern.ch/record/1966419](http://cdsweb.cern.ch/record/1966419).
+* [12] NNPDF Collaboration, R. D. Ball et al., _Parton distributions with LHC data_, Nucl. Phys. **B867** (2013) 244, arXiv: 1207.1303 [hep-ph].
+* [13] GEANT4 Collaboration, S. Agostinelli et al., _GEANT4: A Simulation toolkit_, Nucl. Instrum. Meth. **A506** (2003) 250.
+* [14] ATLAS Collaboration, _The ATLAS Simulation Infrastructure_, Eur. Phys. J. **C70** (2010) 823, arXiv: 1005.4568 [physics.ins-det].

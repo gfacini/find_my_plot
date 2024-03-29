@@ -1,0 +1,170 @@
+# A LVL2 Zero Suppression Algorithm for TRT Data
+
+R. Scholte12, R. Slopsema13, B. van Eijk13, N. Ellis2, J. Vermeulen3
+
+University of TwenteCERNNIKHEF
+
+Footnote 1: Alternative algorithms in which the complete pixel detector and/or SCT is read out are also of interest.
+
+Footnote 2: affiliation: CERN
+
+Footnote 3: affiliation: NIKHEF
+
+###### Abstract
+
+In the ATLAS experiment B-physics studies will be conducted at low and intermediate luminosity (resp. 1\(\times\)10\({}^{33}\) cm\({}^{-2}\) s\({}^{-1}\) and 2\(\times\)10\({}^{33}\) cm\({}^{-2}\) s\({}^{-1}\)). When a \(\mu\) with p\({}_{T}>\) 6 GeV/c (or in new scenarios a p\({}_{T}>\) 8 GeV/c) is detected, the first step of the LVL2 trigger is to confirm the muon. For the events that are retained a full scan of the Inner detector is foreseen. In this note a compression algorithm is discussed, that reduces the data volume for the LVL2 network in case of a full TRT scan. Measurements are performed on a prototype ROBIn and a number of Pentium-based machines. Results on data reduction and processing time are presented.
+
+## 1 Introduction
+
+The dataset used for this study is based on the B-physics trigger selection as it is assumed in [1]. The following statements, as well as the rest of the note, assume this "old" trigger selection scenario. In this dataset, B-physics events are selected by searching for events with a muon with \(p_{T}>\) 6 GeV/c. This results in an acceptance rate of about 23 kHz [2]. The LVL2 trigger starts with a confirmation of the LVL1 trigger using the muon spectrometer and inner detector. This reduces the rate to about 5 kHz if the track is validated in the inner detector. Next the TRT may be searched for charged tracks. The LVL1 muon can come from one of two \(B\)-mesons produced in the proton-proton collision. With an unguided track search charged decay products are looked for. For this purpose the complete TRT detector needs to be read out1.
+
+Footnote 1: Alternative algorithms in which the complete pixel detector and/or SCT is read out are also of interest.
+
+The full TRT scan results in a heavy load for the LVL2 network. For every event with one or more validated muons, all TRT ROBs (256) have to be read out. Using the ROD data format [3], the total data volume produced by the scan in the output of the ROBs is typically 256 \(\times\) 400 Bytes = 100 kBytes for low luminosity. The resulting 500 MBytes/s required bandwidth can be reduced by a zero suppression algorithm, optimised for a relatively high percentage of non-hit straws, which is the case at low luminosity running. In this note, such a zero suppression algorithm is studied. It has been investigated whether it is feasible to run the preferred algorithm in the ROBs. Since the rate with which the full scan of the TRT is performed is 5 kHz, the algorithm itself should take less than 0.2 ms to run. It has recently been decided that the compression algorithm described in this note will be implemented in the RODs instead of the ROBs. The numbers given in this note for the data reduction should stillhold, since the ROB adds only a header and a trailer to the data coming from the ROD, and these are not used by the algorithm. The timing of the algorithm as measured on the Pentium processors, could still serve as a benchmark.
+
+## 2 Data volumes and format
+
+The TRT barrel contains a total of 105088 straws distributed over two half barrels [3]. Each half-barrel is built of three concentric layers. For the read out, the barrel is segmented in 32 projective wedges in \(\phi\) per half barrel. Data from one segment is read out into a single ROD. The 18 wheels of an endcap are divided into 96 readout segments. Each segment receives data from all 18 rings and covers 0.065 rad in \(\phi\).
+
+The data going into the RODs has a size of 27 bits per channel. It contains information from three consecutive bunch-crossings (BXs). Per BX, one bit indicates the state of the high threshold discriminator. A signal exceeding the high threshold (5 keV) indicates a 'transition radiation candidate' (electron). The low threshold (0.2 keV) is used to identify _all_ minimum ionising particles. The state of the low threshold is given by 8 bits per BX, each bit indicating the state in a 3.125 (=25/8) ns time window. The total input data volume per ROD including headers, trailers and byte alignment is about 50 kbits/event.
+
+The data per ROD is transferred to a ROB. At the moment it is envisioned that there will be a 1:1 correspondence between ROBs and RODs for the TRT, and thus this is also assumed in this note. Before transmission to the ROB the data is compressed. Only data of validated straws is sent (see table 1). A straw is validated when the low threshold is exceeded between 42.0 ns and 54.5 ns after the bunch crossing. Each particle crossing the straw usually causes ionization near the straw wall. The maximum drift time it takes for an electron to reach the wire is 42.0 ns. This signal is delayed by the electronics by about 7-8 ns. By applying a narrow window between 42 ns and 54.5 ns, hits caused by particles from neighbouring bunch crossings are suppressed. The window size and position is chosen to allow efficient identification of the hits from the beam-crossing under investigation, while the number of accepted hits from neighbouring beam-crossings is minimized [4].
+
+A straw is declared 'VALID' if any of the last two low threshold bits of the second BX or the first two of the third BX are set. All other straws are defined as 'NOT VALID'. For VALID straws the number of leading edges (transitions from 0 to 1) in the low threshold bits of the first two BXs are determined. Depending on the number of leading edges the following data is transferred:
+
+\(<\)11\(>\)\(<\)ttt\(>\)\(<\)ttt\(>\)\(<\)H\(>\)\(<\)T\(>\) for two leading edges
+
+\(<\)10\(>\)\(<\)tttt\(>\)\(<\)H\(>\)\(<\)T\(>\) for one leading edge
+
+\(<\)01\(>\)\(<\)1\(>\)\(<\)L&H\(>\)\(<\)T\(>\) for zero leading edges
+
+where:
+
+\(<\)tttt\(>\) or \(<\)tttt\(>\) are a 4-bit or 3-bit2 encoding location of the transition (from 0 to 1) bit.
+
+\(<\)H\(>\) / \(<\)L\(>\) are one bit ORs of all of the high / low threshold bits,
+
+\(<\)L&H\(>\) is a one bit encoding of all low and high threshold bits,
+
+\(<\)T\(>\) is one bit to indicate that a trailing edge occurred in the third BX.
+
+If two leading edges are encountered in the same time-slice (BX) the first will be dropped and only the second edge will be encoded. In Table 5 in [5] it is shown that having a maximum of one edge per time-slice results in a negligible difference compared to the situation where all edges within one time-slice are counted. For NOT VALID straws all low threshold bits are checked. If no bit is set two bits are transferred, else four bits are transferred:
+
+\begin{tabular}{l l} \(<\)00\(>\) & if no bit is set \\ \(<\)01\(>\)\(<\)0\(>\)\(<\)L\&H\(>\) & if at least one bit is set \\ \end{tabular}
+
+In table 1 an overview of the five possible formats of the TRT data sent to the ROBs is given. The ROB adds to each event fragment a header and trailer. The header is 32 Bytes long, the trailer 12 Bytes.
+
+In a recent note [5] a slightly different scenario for data compression in the ROD (the "Istanbul" scenario) was described.
+
+An estimate of the deviation between using the "Istanbul" scenario and the "old" scenario was made. Using the mean values of percentage of straws with 0, 1 and 2 leading edges and the percentage of non-hit straws, it was found that the differences are small: the Istanbul scenario results in about 5% smaller event fragment sizes. In this note only the old scenario has been studied.
+
+## 3 Zero Suppression Algorithm
+
+In [3] an algorithm for data reduction in the ROB is given. In this algorithm, only data for hit straws is sent to the LVL2 trigger. Each data item has an address header indicating the straw position. For both the barrel and endcap modules eleven address header bits are needed to give each straw a specific header (2\({}^{10}<\)1664\(<\) 2\({}^{11}\)).
+
+When this zero suppression algorithm is used, the data sent to the LVL2 trigger consists mainly of address header bits. An alternative algorithm, first suggested by N. Ellis [6], is not to give each hit straw a unique address header, but an offset header indicating the number of straws (_offset_) to the previous straw that has been hit. This offset header can be much smaller than eleven bits. The optimum offset header size N depends on the percentage of straws hit and their spread among the straws in a readout segment. If the offset between two hit straws is larger than 2\({}^{N}\) straws, it is not possible to encode it in N bits. In that case, an extra data item has to be added to specify the offset to the header of the next hit straw.
+
+In general, the zero suppression algorithm with offset produces a smaller output volume than the algorithm without offset. The former has the disadvantage that a larger number of processing steps per event is needed: for each non-hit straw the value of the offset counter has to be checked, and extra data items have to be copied to the output.
+
+## 4 Generation of input Data
+
+The TRT digitized detector data sample was created using a signal sample piled up on top of a minimum bias sample. The samples used are the same as in [5]. For low, intermediate and high luminosity, on average 2.3, 4.6 and 23 events, respectively, were piled up on the signal sample. The piled up signal was then digitized by the digitization routine for the TRT [5].
+
+\begin{table}
+\begin{tabular}{|l||c|c|c|c|c|} \hline
+**Data type** & \(<\)00\(>\) & \(<\)01\(>\)\(<\)0\(>\) & \(<\)01\(>\)\(<\)1\(>\) & \(<\)10\(>\) & \(<\)11\(>\) \\ \hline
+**Validation** & NOT VALID & NOT VALID & VALID & VALID & VALID \\ \hline
+**Size (bits)** & 2 & 2 + 2 & 2 + 3 & 2 + 6 & 2 + 8 \\ \hline \end{tabular}
+\end{table}
+Table 1: _Different types of data in the ROBs for the TRT._The digitization routine already wrote information on leading edges and validness of straws that were hit. The routine was modified to also write x,y,z coordinates of the center of the straw as well as the phi segment (a number from 1-192) and the layer (a number from 1-300 for the barrel and 1-220 for the endcap) in which the straw is located. A class was created which contains as data members the phi segment number, the layer numbers and a list of x,y and z coordinates. By looping over all events and all straws a database was created, consisting of objects (instantiations of the aforementioned class) uniquely defined by a phi segment. Each object contained the x,y,z coordinates of all the straws. Within one phi segment the straws are ordered layer-by-layer.
+
+Subsequently the digitized data sample is now read in per event per ROD. A ROD spans 6 phi segments in the barrel and 2 in the endcap. The straws in the data sample are compared with the straws in the database. If a straw is missing in the data sample (it is not hit) \(<\)00\(>\) is written, if a straw is present the correct ROD output is written. The output stream thus created is ordered in a layer-by-layer fashion. This may not reflect the real readout sequence, but the differences are thought to be small. The output stream data agrees nicely with the numbers found in [5], where a subset was used of the same datasample that is used in this note.
+
+The output stream can now be used as input for the zero-suppression algorithm. In table 2 the average percentage of different straw data possibilities are shown.
+
+## 5 Implementation
+
+An implementation of the zero suppression algorithm has been written in C. The basic operation per event consists of copying the ROD header and trailer to the output, checking for each straw the type of data and copying data and header for hit straws to the output. If a straw has not been hit, a counter indicating the offset to the previous hit is incremented. The header for hit straws is formed by the N bit encoding of this offset counter. In addition a check is made to see if the offset counter equals \(2^{N}\). If this is the case a N bit header with all bits set to 1 followed by two zero's is copied to the output. Time measurements are made per event. A time stamp is set when the copying of the event header starts, another one when the copying of the event trailer is done. So only the time spent in the algorithm is measured, no file operations or printout statements are included in the time measurement. In the implementation for the Pentium platform, the time stamps are obtained from assembler code with which the number of clock cycles since the computer booted is read out. Information on the CPU speed is then used to convert this number into ms. The difference in time, together with the event size, is copied to the event header to be read out later.
+
+In addition, an implementation for the CRUSH [7] has been written. The algorithms are
+
+\begin{table}
+\begin{tabular}{|l||c|c|c||c|c|c|} \hline  & \multicolumn{3}{c||}{barrel} & \multicolumn{3}{c|}{endcap} \\ \hline luminosity: & low & int & high & low & int & high \\ \hline \%\(<\)00\(>\): & 92.68 & 85.11 & 61.51 & 92.65 & 85.25 & 62.40 \\ \%\(<\)01\(>\)\(<\)0\(>\): & 4.73 & 9.71 & 19.70 & 4.75 & 9.47 & 18.44 \\ \%\(<\)01\(>\)\(<\)1\(>\): & 0.04 & 0.15 & 1.68 & 0.07 & 0.24 & 2.09 \\ \%\(<\)10\(>\): & 2.34 & 4.50 & 14.35 & 2.42 & 4.76 & 15.31 \\ \%\(<\)11\(>\): & 0.30 & 0.49 & 2.76 & 0.11 & 0.29 & 1.75 \\ \hline \end{tabular}
+\end{table}
+Table 2: _Overview of the data used as input for the zero suppression algorithm. The numbers are in percentages. Due to rounding errors they do not exactly sum up to 100 %._implemented on the SHARC processor. Also here the number of clock cycles is counted and is later converted into ms. In the tests, only the data compression program was running on the SHARC. In reality also other tasks have to be executed, such as handling incoming RoI requests and deleting events [7]. Assembler code specific to the CRUSH has been used to execute operations such as bit shifts and logical comparisons of bytes (the most time consuming parts of the algorithms). The rest of the code is identical to the standard C implementation. For both implementations compiler optimisation has been used.
+
+## 6 Results
+
+Distributions were made of the ratio of output and input size on an event-by-event basis while looping over all ROBs. This was done for different header sizes N. In fig. 1 the result is shown for the barrel (fig. 1(a)) and the endcap (fig. 1(b)), in the case of low luminosity running. The plots for intermediate luminosity running are presented in fig. 2. The input sizes are standard ROD output format including headers and trailers. The output sizes include ROB headers and trailers. The solid line (in all four plots) gives the results in case of zero suppression _without_ offset, i.e. using an eleven-bit address header for all hit straws.
+
+It is chosen here to show the spread in ratio instead of the error on the average value, since the ratio depends on the input (and output) size which is not a fixed number (at one particular bit header size) but varies for every event and for every ROB. This explains the rather large "error bars" in figs 1 and 2.
+
+For smaller header sizes than the optimal header size the ratio is smaller due to an increase in the number of extra data items (\(<\)11..1\(>\)\(<\)00\(>\)). This results in a larger output. Above the optimal header size, the extra header bits that have to be sent for each hit straw result in a larger output. For the barrel the optimal header size for low luminosity is 6 bits, which gives a
+
+Figure 1: _(a). Output size/input size, averaged over all barrel data channels within one ROB, averaged over all ROBs, as a function of the number of header bits used in the zero suppression algorithm with offset. The plot is made with low luminosity data. (b). The same plot for the endcap data channels within one ROB. The solid line in both plots represents the result in case of zero suppression without offset. The plot is made with low luminosity data. The ”error bars” indicate the spread of the ratio instead of the error on the average value._
+
+ratio of output/input size of 46.02%. The ratio with a 5 bit header size is very close (46.01%). For intermediate luminosity the minimum ratio for the barrel (70.1%) is observed when a 4 bit header size is used. This ratio is larger than the typical ratios in the low luminosity case, since relatively more straws are hit, and thus the average number of sequential non-hits is smaller. For the endcap the optimal header sizes are 5 bits for low luminosity (ratio of 51.64%) and 4 bits for intermediate luminosity (ratio of 73.44%).
+
+In fig. 3 the distribution of input data size for both barrel ROBs (fig. 3(a)) and endcap ROBs (fig. 3(b)) are shown, for low and intermediate luminosity. The distributions for the input sizes are relatively narrow, the distributions for the output sizes have a considerably larger width, see fig. 4. In fig. 4(a) the barrel output is shown for the optimal header size for low luminosity (N=6) and for intermediate luminosity (N=4). In fig. 4(b) the output size in bytes is shown for the endcap for low (N=5) and intermediate luminosity (N=4). The long tail in the output size distribution is a result of the large spread in percentages of hit straws. Large output sizes stem from relatively large values of non-empty straws. For example the entry with 788 bytes in the barrel low luminosity distribution corresponds to an event with 27.9% non-empty straws within one ROB.
+
+Figure 2: _(a). Output size/input size, averaged over all barrel data channels within one ROB, averaged over all ROBs, as a function of the number of header bits used in the zero suppression algorithm with offset. The plot is made with intermediate luminosity data. (b). The same plot for the endcap data channels within one ROB. The solid line in both plots represents the result in case of zero suppression without offset. The plot is made with intermediate luminosity data. The ”error bars” indicate the spread of the ratio instead of the error on the average value._
+
+Figure 4: _(a). Distribution of output event fragment sizes for barrel ROBs where the zero suppression algorithm with offset has been used, with the optimal number of 6 header bits for low luminosity (solid line) and 4 header bits for intermediate luminosity (dashed line). (b). The same plot for endcap ROBs now with the optimal number of 5 header bits for low luminosity (solid line) and 4 header bits for intermediate luminosity (dashed line)._
+
+Figure 3: _(a). Distribution of input event fragment sizes for one barrel ROB. The solid line gives the distribution for low luminosity, the dashed line for intermediate luminosity. (b). Distribution of input event fragment sizes for one endcap ROB. The solid line gives the distribution for low luminosity, the dashed line for intermediate luminosity._
+
+### Processing times
+
+The processing time of the algorithm was measured on the SHARC processor (clock frequency 40 MHz) and on various Pentium based Linux systems. For the optimal header sizes for barrel and endcap, the distribution of processing time on a 1 GHz machine is shown in fig. 5. Note the large tail resulting from the spread in input size. The distributions of processing times for the optimal header sizes, running on a SHARC processor are shown in fig. 6.
+
+Figure 5: _(a). Distribution of processing times on a 1 GHz Pentium platform, for the optimal header size of (N=6) bits for low luminosity (solid line) and (N=4) bits for intermediate luminosity (dashed line), for barrel data. (b). Distribution of processing times on a 1 GHz Pentium platform, for the optimal header size of (N=5) bits for low luminosity (solid line) and (N=4) bits for intermediate luminosity (dashed line), for endcap data._
+
+Figure 6: _(a). Distribution of processing times on the SHARC, for the optimal header size of (N=6) bits for low luminosity (solid line) and (N=4) bits for intermediate luminosity (dashed line), for endcap data._The distributions in fig. 6 look more gaussian than the distributions in fig. 5, probably due to the fact that no other processes were running on the SHARC processor, while the algorithm measured on Pentium platforms had to share its time with other processes of the operating system. It was found that there is no significant dependence of the processing time on the number of header bits. This is shown in fig. 7 for the measurement done on a 1 GHz Pentium platform for endcap data. The same plot for measurements done on the SHARC processor looks similar, with processing times scaled accordingly.
+
+Figure 8: _(a). Scatterplot of the processing time on a 1 GHz Pentium platform vs. the ratio of output and input size. The data used was for the endcap ROBs, at low luminosity running. The optimal header size (N=5) was used. (b). The same plot but now for endcap ROBs, intermediate luminosity, with an optimal header size of (N=4)._
+
+Figure 7: _(a). Average processing time and the spread, measured on a 1 GHz Pentium platform, vs. the number of header bits, for endcap data, low luminosity. (b). Average processing time and the spread, measured on a 1 GHz Pentium platform, vs. the number of header bits, for endcap data, intermediate luminosity._
+
+For the measurements done on a 1 GHz Pentium platform, the ratio of input size and output size versus the processing time, for the endcap ROBs, is shown in fig. 8 for low and intermediate luminosity. The plots show a weak linear dependence of the ratio of input and output size on the processing time, but with a large spread in the data. The average processing times on the different platforms are shown in table 3. A scatterplot was also made of the number of straws hit vs. the processing time. A clear linear dependence can be seen. A straight line fit through the data shows that of order 50 to 60 ns are spent per straw, i.e. on the 1 GHz Pentium platform about 50-60 cycles per straw hit. The same data for the SHARC shows that approximately 20-25 cycles are needed per straw. The difference is due to different architecture for the processors as well as different instruction sets and different speeds for transferring data to and from the memory. Differences in system and processor architecture cause the number of clock cycles for the various Pentium platforms to differ from each other (see table 3). The rather large offset from zero in fig. 9 indicates that the algorithm spends a large time, evaluating case- and if-then-else statements.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline
+**Processor** & **Frequency** & **Processing Time** & **\# Clock Cycles** \\ \hline  & MHz & ms & - \\ \hline \hline SHARC & 40.0 & 1.82 & 6.69 \(\times 10^{4}\) \\ \hline PentiumII & 450 & 0.082 & 3.62 \(\times\)\(10^{4}\) \\ \hline PentiumIII & 733 & 0.051 & 3.56 \(\times\)\(10^{4}\) \\ \hline PentiumIII & 1000 & 0.038 & 3.62 \(\times\)\(10^{4}\) \\ \hline PentiumIV & 1400 & 0.038 & 5.01 \(\times\)\(10^{4}\) \\ \hline PentiumIV & 1700 & 0.031 & 4.95 \(\times\)\(10^{4}\) \\ \hline \end{tabular}
+\end{table}
+Table 3: _Average processing time per event for zero suppression with offset (N=5) for endcap ROBs for low luminosity, on different processors. In the last column the number of clock cycles per event is given._
+
+Figure 9: _(a). Scatterplot of the processing time on a 1 GHz Pentium platform vs. the number of straws hit (seen by one ROB). The data used was for endcap ROBs, low luminosity. The optimal header size (N=5) was used. (b). The same plot but now for endcap ROBs, intermediate luminosity, with an optimal header size of (N=4)._
+
+Summary and Conclusions
+
+The most relevant parameters in this note are summarized in table 4. Also included is the reduction factor when the output size for the zero suppression algorithm is compared with the output size one gets for an 11 bit address header.
+
+We have conducted several measurements with zero suppression algorithms for TRT data with and without offset on data sizes and processing times. The measurements were made on a prototype ROBIn (the CRUSH) as well as on Pentium-based platforms. We can draw the following conclusions :
+
+* With the data-sets used in this note, the zero suppression with a 5-bit offset header for the endcap ROBs and a 6-bit header for barrel ROBs, gives a maximum reduction in data size for the full TRT scan for low luminosity. For intermediate luminosity the optimal header size is 4 bits for both barrel and endcap ROBs. The zero-suppression processing time hardly varies with the header size.
+* Zero suppression on the CRUSH is too slow. On average, the processing time needs to be smaller than 0.2 ms. The processing times measured are 1.82 ms for endcap ROBs and 1.90 ms for barrel ROBs.
+* Zero suppression on Pentium-processors can be done easily. Less than 50 \(\mu\)second per event, can be achieved already by a 1 GHz processor.
+* Since the algorithm consists mainly of evaluating simple if-then-else statements and case statements, an implementation of the algorithm in FPGAs could be advantageous.
+
+It is probably advantageous to move the zero suppression up to the RODs. At ROD-level the data is already compressed into the 'ROB format' (see section 2). Performing the zero suppression algorithm at this level can be done fast if it is possible to implement it in FPGAs. An additional advantage is the size reduction of all event fragments sent from ROD to ROB.
+
+The results of this note depend on the order of reading out the straws. A layer-by-layer order (within one phi-segment, i.e. one ROB) has been assumed. The differences are thought to be small for other read out sequences.
+
+## 8 Acknowledgement
+
+The authors of this note would like to thank Mogens Dam for making available the data set and subsequent help with the TRT digitization routine.
+
+\begin{table}
+\begin{tabular}{|c|c|c||c|c|} \hline  & \multicolumn{2}{|c||}{barrel} & \multicolumn{2}{|c|}{endcap} \\ \hline \hline luminosity & low & int & low & int \\ \hline header size [bits] & 6 & 4 & 5 & 4 \\ \hline output size [bytes] & 204 & 311 & 204 & 320 \\ \hline ratio (output size/input size) [\%] & 46.0 & 70.1 & 51.7 & 73.4 \\ \hline reduction\({}^{*}\) [\%] & 20.9 & 31.5 & 23.0 & 31.6 \\ \hline Proc. time (SHARC) [ms] & 1.90 & 1.97 & 1.82 & 1.89 \\ \hline Proc. time (1 GHz Pentium) [ms] & 0.037 & 0.042 & 0.038 & 0.042 \\ \hline \end{tabular}
+\end{table}
+Table 4: _summary of the average of the most relevant parameters for the zero suppression algorithm for barrel and endcap, for low and intermediate luminosity. (\({}^{*}\) w.r.t. 11 bit header, no offset)_
+
+## References
+
+* [1] 'ATLAS High-Level Triggers, DAQ and DCS, Technical Proposal', CERN/LHCC 2000-17, March 2000
+* [2] 'ATLAS detector and physics performance, Technical Design Report (TDR)', CERN/LHCC 99-15, 1999
+* [3] 'Detector and read-out specification, and buffer-RoI relations, for level-2 studies', P. Clarke et al., ATL-DAQ-99-014, October 1999
+* [4] 'ATLAS Inner Detector, Technical Design Report (TDR)', CERN/LHCC 97-16, April 1997
+* [5] 'A Study of ROD compression schemes for the TRT', Mogens Dam, ATLAS DAQ note, ATL-INDET-2001-009
+* [6] N. Ellis, report to TRT electronics meeting, CERN, 30 november 1999
+* [7] 'A SHARC based ROB complex: design and measurement results', J.Vermeulen et al., ATLAS DAQ note, ATL-DAQ-2000-021, 17 March 2000

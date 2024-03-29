@@ -1,0 +1,469 @@
+LARG-NO-77
+
+June 25, 1997
+
+**A proposal of serial protocol for the**
+
+**LAr calorimeter of ATLAS**
+
+O. Le Dortz, P. Nayman
+
+LPNHE, Universites de Paris 6 et 7, IN 2P3-CNRS
+
+**Abstract**
+
+The electronics of the Liquid Argoncalorimeters of ATLAS located in the detector area needs to be controlled externally by means of a serial communication. For this purpose, we propose an implementation of the WorldFIP field bus protocol. The slave front-end stations of the serial communication will be designed as radiation tolerant ASICs.
+
+This note describes the WorldFIP protocol and its adaptation to the LAr electronics needs. It also points out the performances that can be reached with this system. For example, at a symbol rate of 2.5 Megabits per seconds, the useful data rate can reach about 2 Megabits per seconds, and the configuration of the whole calorimeter can be completely written and read back in about 3 seconds.
+
+This document is available at [http://www-lpnhep.in2p3.fr/atlas/gb/elec/](http://www-lpnhep.in2p3.fr/atlas/gb/elec/)
+
+###### Contents
+
+* 1 Introduction
+	* 1.1 Requirements of the serial communication
+	* 1.2 Generalities about the proposed protocol
+* 2 Description of the protocol standard
+	* 2.1 The physical layer
+	* 2.2 The Data Link layer
+		* 2.2.1 Principle of the exchange of variables
+		* 2.2.2 Notion of macrocycle
+* 3 Application to the LAr electronics
+	* 3.1 Architecture of the network
+	* 3.2 The user layer
+		* 3.2.1 The Command variable
+		* 3.2.2 The Answer variable
+* 4 Concrete examples
+	* 4.1 Peer-to-peer register access, two-variable option
+		* 4.1.1 Write operation
+		* 4.1.2 Read operation
+	* 4.2 Peer-to-peer memory access, two-variable option
+	* 4.3 Broadcast examples
+		* 4.3.1 Broadcast write, two-variable option
+		* 4.3.2 Broadcast write + read, multiple-variable option
+* 5 Performance considerations
+	* 5.1 Variable transferring
+	* 5.2 Comparison of the configurations
+	* 5.3 Useful data rates, realistic estimations
+		* 5.3.1 Write mode
+		* 5.3.2 Read mode
+		* 5.3.3 Summary
+* 6 Implementation
+* A Frame Check Sequence
+* A.1 Notations
+* A.2 Definition of the algorithm for WorldFIP frames
+* A.3 Hardware implementation
+
+[MISSING_PAGE_EMPTY:4]
+
+Introduction
+
+Each front-end crate for the Liquid Argon calorimeters of ATLAS contains a _controller board_ that achieves the following functions [1]:
+
+* It receives the timing and trigger signals from the TTC system in the trigger cavern and distributes them to the front-end crate, with the appropriate programmable time delays for each _front-end_ and _calibration_ board. This function will not be covered in this note.
+* It is connected, through a 300 meter-long optical link to the _system controller_ in the VME readout crate. This link enables to configurate and control all the parameters required by the front-end electronics.
+
+We propose a serial protocol that fulfills the second function, from the system controller in the readout crate to the electronic boards in the front-end crate (front-end boards, calibration, tower builder...). The serial communication is made of two branches, one optical branch from the controller board to the system controller, and a second local copper branch within the front-end crate from the controller board to the electronic boards. Figure 1 shows a scheme of the front-end and readout crates. The system controllers are interconnected (through VME, ethernet link...) and supervised by a high level master monitor not shown in this figure.
+
+Figure 1: general architecture of the serial communication network
+
+### Requirements of the serial communication
+
+* The components handling the serial communication in the front-end crate will be exposed to radiation levels (about \(10^{12}\) neutrons/\(cm^{2}\) and 20 Gy per year [2]) requiring a radiation-hardened technology.
+* No electrical activity is authorised during data taking periods. In other words, the copper branch of the serial link presented previously needs to be completely quiet during data taking.
+* The serial interface on the electronic board should use a clock derived from the Bunch Crossing clock, and not a private clock source, to minimise interferences.
+* The serial protocols should enable read-write point to point register or memory accesses, and broadcast write operations on electronic boards of the same type.
+* Care should be taken in defining the physical and the logical features of the protocol, for a better reliability, in terms of immunity to electrical noise and data integrity.
+
+### Generalities about the proposed protocol
+
+We propose to develop an implementation of the serial protocol _WorldFIP_[3] that will comply with those requirements and that, moreover, provides the following features:
+
+* It is a field bus. Robustness of the protocol is therefore guaranteed. The physical layer operates with very good electrical noise immunity (compliant with the EMC recommendations of the IEC organisation). For example, this physical layer is more reliable than RS485 twisted-pair based standard. The logical layer contains a mechanism to check the integrity of the received data.
+* As a standard in industry, some 'off the shelf' hardware or software units can be used.
+* It has the advantage to require only one signal pair carrying simultaneously the clock and the data.
+* The physical layer enables data rates up to 2.5 Megabits per second.
+* It is a deterministic protocol. Therefore, the limits of response time of the system are clearly stated.
+* It is one of the three field buses recommended by CERN for the LHC project [4].
+* The same protocol is used for the optical and for the copper branches. This simplifies the electro-optical interface.
+
+## 2 Description of the protocol standard
+
+A WorldFIP network is made up of _stations_ with two types of functions:
+
+* bus arbitration, management of access to the transmission medium,
+* production/consumption of data.
+
+Only onestation at a time can be the arbiter of the link. The arbiter asks for data (_variables_) to be transmitted on the line, by emitting the label of the variable; the unique _producing_ station of the variable sends its value on the link; the _consuming_ station(s) then just pick the variable value.
+
+Every station can be either the producer of a specific variable or one of the consumers of this variable. For example, a station can be configurated to produce a variable \(V_{1}\) and consume the variables \(V_{2}\), \(V_{3}\), \(V_{4}\).
+
+The protocol is made of three OSI communication layers:
+
+1. the physical layer,
+2. the data link layer,
+3. and the application layer.
+
+The aim of this section is not to describe completely the WorldFIP standard. However, we will describe the part of the standard necessary for our needs, namely the physical and a part of the data link layer.
+
+### The physical layer
+
+The bits transmitted by the physical layer are coded using a Manchester code. This codes makes it possible to transmit simultaneously the data and its attached clock on the same line. It enables to transmit four symbols: logical one, logical zero, positive violation (\(V^{+}\)) and negative violation (\(V^{-}\)). The violation symbols are only used to specify the beginning and the end of the data frames. The waveforms of these four symbols are shown in figure 2.
+
+Each WorldFIP frame is composed of four parts:
+
+Figure 2: Manchester coding1. A _preamble_ (PRE), used to synchronise the receivers clock: it is a sequence of eight symbols, '10101010'.
+2. A _frame start delimiter_ (FSD); this eight symbols sequence indicates the beginning of the control and data part.
+3. _control and data part_ (CAD). This field, containing the useful information provided by the data link layer, exclusively consists of logical one and logical zero symbols.
+4. A _frame end delimiter_ (FED): this eight symbols sequence indicates the end of the CAD part.
+
+A scheme of a WorldFIP frame is shown on figure 3. The different fields are clearly visible and can be easily inspected with a digital oscilloscope or analyser.
+
+The physical layer adds 24 symbols to every transmitted frame. Therefore, the longer the CAD field, the better the efficiency.
+
+### The Data Link layer
+
+The WorldFIP protocol is based on a Producer-Consumer model. The data exchanged between the producers and the consumers are _buffers_ (registers, memories). A buffer is identified uniquely by a logical label. We will adopt further in this note the WorldFIP terminology: a buffer will be called a _variable_; the logical label attached to a variable will be called its _identifier_, coded as a 16-bits word.
+
+The exchanges of variables between the producers and the consumers can take place either cyclically or upon explicit request. We will only use variables exchanged cyclically because it offers more simplicity, more speed and the process is deterministic. We will explain in 3.2 how this cyclic mechanism can be used, in our case, for asynchronous commands on the electronic boards.
+
+The data link layer specifies the format of the CAD field of the physical layer (figure 4). It adds to the useful data one _control_ byte at the beginning of the CAD field that determines the type of this frame, and a two-bytes _Frame Check Sequence_ (FCS) to verify the integrity of the frame.
+
+The FCS is the result of a polynomial division of the sent data by a generator polynomial. It enables to detect errors in the received frame, with a very
+
+Figure 3: example of a WorldFIP frame
+
+high level of confidence. The probability to consider a corrupted frame as a valid one is about \(10^{-15}\). The encoding and decoding algorithms can be easily implemented on the fly by hardware, as explained in appendix A.
+
+#### 2.2.1 Principle of the exchange of variables
+
+The bus arbiter decides when a variable must be transmitted. It emits a frame of type ID_DAT containing the identifier of the variable and starts a timeout counter. In consequence, the producer of the variable sends its value in a frame
+
+of type RP_DAT. The consumers of this variable read the frame emitted by the producer. If the producer of the variable has not put the data on the line after a certain delay, the arbiter warns the upper layers that a timeout error occured. A timeout error does not lock the system. With this scheme, the protocol enables the stations to be turned off or turned on again without deadlock.
+
+The format of the ID_DAT and RP_DAT WorldFIP frames are detailed in figure 5. The data field of a ID_DAT framework contains the two bytes of the identifier. The data field of a RP_DAT frame contains the value of the variable. The size of a variable is limited to 128 bytes.
+
+The norm specifies the value of the control byte in case of ID_DAT or RP_DAT frames as indicated on table 1. Let us point out that only the six
+
+Figure 4: format of a WorldFIP frame detailing the CAD field
+
+Figure 5: format of variable transfer frames
+
+least significant bits of the control byte are necessary to identify ID_DAT and RP_DAT frames.
+
+#### 2.2.2 Notion of macrocycle
+
+At initialisation, the bus arbiter is assigned a list of cyclic variables to scan and the periodicities associated with each of these variables. Given this list, a periodic sequence called _macrocycle_ is performed by the bus arbiter. Each element of the sequence, called an _elementary cycle_, enables to scan one or several variables. Details about the definition of the process in our case is described in 3.2.
+
+As an example, let us consider an application where two variables \(A\) and \(B\) are used. The variable \(A\) needs to be updated every time unit, while the variable \(B\) needs to be updated every 2 time units. The macrocycle scanned by the bus arbiter will contain two elementary cycles of duration 1 time unit each:
+
+1. transfer of variable \(A\): * the arbiter emits the identifier \(A\) in a \(ID\_DAT\left(A\right)\) frame, * the producer of \(A\) puts its value in a \(RP\_DAT\left(A\right)\) frame.
+2. transfer of variable \(A\) and then \(B\).
+
+Thus, the two variables will be updated at the appropriate periodicities. The process is completely deterministic. If the arbiter encountered a timeout error when it initiated a request, the macrocycle continues. The concerned variable will just be requested again in the next macrocycle (the duration of the macrocycle is always the same).
+
+\begin{table}
+\begin{tabular}{|c|l|} \hline  & Binary value \\ Type & MSB sent first \\  & MSB LSB \\ \hline ID\_DAT & xx000011 \\ RP\_DAT & xx000010 \\ \hline \end{tabular}
+\end{table}
+Table 1: values of the control byteApplication to the LAr electronics
+
+### Architecture of the network
+
+We propose to develop WorldFIP stations inside the front-end crate fully compliant with the physical and data link layers specifications. This ensures the ability to use industrial products on the network (stations located in the VME readout crate).
+
+The architecture of the proposed network is sketched in figure 6. The arbiter and'master' station \(S_{0}\) is housed in the VME readout crate. In the front-end crate, each board requiring a serial communication contains a'slave' station \(S_{i}\), where \(i>0\). The electro-optical interface from the top-down fibre link to the on-detector copper link is implemented in the controller board. The'slave' station \(S_{1}\) inside the controller board also plays the role of _gateway_ between the two branches. Upon request of the master, the gateway will connect or disconnect the copper branch, to avoid traffic during data taking.
+
+### The user layer
+
+Our user layer determines, in the data field of RP_DAT frames, a user protocol of exchange of data (board registers, memories...). It also uses the periodic service provided by the data link layer to propose to the user a service of asynchronous access to the electronic boards.
+
+Figure 6: architecture of the network
+
+The'master' station \(S_{0}\) will produce the _Command_ variable _COM_ that contains orders such as read/write a given register/memory in a given board or group of boards.
+
+The'slave' stations \(S_{i}\) in the front-end crate will consume the Command variable COM and produce one or several _Answer_ variables _ANSi_ that contain the registers/memory values read from the board and/or status.
+
+The arbiter (in station \(S_{0}\)) will scan a macrocycle consisting of one Command and the Answer(s).
+
+We consider the possibility to use only one Answer variable for all the electronic boards or one per board. Examples are provided in section 4 and a discussion about the consequences of each option is presented in the performances section 5.
+
+Each board in the front-end crate provides to the serial ASIC a hardwired _board number_ and a _group type_ (crate controller, calibration, tower builder, different front-end boards...).
+
+#### 3.2.1 The Command variable
+
+The COM variable is set to have the following features:
+
+Identifier: 0000 Hexa
+
+Size: 128 bytes.
+
+The different fields composing the COM variable are defined in table 21. A command can contain one or several register access requests or a memory access request.
+
+Footnote 1: MSB sent first on the line
+
+In case of register access, a register block consists of three consecutive bytes: the address of the register and the attached 16-bits data.
+
+In case of memory download, a 4-bytes header is sent, followed by the memory data.
+
+#### Description of the fields
+
+* _Command Counter_: for each new command, the user increments this counter; the slaves ignore the command if this counterdoes not increment. This mechanism enables to do asynchronous control of the boards. The counter value will also be copied into the Answer frames sent back by the slaves, for cross-checking.
+* _Slave address/type_: the most significant bit is the broadcast bit.
+* If it equals '1', the command will affect, in broadcast mode, all the stations of type matching the 7 least significant bits of this byte.
+* If it equals '0', the command will concern the station whose board number matches the 7 least significant bits of this byte.
+* _Function Code_: the type of access to be performed. Bit 7 Read operation (from slave in front-end crateup to the master) Bit 6 Write operation (master down to slave) Bit 5 '1' for Memory access '0' for Register access Both bits 7 and 6 set performs a write operation followed by a read operation at the same address.
+
+Then follow, either register blocks, or the memory block. In case of register read-only access, the _write register data_ fields of the register blocks shall be ignored by the slaves.
+
+#### Memory block
+
+The memories are accessible by partitions of maximum size 121 bytes. Each memory is assigned a 16-bits _Next Transfer Address_ (NTA) register on the board. The address of this NTA register is specified by the byte number 4 of the COM variable. Its value (bytes 5 and 6 in table 2) is the start address of the block to download from (or upload into) the memory. The data block size in bytes is given in byte 3.
+
+In case of read-only memory access, the bytes 7 to 127 shall be ignored by the slaves.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline
+**Byte** & \multicolumn{2}{|c|}{**Field description**} \\ \hline
+0 & Command Counter \\
+1 & Slave address/type \\
+2 & Function Code \\ \hline  & **Register Access** & **Memory Access** \\ \hline
+3 & Number of registers & Number of bytes \\
+4 & Register 0 Address & NTA address \\
+5 & Register 0 high byte & NTA value high byte \\
+6 & Register 0 low byte & NTA value low byte \\
+7 & (Register 1 Address) & Write Data 0 \\
+8 & (Register 1 high byte) & Write Data 1 \\
+9 & (Register 1 low byte) & Write Data 2 \\... &... &... \\
+124 & (Register 40 Address) & Write Data 117 \\
+125 & (Register 40 high byte) & Write Data 118 \\
+126 & (Register 40 low byte) & Write Data 119 \\
+127 & Not used & Write Data 120 \\ \hline \end{tabular}
+\end{table}
+Table 2: COM variable format 
+
+#### 3.2.2 The Answer variable
+
+Whenacommandimplies a response from a slave, the answer is put by the slave in a Answer variable, upon request of the bus arbiter. The ANSi variables have the following features:
+
+Identifier: 00_xy_Hexa
+
+Size: 128 bytes.
+
+where _xy_ is the station number i.e. the hardwired board number provided by the board to the ASIC2. An Answer variable has basically the same format as the COM variable (see table 3), except for the Function Code which is replaced by a _Status Code_.
+
+Footnote 2: or FF if a two-variables only option is used.
+
+* \(Status\ Code\): type of data in the following fields. Bit 7 the data have been read from the board Bit 6 the data have been written to the board Bit 5 '1' : the data are memory block '0' : the data are register blocks '4-0' information about the transmission result (No error, FCS error,etc.) Both bits 7 and 6 are cleared when the transaction is just an acknowledge. This occurs when the command counter did not incremented from the previous command to the present one.
+
+In the two-variable option, the ANS variable is produced by the unique target station implied in a point-to-point request. But in case of broadcast, the ANS variable will be produced by the controller board.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline
+**Byte** & \multicolumn{2}{|c|}{**Field description**} \\ \hline
+0 & Command Counter \\
+1 & Slave address \\
+2 & Status Code \\ \cline{2-3}  & **Register Access** & **Memory Access** \\ \hline
+3 & Number of registers & Number of bytes \\
+4 & Register 0 Address & NTA address \\
+5 & Register 0 high byte & NTA value high byte \\
+6 & Register 0 low byte & NTA value low byte \\
+7 & (Register 1 Address) & Read Data 0 \\
+8 & (Register 1 high byte) & Read Data 1 \\
+9 & (Register 1 low byte) & Read Data 2 \\... &... &... \\
+124 & (Register 40 Address) & Read Data 117 \\
+125 & (Register 40 high byte) & Read Data 118 \\
+126 & (Register 40 low byte) & Read Data 119 \\
+127 & Not used & Read Data 120 \\ \hline \end{tabular}
+\end{table}
+Table 3: ANSi variable format
+
+## 4 Concrete examples
+
+### Peer-to-peer register access, two-variable option
+
+#### 4.1.1 Write operation
+
+Figure 7 shows an example of a two-variable macrocycle in which one writes into the front-end board number 9 the data 'FEC4' into the register of address '02' and 'ABCD' into the register '1A'.
+
+The transaction is composed of the four following frames:
+
+1. the arbiter requests the COM variable by emitting a frame ID_DAT(0000).
+2. After a turnaround time, the master station writes the RP_DAT frame containing the COM variable value, containing: * the command counter; the previous value of the command counter was 83. It is incremented to announce a new relevant COM variable. * The target slave address; here one accesses the board number 09. * The function code; 40 for write registers. * Number of registers; 2 registers are to be written. * Address and value of the first register * Address and value of the second register * The other bytes are set to an arbitrary value. However, these bytes are considered in the final FCS calculation. The slave station 09 recognises that the command is new and that it is the target. It therefore interprets the command into sequence of registers write into the board.
+3. Then, the arbiter, after a turnaround time, requests the ANS variable by emitting a frame ID_DAT(00FF).
+
+Figure 7: example of peer-to-peer registers write operation4. As the station 09 knows that it was the unique target station of the command, it produces the answer variable. It sends the command counter, its station address, the function code 40 (the following bytes are registers written into the board), and the registers blocks.
+
+#### 4.1.2 Read operation
+
+Let us now consider the following macrocycle, where one wants to read back the registers previously written.
+
+Figure 8 illustrates the transaction. The process is the same as in the previous example, but there are several differences
+
+* the master station increments the command counter to announce that it is a new one. Here, its gets 85.
+* The function code gets 80, for'read registers'.
+* The values fields of the register blocks, in the command variable, are useless.
+* The target station 09 returns the ANS variable, containing the status code 80 and the registers values read from the board.
+
+Then, follow several 'idle' macrocycles, where the command counter is not incremented by the master station. The slaves just ignore the command. The last target station 09 just produces answer variables with function code 00, indicating that nothing was done on the board.
+
+### Peer-to-peer memory access, two-variable option
+
+We now consider a transaction where one wants to write a 16-bytes block of memory into the front-end board number 0A, at the memory offset '1C00'. Let also assume that NTA register of the memory is the register of address 'F0'. Finally, we also want to read back the contents of the memory within the same
+
+Figure 8: example of peer-to-peer registers read operation
+
+macrocycle. Figure 9 shows the transaction. The macrocycle is composed of the four following frames:
+
+1. the arbiter requests the COM variable by emitting a frame ID_DAT(0000).
+2. After a turnaround time, the master station writes the RP_DAT frame containing the COM variable value, including: * the command counter, incremented to indicate a new command, * the function code; D0 for write + read memory, * the number of bytes of the memory block to write/read, * the address of the NTA attached to the desired memory, * the value of the NTA register: we want here to load the memory, beginning at '1C00', * the 16 bytes to write into the memory, beginning at offset 1C00. The slave station 0A gets the command, sets the NTA register to the offset value and writes the memory on the board.
+3. Then, the arbiter, after a turnaround time, requests the ANS variable by emitting a frame ID_DAT(00FF).
+4. The target station 0A sets again the NTA to the original offset 1C00, reads the memory contents back and sends the result into the RP_DAT frame.
+
+Figure 9: example of peer-to-peer memory write and immediate read access
+
+### Broadcast examples
+
+#### 4.3.1 Broadcast write, two-variable option
+
+Figure 10 shows an example of broadcast write operation, when using the two-variable option. In this case, one wants to upload the memories of all the boards of type 2.
+
+The macrocycle contains four individual frames, as usual. These are the information specific to the broadcast mode:
+
+1. The slave address field of the command contains 82, for a broadcast mode towards the stations of type 2.
+2. The function code is 60, for memory write.
+3. The target stations of type 2 will consider the command and write the memory block on the board. The others stations will ignore the command.
+4. As several target stations might produce the answer variable, it is stated that none of them produces it. In broadcast mode, the controller station produces the answer variable. In this case, the controller station just copies the command variable into the answer variable.
+
+#### 4.3.2 Broadcast write + read, multiple-variable option
+
+Figure 11 shows an example of multiple-variable macrocycle, where a new command of broadcast write + read memory is requested. Let us assume that 16 variables (i.e. 16 boards) take part of the macrocycle.
+
+1. The arbiter first requests the command variable, that is produced by the master station.
+2. The command variable is the same as in the previous example, except for the function code, that is 'D0' for memory write + read.
+3. The target stations of type 2 recognise the command and achieve, on their boards, the write operation of the memory.
+4. The arbitersequencially scans all the ANSi variables.
+
+Figure 10: example of broadcast write macrocycle, two-variable option* If the producer station of ANSi is not a target of the broadcast, its answer contains the status code 00, that means that nothing was achieved on the board.
+* If the producer station of ANSi is one of the targets of the broadcast, it reads the memory back and returns, in the ANSi variable, the content of the memory on the board.
+
+Figure 11: example of broadcast write and immediate read
+
+Performance considerations
+
+The deterministic aspect of the WorldFIP protocol allows to estimate precisely the useful data rate accessible with the adopted architecture.
+
+### Variable transfer timing
+
+We propose to use, for the whole network, a symbol rate of \(2.5\,\mathrm{Mbits.s^{-1}}\). Then, the time unit spent to emit a logical symbol (one out of the four provided by the Manchester coding system) is \(T_{u}=400ns\).
+
+A complete exchange of variable consists in the emission, by the arbiter, of the ID_DAT frame and the production of a RP_DAT frame by the producer of the variable. The time between ID_DAT and RP_DAT is called the _turnaround time_\(T_{r}\). The protocol specifies that:
+
+\[10.T_{u}\leq T_{r}\leq\,70.T_{u}.\]
+
+In our case, taking account of the cable lengths, we can assume that:
+
+\[T_{r}\simeq 10.T_{u}\simeq 4\mu s.\]
+
+The total transaction time includes times needed for:
+
+* the transmission of the ID_DAT frame (\(T_{ID\_DAT}\)),
+* the turnaround time,
+* the transmission of the variable value in a RP_DAT frame (\(T_{RP\_DAT}\)),
+* the turnaround time.
+
+An ID_DAT frame is 8-bytes long, thus \(T_{ID\_DAT}=64.T_{u}\).
+
+As we will use \(1\,28\)-byte variables, a RP_DAT frame is \(1\,34\)-bytes long (figure 5): \(T_{RP\_DAT}=1072.T_{u}\).
+
+The total time required to exchange one variable is:
+
+\[64.T_{u}+10.T_{u}+1072.T_{u}+10.T_{u}=1156.T_{u}\simeq 46\,0\mu s.\]
+
+### Comparison of the configurations
+
+Two configurations of variables are considered. One option consists in using one answer variable ANSi for each board. Typically, about 15 boards per'half-rate' will require a serial communication. In this case, the arbiter needs to scan, within a macrocycle, 16 variables. The other option consists in using only one answer variable ANS per 'half-rate'. In that case, the macrocycle is limited to two exchanges of variable. Each option offers different advantages, in term of speed performances, depending on the type of transfer (write broadcast, point-to-point access...).
+
+The table 4 summarizes the specifications of the two options.
+
+In this table, a block is 121 memory bytes or 1 to 41 individual 16-bits registers.
+
+In broadcast mode, the COM variable is asked by the arbiter (ID_DAT[0]) and produced by the master. The target slaves \(S_{i}\) consume this variable and write the broadcast data in their boards. Then, for the 16-variable option, within the same macrocycle, the arbiter scans the answer variables ANSi (ID_DAT[i]). Each slave, including the target slaves implied in the broadcast transfer, answers by producing their ANSi response. This way, it is possible to get the result of the broadcast operation in one macrocycle: the target slaves just put in their ANSi variables a status, or even the result from a read operation on their boards. The 'broadcast read' in the table 4 is the case when the slave stations put in their answer variables the data read back from their boards.
+
+To summarize the table, as concerns write operations or point-to-point read operations, the 2-variables option is the fastest, in any case. However, the 16-variable option might be twice faster when performing broadcast write operations requiring a read back of the status or the data from the boards.
+
+Anyway, whatever option is adopted, the time needed to transfer one register or a block of up to 41 registers is the same. In other words, the more registers are written/read on a board in the same transaction, the more efficient 3 the protocol is.
+
+Footnote 3: in terms of amount of useful data transmitted per time unit
+
+### Useful data rates, realistic estimations
+
+As an example, a front-end board could contain less than 40 individual registers and a memory (for FPGA programming) of less than 50 kilobytes [5].
+
+#### 5.3.1 Write mode
+
+The 40 registers can be written on the board in a macrocycle, while the memory can be downloaded in about 415 partitions (each one taking one macrocycle). The time needed to download a complete board is 416 macrocycles, or:
+
+* 382 \(ms\) in the two-variable option,
+* 2.9 \(s\) in the 16-variable option.
+
+\begin{table}
+\begin{tabular}{|l|c|c|} \cline{2-3} \multicolumn{1}{c|}{} & **16-variable option** & **2-variable option** \\ \hline
+**Macrocycle duration** & \(7.3\,ms\) & \(0.920ms\) \\ \hline
+**Broadcast Write** & 1 block in \(7.3\,ms\) & 1 block in \(0.920ms\) \\ Status of \(n\) boards & Available in ANSi & Not available \\ \hline
+**’Broadcast Read’** & 1 block in \(7.3\,ms\) & impossible \\ \hline
+**Individual Read or Write** & 1 block in \(7.3\,ms\) & 1 block in \(0.920ms\) \\ \hline
+**Individual Read or Write** & 1 block in \(7.3\,ms\) & 1 block in \(n\cdot 0.920\,ms\) \\ \hline
+**of \(n\) boards same addresses** & & \\ \hline \end{tabular}
+\end{table}
+Table 4: comparison of the proposed optionsWhen programming a whole front-end crate, it seems realistic to assert that the front-end board memories will be written in broadcast mode and the registers will be written in point-to-point access.
+
+Given a number of front-end boards of about 15, the time needed to write data into the whole crate will be \(415+15\) macrocycles, or:
+
+* \(396\ ms\) in the two-variable option,
+* \(3.1\ s\) in the 16-variable option.
+
+#### 5.3.2 Read mode
+
+Let us consider now the case where we read back the data previously written. The timespent to read back all the registers and memory blocks of a front-end board is the same as the timespent in writing them. In the 16-variable option, the 'broadcast read' mode can be very useful to read back a whole crate, in the same macrocycles. Therefore, the front-end crate will be read back in the same time as the time needed to write it.
+
+On the other hand, in the two-variable option, a point-to-point approach is necessary to read back a whole crate.
+
+Finally, the time required to write a whole crate, and then to read it back is:
+
+* \(396\ ms+15\times 382\ ms=6.1\ s\) in the two-variable option,
+* \(2\times 3.1\ s=6.2\ s\) in the 16-variable option.
+* \(3.1\ s\) in the 16-variable option, when the broadcast write and then read in the same macrocycle option is used.
+
+#### 5.3.3 Summary
+
+All these numbers are summarized in the table 5. The data rates estimations are based on the amount of _useful_ data, namely:
+
+* in write mode, 50 kbytes = 400 kbits of datasent in broadcast,
+* in read mode, the data read back from each board, i.e. \(15\times 50\) kbytes = 6 Mbits.
+* in write and read mode, the data sent + then data read back, i.e. \(16\times 50\) kbytes = 6.4 Mbits.
+
+The best performance can be reached when using the 16-variable option, in 'broadcast write and immediate read' mode. In that case, a whole front-end crate can be configurated and checked in about 3 seconds. Provided that this operation is achieved in parallel for all the crates of the calorimeter, 3 seconds will be the time required to control and check the whole calorimeter.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline  & **16-variable option** & **2-variable option** \\ \hline
+**Memory simple access** & 132 kbits/s & 988 kbits/s \\
+**Register simple access** & 90 kbits/s & 713 kbits/s \\ \hline \hline
+**Task** & & \\ \hline \hline write acrate & 3.1 seconds & 396 milliseconds \\  & 129 kbits/s & 1.01 Mbit/s \\ \hline write then read acrate & 6.2 seconds & 6.1 seconds \\  & 1.03 Mbit/s & 1.04 Mbit/s \\ \hline write and read in the same & **3.1 seconds** & \\ \hline \end{tabular}
+\end{table}
+Table 5: performances summary
+
+## 6 Implementation
+
+We are designing an ASIC (figure 12) fulfilling the function of'slave' station as described in section 3. It will be connected to the copper serial link and to a parallel port on the board (address, data and commands). It also receives from the board a hardwired board number and a board type (e.g. front-end board calibration board, tower builder, controller board, etc.). A general purpose output 8-bit register is also available. The controller board will implement the function of gateway between the optical link and the copper inner link. The state of the gateway will be controlled by one bit of the general purpose register of the controller board station ASIC. Thus, the copper link can be isolated from the external world upon request of the master station. The connections between the control station and the slave stations of the other boards are shown in figure 13.
+
+Before the production of an ASIC prototype, a FPGA pre-prototype will be produced.
+
+Figure 12: the slave WorldFIP ASICFigure 13: connections of the serial link in the front-end crate
+
+## References
+
+* [1] O.B. Abdinov et al., _ATLAS_, _Liquid Argon Calorimeter Technical Design Report_, CERN/LHCC/96-41, ATLAS TDR 2, 15 December 1996, Chapter 10, p.355-358
+* [2]_idem_, Chapter 11, p.467
+* [3] Information about the WorldFIP standard can be found at [http://www.worldfip.org/](http://www.worldfip.org/)
+* [4] The Working Group on Fieldbuses, _Recommendations for the use of fieldbuses at CERN_, CERN/ECP-DO, [http://ecpwww.cern.ch/fieldbus/report1.html](http://ecpwww.cern.ch/fieldbus/report1.html)
+* [5] Al. Gara, _private communication_

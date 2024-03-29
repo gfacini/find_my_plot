@@ -1,0 +1,212 @@
+**ATLAS \(\mu\) Internal Note**
+
+**December 2001**
+
+_A platform-independent software for MDT_
+
+_front-end read-out with the CSM0_
+
+P. Branchini, F. Petrucci
+
+_INFN Sezione di Roma III_
+
+_and_
+
+_Dipartimento di Fisica Universita' degli Studi di Rome Tre_
+
+**ABSTRACT** - A platform-independent software has been developed for the read-out of the prototype MDT chamber front-end electronics. The software has been used for the cosmic ray test stand in Roma Tre, tested reading the BIL module-zero and exported to the H8-beam test area where it has been integrated in the ATLAS DAQ-1 environment. This note describes the criteria used in developing the software and is intended as a short manual for the user.
+
+## 1 Introduction
+
+The MDT chambers for the ATLAS muon spectrometer are now in production and will undergo QA/QC studies with cosmic rays at the test sites. A set of different MDT chambers is being installed at the H8 test beam area at CERN for performance, alignement and integration studies with high energy muon beams.
+
+During these tests the MDTs will be read out with the prototype electronics chain that consists of 24-channel mezzanine boards, containing the Amplifier-Shaper-Discriminator (ASD) chips and the AMT-1 TDC chip, connected via 18-channel adapters to a VME Chamber Service Module (CSM-0).
+
+Different test stands may choose different hardware platforms according to the available hardware and expertise. Moreover during the years needed to certify the quality of many MDT chambers new processors might appear on the VME market. Therefore software portability becomes an important issue to perform efficiently system integration and to guarantee long term test site operations.
+
+## 2 Hardware setup
+
+The read-out system for MDT chambers is based mainly on 2 boards:
+
+1) a front-end board (mezzanine) containing the ASD [1] (Amplifier-Shaper-Discriminator) and the AMT1 TDC chip [2]
+
+2) the Chamber Service Module that reads the data from the tdc (CSM0 [3], a VME board driven by a VME processor).
+
+Between the mezzanine boards and the CSM0 (which can hold up to 18 boards) there is an adapter[4] that provides the boards with the proper low voltage power supply and rearrange the signals to and from the CSM0. The hardware setup is show in figure 1.
+
+Each mezzanine board is connected to the adapter with a flat cable with 40 pins connector. The adapter is then linked to the CSM0 trough several RJ45 cables; there is an RJ45 cable for each mezzanine for the DS-link data connection and 2 Ethernet cables for JTAG serial connection.
+
+Figure 1: **- Hardware setup : connection between mezzanine boards, adapter and CSM0 in the VME crate.**
+
+**3. Software portability and supported OS**
+
+The CSM0 DAQ environment was conceived having in mind a possible distribution on heterogeneous UNIX systems. Various UNIX, mainly HP-UX, OSF/1, LynxOS operating systems can be used on a number of different hardware platforms. Therefore the developed software supports these three OS.
+
+General criteria have been followed to build a multi-platform code with only one set of source file:
+
+* Use of ANSI C with prototyping.
+* Use of C preprocessor directives like #_define, #ifdef_ to handle platform dependent source code.
+* Use of Makefile.
+* Use of the symbol COMMONCC in the Makefile to define the compiler right options.
+* Use of released online libraries and tools whenever possible: all this software works on the supported operating systems, making easy to implement portability. For instance, VME libraries in the currently released version provide a set of portable functions to access VME; other facilities are provided elsewhere.
+
+An effort has been made to keep all the platform dependent code at the lowest possible level (i.e. VME library and driver). In this way it is possible to efficiently identify the part of the code which has to be changed should the nowadays supported platform not be enough to guarantee long term test stand operation.
+
+The CSM libraries have been implemented in some stand alone programs usefull to read-out chambers in simple set-up and for debugging purposes (see appendix C.); they have also been used to handle the CSM0 into the DAQ-1 framework.
+
+**4. Operations on registers**
+
+Initialization and running of the DAQ stream has been implemented using macros and an easy-to-learn naming scheme, for example:
+
+#define CSM_FIFO_OFFSET 0x0
+#define CSM_READ_FIFO(id.cid,CSM_FIFO_OFFSET)  VmeRead(id.cid,CSM_FIFO_OFFSET,(char*)&val,sizeof(val)) This scheme has been chosen because working with macros helps to have an efficient code, avoiding overload. A macro can, in fact, easily implement low-level operations. Furthermore, writing a macro for each register allows the user to work easily, calling the appropriate procedures for each operation on the hardware.
+
+A geographical mapping library has also been written to be able to easily read more than one CSM0 at the time by allowing the low level VME library software to perform virtual addresses mapping of different VME base addresses. An easy interface to the board has been defined following the general criteria of portability already described. Since a CSM0 board is identified by its position in the crate and its crate number, once the geographical mapping file is defined and loaded in memory, an access to the CSM board will occur by specifying the two abovementioned parameters (sl and cr in the examples quoted in the next paragraph) in the elementary CSM macro which will perform the requested operation.
+
+## 5 Initialization of the system
+
+Two different steps are required to read-out the mezzanine boards with the CSM0:
+
+1) CSM0 initialization.
+
+2) Configuration of TDCs and ASDs on the mezzanine boards.
+
+3) Data read-out.
+
+The sequence of operations needed to perform these steps has been established starting from the one written in the MiniDAQ software [5].
+
+CSM0 initialization is made in a sequence of instructions that, accessing the proper registers through the VME bus, performs the setup of the various parameters which are necessary to the board operation.
+
+After CSM0 initialization it is possible to initialize the mezzanine boards using a serial bus with a JTAG protocol. The bus is accessed via VME.
+
+The full sequence of operation is shown below and is performed by calling functions with one or more arguments, one always being the pointer to a CSM0 module (CSMs[cr][sl]):
+
+MasterReset(CSMs[cr][sl]); SetUTAGRate(4,CSMs[cr][sl]); EnableSerial(CSMs[cr][sl]); No_GUInostop(0,CSMs[cr][sl]); check_setup(0,CSMs[cr][sl]); DisableSerial(CSMs[cr][sl]); ColdStartCSM(CSMs[cr][sl]); GlobalReset(CSMs[cr][sl]); EventReset(CSMs[cr][sl]); BunchReset(CSMs[cr][sl]); DisableBCID(CSMs[cr][sl]); WriteCSM4(enable_mask,TDC_CONTROL,CSMs[cr][sl]); SetDaqActive(CSMs[cr][sl]); SetTriggerEnable(CSMs[cr][sl]);
+
+After the Reset of the CSM0 VME board (MasterReset), the JTAG rate for the JTAG bit string transmission has to be set; then, once serial operations have been enabled, the setup string (loaded by an external ASCII file) can be sent via JTAG to the mezzanine boards with the No_GUInostop function and the setup performed can be checked (check_setup).
+
+The next 4 instructions (ColdStartCSM(); GlobalReset(); EventReset(); BunchReset()) are used to preset some registers of the CSM and of the AMT. An enable mask should be set giving the number of the mezzanine boards wich are actually connected to the CSM (this number is also given in the geographical mapping file).
+
+At the end of the initialization procedure, incoming triggers have to be enabled.
+
+The set of the parameters to be sent as a unique bit string to the mezzanines connected to a single CSM0 is at the moment written in a file (setup.txt) that can be found in appendix A. It will be implemented in a database for DAQ use.
+
+The parameters contained in this file are all relevant to the mezzanine board operations but will not be fully described here [2].
+
+The first parameter (first 8 bits of the setup string) provides the settings for the DAC which controls the ASD threshold. Given that the ASD threshold can take values between \(\pm\)540 mV, we can modify the threshold value in step of about 4 mV (We used, for example, 114 as -60 mV.)
+
+The other crucial parameters are those that control the time measurements. The "match window" defines the time interval in which hits are considered to match the trigger while the "search window" controls the window in which hits are measured (it has to be greater than the matching window expecially for noisy set-up). The "count rollover" and the "trigger offset" parameters fix the starting point of the various time windows. For a proper operation of the tdc the count rollover should be large (we use its maximum value 4095) and the trigger offset has to be at least 32 counts smaller than that. The "mask window" defines a time window before the trigger time in which to look for hits that may have masked hits in the matching window. All these parameters are given in coarse time counts (25 ns).
+
+The meaning of these parameters is explained in figure 2.
+
+The behavior of the TDC must also be programmed by choosing, with the proper bit setting, to measure the time on the leading edge, on the trailing edge or to have a combined measurement. At the end of the JTAG setup string there are 24 bits that can switch on or off the different channels of the AMT1.
+
+## 6 Data read-out
+
+The CSM0 receives directly a trigger signal and distributes it to the TDC's in an asynchronous way (on the first falling edge of the internal clock of the CSM0 following the trigger signal). Having no information about the internal clock (which in the experiment will be
+
+Figure 2: Definitions for the time measurement parameters
+
+related to the machine timing) it's necessary to measure the time distance between the trigger and the clock edge sending the trigger signal in a channel of a AMT1 connected to the same CSM0.
+
+The read-out procedure is listed and described below.
+
+got_trig = 0; while(got_trig == 0){  ReadCSM2(read,BOARD_STATUS,CSMs[cr][sl]);  got_trig = read&EVENT; } ReadCSM4(&read_word,EVID_WORD_COUNT,CSMs);  evid = read_word >>12; word_cnt = read_word&0xff;  event_num = read_word >>12;  ReadTriggersBlk(word_cnt,CSMs[cr][sl]);
+
+Before reading the CSM0 it's needed to check whether it has received a trigger signal; this can be done both polling the trigger register (ReadCSM2(&read,BOARD_STATUS,CSMs)) or using another board (CORBO). In this latter case it can be useful to check anyway the trigger register in order to be sure that the CSM0 is working properly and that does not need to be reinitialized. Then EVID_WORD_COUNT register has to be read and the number of words (word_cnt) for the events are retrived. Finally the registers of the CSM0 containing the word_cnt data can be read in single access or in block transfer (in the latter case the reading speed is increased by a factor 6).
+
+Data read from the CSM0 are 32 bits word. In each event there is a CSM header, a CSM trailer, a header and a trailer for each tdc connected to the CSM and a series of other words that gives the various information about the hitted channels and the measured time. Given that the AMT1 is multi-hit there can be several words with time measurements for each channel. The different words are identified by the 4 most relevant bits (for example a word starting with 1001 is a CSM header while one starting with 0011 is a Single time measurement).
+
+A detailed description of the data format is given in appendix B.
+
+## 7 Conclusions
+
+The libraries described in this paper perform properly the read out of the prototype MDT electronics; they have been succesfully used for data taking at the Roma TRE test site and have been included in the DAQ-1 software for the H8 test site.
+
+**Acknoledgements**
+
+We would like to thank W.J.Chapmann, R.Ball and P.Binchi for their work and for many usefull advices.
+
+## Appendix A Setup file
+
+SETUP.TXT
+1 l14 asd array
+2 0 phase lock loop multiplier
+3 0 clock mode
+4 0 disable ring osc
+5 0 direct control
+6 0 test invert mode
+7 0 test mode
+8 0 reset err on bcrst and ecrst
+9 0 disable encode
+10 0 global reset line
+11 20 mask window
+12 65 search window
+13 64 match window
+14 4000 reject offset
+15 0 event offset
+16 4029 trigger offset
+17 0 coarse offset
+18 4095 count rollover
+19 1 tdc id
+20 0 pulse width
+21 0 serial readout speed
+22 3 strobe select
+23 l amt leading
+24 0 amt trailing
+25 0 amt pair
+26 0 enable force rejection
+27 1 local trailer
+28 l local header
+29 l amt enable serial
+30 l relative
+31 l amt mask flags
+32 l amt trigger match
+33 0 L1 buff. occ. ro
+34 l auto reject
+35 l set counters on bunch reset
+36 0 master reset on event reset
+37 0 reset channel buf. on sep.
+38 1 enc. master reset
+39 0 buffer overflow detect
+40 0 error mark overflow
+41 0 error market rejected
+42 0 enable mark rejected
+43 0 error mark
+44 0 trigger full reject
+45 1 L1 full reject
+46 1 ro full reject
+47 1 coarse error
+48 1 channel select error
+49 1 L1 buffer parity
+50 1 trigger fifo parity
+51 1 trigger match
+52 1 readout fifo parity
+53 1 readout state error
+54 0 setup parity error
+55 1 JTAG instruction error
+56 0 sep. on event reset
+57 0 amt separator bc reset
+58 0 amt separator on readout
+
+[MISSING_PAGE_POST]
+
+[MISSING_PAGE_EMPTY:8]
+
+## Appendix C. Libraries & applications
+
+All the libraries are provided at the URL [http://www.roma3.infn.it/atlas/daq/](http://www.roma3.infn.it/atlas/daq/).
+
+The software is released in four tar file that contain all the different libraries (CSM0,Vme, GeoVme and Common), some test programs for the initialization and the read-out and the related makefiles.
+
+The structure of the sub-directorie is the same for the four files and is the following:
+
+drwxf-xf-xx 2 atlas system 512 May 2 2001 mgr drwxf-xf-xx 2 atlas system 512 Aug 9 14:38 LynxOS_CesPPC drwxf-xf-x-x 2 atlas system 1536 Aug 10 19:01 src drwxf-xf-x 2 atlas system 512 Aug 28 00:24 OSF1 drwxf-xf-xx 2 atlas system 2048 Aug 30 23:24 prog The mgr directory contains the files for the proper environmental setup; the LynxOS_CesPPC and OSF1 directories contain the compiled software for the different hardware platforms; the prog directory contains useful example programs (in particular those for the initialization (myinit1.c) and for the read-out (mytt4.c) of the CSM0). The src directory contains the source code for the libraries and the proper makefiles.
+
+## References
+
+* [1] C. Posh, G. Hazen, J. Oliver; **MDT-ASD, CMOS front-end for ATLAS MDT,** ATL-COM-MUON-2001-019
+* [2] Yasuo Arai; **AMT-1 & 2 (ATLAS Muon TDC version 1&2) User's Manual,** [http://atlas.kek.jp/~araiy/](http://atlas.kek.jp/~araiy/)
+* [3] B. Ball, J. Chapman, J. Gregory, J. Mann, J. Hollar; **CSM Users Manual,** [http://atlas.physics.lsa.umich.edu/docushare](http://atlas.physics.lsa.umich.edu/docushare)
+* [4] E. Hazen; **ATLAS CSM 18-channel Adapter,** [http://bmc.bu.edu/bmc/CSM](http://bmc.bu.edu/bmc/CSM) adapter/
+* [5] R. Ball, J. Chapman, J. Hollar, J. Kuah; **ATLAS MiniDAQ Reference Guide,** [http://atlas.physics.lsa.umich.edu/docushare](http://atlas.physics.lsa.umich.edu/docushare)

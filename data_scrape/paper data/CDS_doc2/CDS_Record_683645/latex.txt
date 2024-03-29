@@ -1,0 +1,130 @@
+# The Read-Out Crate in ATLAS DAQ/EF Prototype -1
+
+J.Petersen\({}^{\rm b}\), G.Ambrosini\({}^{\rm a}\), H-P.Beck\({}^{\rm a}\), D.Franci\({}^{\rm b}\), M.Joos\({}^{\rm b}\), GLehmann\({}^{\rm a}\), A.Mailov\({}^{\rm c}\), L.Mapelli\({}^{\rm b}\), G.Mornacchi\({}^{\rm b}\), M.Niculescu\({}^{\rm a}\), K.Nurdan\({}^{\rm d}\), C.Parkman\({}^{\rm b}\), D.Prigen\({}^{\rm b}\), J.Roche\({}^{\rm b}\), R.Spiwoks\({}^{\rm b}\), L.Tremblet\({}^{\rm b}\), GUnel\({}^{\rm d}\), T.Wildish\({}^{\rm b}\)
+
+###### Abstract
+
+An initial implementation of the Read-Out Crate in the ATLAS DAQ/EF prototype -1 project will be described. The hardware consists of a VMEbus multiprocessor system with up to seven commercially available processor modules based on PowerPC and PCI bus. The software in the Read-Out Crate manages the flow of data between detector links and the event builder, including the control of the data flow and merging of event fragments within the crate. The results of performance measurements focusing on the interprocessor communication via VMEbus will be presented. A simple model of the data flow on VMEbus is used to investigate possibilities for improving the global system performance e.g. via a VMEbus broadcast mechanism. The latter will be discussed in the context of the VME64x and 2eSST draft standards.
+
+## 1 Introduction
+
+The final design of the Data Acquisition (DAQ) and Event Filter (EF) system [1] for the ATLAS experiment at the LHC is not scheduled to start before 1999. However, due to the complexity of the system and to the severe requirements in terms of data rate and volume, hardware and software technologies must be evaluated and aspects of system integration studied before a final design can be implemented. The ATLAS/DAQ group has chosen to approach these investigations by building a fully functional prototype of the DAQ system [2] consisting of a complete "vertical" slice of the ATLAS DAQ/EF architecture including all the elements of an on-line system from detector read-out to data recording. Since it is realised that this prototype will not fulfil the final performance requirements it has been given the name DAQ/EF prototype "-1".
+
+A schematic diagram of the data flow part of the DAQ/ EF architecture is shown in Figure 1. The Read-Out Crates (ROCs) are responsible for moving the data between a subdetector and the event builder and for the control of the data flow. Each of the Read-Out Buffers (ROBs) in a ROC reads and buffers detector event fragments of size -1 kbyte with a rate of -100 kHz corresponding to -100 Mbyte/s. This rate is determined by a first level trigger system. To cope with the total amount of data from the detector (-100 GByte/s) a large number (-150) of ROCs is required.
+
+Figure 1: DAQ/EF data flow architecture
+
+## The Read-Out Crate
+
+A logical view of the ROC is shown in Figure 2. It consists of a Local DAQ (LDAQ), one or more ROBs, an Event Builder Interface (EBIF) and a Trigger module (TRG). The LDAQ provides the control and monitoring functions within the ROC and communicates for that purpose with the other modules in the ROC. The ROB, EBIF and TRG are instances of a logical object referred to as an I/O Module (IOM). The different IOMs have the following functionality, related to the main data flow :
+
+* The TRG is responsible for the control of the data flow in the ROC. It receives and buffers data control messages from the trigger system and distributes them to other IOMs within the ROC. The types of data control messages are described below.
+* The EBIF receives data control messages from the TRG. It collects and buffers event fragments from the ROBs via a process called Data Collection (DC). The crate fragments are output to the event builder.
+* The ROB reads and buffers event fragments via a detector link. It receives data control messages from the TRG and the EBIF which define the actions to be performed on the buffered event fragments. The ROB provides data to the EBIF for data collection and to the level 2 trigger system.
+
+Data control messages are exchanged between the IOMs via an intra-crate message system. The following data control messages are defined :
+
+* _Level 2 Reject_ (L2R) is sent from the TRG to the ROB. On reception of this message the ROB removes an event fragment from it's internal buffers. For reasons of efficiency, two or more L2R messages may be grouped by the TRG before sending them to the ROBs.
+* _Level 2 Accept_ (L2A) is sent from the TRG to the EBIF. On reception of this message the EBIF collects all the event fragments associated to a single event from the ROBs.
+* _Region-Of-Interest Request_ (ROI) is sent from the TRG to the ROBs. It is a request from the level 2 trigger system for data. On reception of the message the ROBs output data to a level 2 trigger system.
+* _Discard_ is a message sent by the EBIF to the ROBs. It is essentially the L2A message received from the TRG relayed to the ROBs to inform those that data collection for a specific event has been performed and that the associated event fragments may be removed from the ROB buffers.
+
+## Initial Implementation
+
+The initial implementation of the ROC does not provide all the functionality foreseen by the high-level design. External data producers and consumers e.g. the detector link, the event builder interface and the trigger system are not yet available. Consequently the performance measurements focus on the data flow within the ROC while external data input and output is emulated in different ways.
+
+The hardware of the ROC consists of a VMEbus multi-processor system based on the CES RIO2 8061/8062 and the Motorola MVME2604 CPU boards [3][4]. The architecture of these modules, see Figure 3., is common to most VMEbus boards based on PowerPC and PCL. An extensive evaluation of the RIO2 and other second generation VMEbus CPU boards [5] have shown that their CPU and I/O (PCI, VMEbus) performances are similar (for the same type of CPU).
+
+Figure 2: Logical model of the ROCThe IOMs in the ROC were associated with seven RIO2s and one MVME2604 as follows:
+
+* TRG: CES RIO 8062, PowerPC@166 MHz.
+* EBIF: CES RIO 8061, PowerPC@96 MHz.
+* Three ROBs: CES RIO 8061, PowerPC@96 MHz.
+* Two ROBs: CES RIO 8062, PowerPC@200 MHz.
+* One ROB: MVME2604, PowerPC@200 MHz.
+
+The DAQ software runs under LynxOS but is largely operating system independent for reasons of performance. The TRG, EBIF and ROB applications are single process programs based on libraries which provide the following main functions: scheduling, buffer management and I/O on VMEbus and PCI. Interrupts and I/O drivers are not used, requests for I/O are served via polling.
+
+All interprocessor communication is via VMEbus and implemented in software as a message passing library based on shared VMEbus memory. The flow of data control messages and event fragments on VMEbus and the associated VMEbus parameters are listed in Table 1. Write posting and read pre-fetching on PCI and VMEbus are enabled wherever possible to achieve the best performance. In addition a single VMEbus request level (three) and fair arbitration were used.
+
+As mentioned above the initial implementation has reduced functionality in several areas compared to the logical model described in the previous section :
+
+* In the TRG application, data control messages are generated internally. Input from an external trigger system is emulated using a simple PMC which transfers data over PCI bus to system memory in DMA mode with a block size of about 1 kbyte and with a rate corresponding to that at which data control messages are generated internally.
+* The ROB generates event fragments internally and does not transfer any ROB fragments to the Level 2 trigger system. Instead, when a ROI is received the corresponding event fragment is removed.
+* The EBIF performs data collection over VMEbus but does not transfer any event data to the Event Builder.
+
+Since there are no external data sources, the synchronisation between the TRG and the ROBs has to be emulated: whenever a ROB has received (or produced) an event it transmits its current event number over VMEbus to the TRG. The TRG will then only send data control messages corresponding to events where all fragments have been received (or generated) by the ROBs.
+
+The data control messages generated internally by the TRG are produced with the ratio L2A:L2R:ROI = 1:90:10 which corresponds to an event rejection factor of 100.
+
+The ROB and EBIF applications may run in a special emulation mode in which most of their normal functionality is suppressed except the receiving of data control messages from the TRG. This mode allows to measure the TRG performance without data collection and synchronisation.
+
+## Performance measurements
+
+A measure of the global performance of the ROC is the rate of events flowing through the crate which is indicated by the frequency of data control messages sent by the TRG to the ROBs and the EBIF. This quantity was measured as a function of the number of ROBs in the crate and of the L2R group size - the number of L2R messages grouped together before transfer to the ROBs. The measurements were performed using operating system timing functions and cross-checked using VMEbus and PCI bus analysers from VMEtro [6]. These also allow to measure the VMEbus transfer rate and bus utilisation1 and in addition the PCI transfer efficiency2.
+
+Footnote 1: The number of bus samples with BBSY active divided by the total number of samples.
+
+Footnote 2: The number of bus samples with IRDY AND TRDY active divided by the number of samples with FRAME OR IRDY active.
+
+In the following sections the type of ROB (RIO2 or MVME2604) will not be mentioned explicitly since it has been verified that the results of the performance measurements are not significantly different for the CES and Motorola CPU boards.
+
+In Figure 4, the rate at which the TRG sends data control messages over VMEbus, is shown for up to three ROBs and as a function of L2R group size, with the EBIF and
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|} \hline
+**Mog Type** & **Size (bytes)** & **From** & **To** & **R/WP** & **Transfer Type** \\ \hline \hline L2R & NO*24 & TRG & ROBs & W & DMA BLT \\  & & & & & D32 \\ \hline ROI & 56 & TRG & ROBs & W & Single Cycle (A32/D32) \\ \hline L2A & 24 & TRG & EBIF & W & Single Cycle (A32/D32) \\ \hline Dis- card & 24 & EBIF & ROBs & W & Single Cycle (A32/D32) \\ \hline DC & N*1024 & ROBs & EBIF & R & DMA MBLT \\ \hline \multicolumn{5}{|c|}{a. Read/Write b. L2R message grouping factor. c. Number of ROBs.} \\ \hline \end{tabular}
+\end{table}
+Table 1: **Data flow on VMEbus**
+
+[MISSING_PAGE_FAIL:4]
+
+In Figure 7, the data is displayed as a function of the number of ROBs, for a L2R group size of 30. The small difference between the model results and the measurements indicates that the global performance of the ROC DAQ system is determined mainly by the VMEbus transfers.
+
+The measurements of the VMEbus utilisation in the previous section show that although VMEbus is used at almost full capacity (~70%), the throughput achieved is only 6 Mbyte/s. This is attributed to the fact that a large fraction of the VMEbus traffic is executed using single cycle transfers for which the maximum rate is only 2 Mbyte/s. Table 1. shows that L2A, ROI and Discard messages are sent in single cycle mode. In addition, the message passing protocol requires three single cycles to write and read the message buffer pointers. Finally the synchronisation mechanism between the TRG and the ROBs results in one VMEbus write cycle per event and per ROB.
+
+An analysis of the PCI bus on the TRG shows that the length of a PCI bus cycle corresponding to a VMEbus write operation to another IOM varies between 360 ns and 4 us. The main contribution is the time between the assertions of FRAME and TRDY which explains the low Transfer Efficiency observed. Single cycle VMEbus transfers moving data between two RIO2 system memories are, indeed, very complex operations involving three different types of buses - VMEbus, PCI and the PowerPC system bus - as seen in Figure 3.
+
+The model was used to study how the global ROC performance could be improved as a function of various VMEbus parameters. In Figure 8, the model predictions for the rate at which the TRG can send data control messages as a function of the number of ROBs and for a L2R group size of 30, are shown for three specific situations. The lower curve represents the expected results for the initial implementation (already presented in Figure 7.). The middle curve is the model prediction when the ROI and L2A data control messages are also sent via DMA. For ten ROBs the use of the DMA for all transfers only improves the TRG send rate by 36%, indicating that the single cycles associated to the message passing protocol and synchronisation are still dominant. The top curve in Figure 8. represents the model predictions without the synchronisation traffic. In this case, again for ten ROBs, the achieved TRG send rate has increased by 121%.
+
+These minor improvements do not change the general trend of all the measurements shown above namely the decrease in performance as a function of the number of ROBs, roughly as 1/N. Given that the performance is dominated by the VMEbus transfers this is essentially due to the sequential execution of VME transfers, single cycle as well as BLT. This suggests that if data control messages in the ROC could be broadcast to the ROBs, a qualitative improvement in the performance could be expected. This hypothesis was verified using the simple model.
+
+In Table 3. the results for the TRG message rate using the simple model are presented with L2R messages being transmitted using a (hypothetical) broadcast mechanism characterised by the single cycle parameters in Table 2. The number of ROBs is 10 and the L2R group size equal to 30. For comparison the results without broadcast are shown. In the case of no synchronisation, a rate of 83 kHz is obtained. If furthermore the data collection is suppressed e.g. moved to another bus, a rate of 116 kHz is achieved.
+
+Implementing broadcast in VME64 is difficult, although feasible, due to the asynchronous data cycles. With the advent of the new VITA 1.5 2eSST "Source Syncho
+
+Figure 8: Expected results using only DMA and no synchronisation
+
+Figure 7: Measurements and model comparison
+
+nised Transfer" [7] standard, broadcasts become inherently possible. Additionally, the three-phase address broadcast defined in VME64x [7] would offer enough flexibility to even implement a multicast scheme based on geographical addressing. There are, however, differences between a synchronous point-to-point transfer and a broadcast that would have to be addressed. Some of the issues are the lack of a non-compelled address broadcast in 2eSST and a suitable error reporting scheme. It may also be necessary to limit broadcasts to a maximum amount of data in order to guarantee that enough space is available in all the slaves. The VITA 2eSST task group is currently investigating the possibilities for implementing a broadcast functionality.
+
+## 3 Summary and Conclusions
+
+The Read-Out Crate in ATLAS DAQ/EF prototype -1 has been described. A configuration consisting of a TRG EBIF and up to five ROBs has been implemented in VMEbus using CES RIO2 8061 (96 MHz), RIO2 8062 (200 MHz) and MVME2604 (200 MHz) Pow\(\neq\)PC/PCI based processor modules. Data control messages between IOMs were exchanged via VMEbus, which was also used for the Data Collection. External input to the TRG was emulated by a simple PMC interface, while the ROBs and the EBIF had no external I/O. The performance was measured in terms of the rate of data control messages sent by the TRG to the other IOMs in ROC.
+
+The performance results can be summarised as follows:
+
+* With one and five ROBs the performance was measured to be 122 kHz and 28 kHz, respectively. The performance decreases inversely to the number of ROBs.
+* The performance was limited by the rate at which data control messages could be transferred over VMEbus. A throughput of only 6 Myte/s was measured and is due to the use of VMEbus single cycles in the message passing and the method of synchronisation between the TRG and the ROBs.
+* A simple model of the data flow on VMEbus has allowed to verify quantitatively that the global performance of the ROC is, indeed, dominated by VMEbus I/O.
+* The decrease in performance inversely to the number of ROBs reflects the fact that the TRG sends messages sequentially, due to the lack of a broadcast on VMEbus. Based on the assumption that such a mechanism exists, the simple model showed that in a ROC with 10 ROBs, where L2R messages are broadcast in D32 block transfer mode, ROI messages using chained DMA and synchronisation is suppressed, a message rate of 83 kHz can be obtained as compared to the measured value of 28 kHz.
+* The possibility of VMEbus broadcast in the framework of 2eSST and VME64x has been discussed and it is noted that work on that subject is in progress in a VITA task group.
+
+The results presented above obtained in a complex multiprocessor DAQ application, confirm some observations made previously [5], namely that modern PowerPC/PCI VMEbus CPU boards have shown impressive progress in the area of processing but much less so in the area of I/O, notably VMEbus. This may change with the advent of VME320 and the new VMEbus standards for 2eSST and VME64x.
+
+## References
+
+* [1] The ATLAS Collaboration, Technical Proposal for a General purpose pp Experiment at the Large Hadron Collider at CERN. CERN/LHCC/94-43.
+* [2] G. Ambrosini et. al., The ATLAS DAQ and Event Filter Prototype "-1" Project, presented at Computing in High Energy Physics 1997, Berlin, Germany. [http://atddoc.cern.ch/Atlas/Conferences/CHEP/](http://atddoc.cern.ch/Atlas/Conferences/CHEP/) ID388/ID388.ps.
+* [3] RIO2 8061 and RIO2 8062 PowerPC based RISC I/ O Board. Technical Manuals. CES.
+* [4] MVME2604 Single Board Computer, V2600A/IH-1, Motorola.
+* [5][http://www.cern.ch/ECP-ESS/Reports/](http://www.cern.ch/ECP-ESS/Reports/) PPC_Evaluation/v2.html
+* [6][http://www.vmetro.com](http://www.vmetro.com)
+* [7] 2eSST (Source Synchronous Transfer) Draft Standard. VITA 1.5-199x. Draft 1.0.
+* [8] VME64 Extensions Draft Standard. VITA 1.1-199x. Draft 1.8.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline  & \multicolumn{2}{c|}{**TRG message rate**} \\  & \multicolumn{2}{c|}{**(kHz)**} \\ \hline \# ROBs = 10 & **with** & **without** \\ L2R group size = 30 & **broadcast** & **broadcast** \\ \hline \hline With synchronisation and & 31.4 & 14.0 \\ data collection & & \\ \hline With synchronisation and & 35.2 & 20.4 \\ NO data collection & & \\ \hline NO synchronization and & 83.2 & 30.6 \\ with data collection & & \\ \hline NO synchronisation and NO & 116.5 & 34.2 \\ data collection & & \\ \hline \end{tabular}
+\end{table}
+Table 3: Model predictions with a hypothetical broadcast functionality.

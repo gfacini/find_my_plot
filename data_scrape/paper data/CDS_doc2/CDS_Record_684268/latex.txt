@@ -1,0 +1,401 @@
+Centre de Physique des Particules de Marseille
+
+**ROD algorithm performances using the DSP TMS320C64x**
+
+Authors:
+
+Created:
+
+October 2001
+
+Last Updated:
+
+October 2001
+
+Version:
+
+1.2
+
+## Table of Contents
+
+* 1 The RODs functions 3
+* 2 Processing of the Time and \(\chi^{2}\) 3
+* 3 The DSP C64x versus DSP C62x at the CPU level 5
+* 1 General overview 5
+* 2 E,, \(\chi^{2}\) Algorithm 5
+* 3 An optimized algorithm 6
+* 4 Resolution considerations 7
+* 5 Conclusion 10
+* 3 Stall issues and bank conflicts 11
+* 1 Samples and weights 11
+* 2 Minimizing misses 11
+* 3 Minimizing stalls 13
+* 4 Minimizing Bank conflicts 13
+* 5 Mean overall performances 14
+* 4 Simulation results 14
+* 5 Input and output bandwidths
+* 6 Conclusion 16
+* 7 Appendix 17
+* 8 References 23The RODs functions
+
+* 1 Overview
+
+The main function of the ROD modules [1] is to compute the energy deposit (E) in each liquid argon calorimeter cell and to send the result to the Read Out Buffer (ROB) modules where this information must be available for subsequent trigger decisions. For most of the time, the raw data will be discarded, and only those of high-energy deposit will be transmitted to the ROBs.
+
+When necessary, ROD processors can also compute the time (\(\tau\)) of the energy deposit (relative to the current bunch crossing time) along with a quality of fit parameter (\(\chi^{2}\)) indicating how closely the samples follow the known waveform. But this will only be done for sufficient energy deposits since time resolution, inversely proportional to cell energy, is not accurate enough to provide meaningful information for small energy deposit.
+
+In ATLAS, most of the raw data may no longer be available downstream of the ROD level. Therefore, the calorimeter monitoring, involving updating histograms and sending selected cells raw data to the local processor, is an important ROD function. Baseline samples, E, \(\tau\) and \(\chi^{2}\) could all be histogramed above a predefined energy threshold.
+
+The RODs also perform calibration tasks in the calibration data flow. But these require much less processing power and for this reason are not studied in this note.
+
+* 2 Processing of the Time and \(\chi^{2}\)
+
+## 1 Usage downstream the RODs
+
+Simulation studies have shown [2, 3] that time and \(\chi^{2}\) information does not separate noise and signal for most of the time. This is mainly because the main noise contribution comes from in time pileup effects (i.e. from the triggered bunch crossing), which do not distort the shape. Moreover, this information is not used at the present time by level 2 trigger algorithms and will most probably never be used at this stage. This leaves open the possibility to send the compressed raw samples for the high-energy cells along with their energies instead of time and \(\chi^{2}\). Since this will only be done for a small fraction of cells, it will have a small impact on the mean ROD output bandwidth. Furthermore, the processing of these variables or any other refined variable which may be useful in an offline analysis, will of course require less processing power at the small event filter rate (100Hz) than at the ROD level (100kHz). For example, the processing of the true \(\chi^{2}\) (involving the noise autocorrelation matrix as well as a correction for the time shift) is complicated and requires many cycles at the ROD Level. At last, it is of utmost interest to keep the capability to process offline more refined variables. Hence the processing of different versions of \(\chi^{2}\) sensitive, in an optimized way, to out of time energy deposits may be an attractive possibility if the samples are available. Raw samples will also be needed in case of possible FEB de-synchronization which will require offline reprocessing at least for corrupted event high energy cells. Finally, cross talk effects distorting neighbor cell shapes in a determined way may have non-negligible effects on the isolation algorithms performances. Such effects involving many cells are difficult to correct without the raw samples.
+
+## 4 Monitoring
+
+If time and \(\chi^{2}\) variables are not sent to the ROBs, their calculation, for high-energy cells, is required for calorimeter fast monitoring. The baseline, \(\tau\) and \(\chi^{2}\) monitoring allow identification of noisy channels, systematic time shifts (FEBs de-synchronization) and pedestal fluctuations. This is either done in the ROD boards where the processed variables will be integrated in histogram bins or in the local CPU (spy mode) where Ntuples are built out of raw samples sent there. The way the monitoring will be done (i.e. frequency of the histograms filling and activation of the spy mode) is not at the present time clearly defined however it is reasonable to say that only Ntuples give enough flexibility to allow efficient debugging. Indeed, Ntuples allow to build complex variables and to correlate them as needed and especially with the bunch crossing number. This capital information is lost by the histogram bins integration. Energy versus time correlation is for example very important. Since time resolution is inversely proportional to the energy, filling a time bin with time variables computed for various energies would completely loose the very good time resolution provided by the high-energy cells. A two dimensional histogram, easily built from an Ntuple, would be much more appropriate. Actually, histograms are mainly needed to get a fast warning of a wrong calorimeter behavior. They should perhaps only be filled with the best-measured (highest energies) time information.
+
+Even with a pessimistic 10% fraction of cells above threshold used in time and \(\chi^{2}\) processing, histograms will require a small mean processing power (not taking into account the filling itself) as will be shown in the subsequent study. However, the number of cells above threshold will fluctuate from event to event and may produce a very high increase of the instantaneous processing time if for example 100% of the cells are above threshold. IN such rare cases and if the total processing time has to be kept below 10 microseconds with enough margin, the flexibility to only histogram a small fraction of the cells has to remain possible. Anyway, this will have a negligible impact on the histogram filling time.
+
+To conclude let us stress again that the DSPs will only process \(\tau\) and \(\chi^{2}\) for histogram purposes. This means that it is useless to complicate the algorithms to reach the best achievable time resolution since its dilution in the histogram bins will anyway worsen it. This also means that high-energy cell raw data must be sent to the local CPU and the ROBs at the maximum available rate to allow refined offline analysis and efficient debugging with the best achievable resolutions. This finally means that it is not forbidden to avoid rare processing time fluctuations by interrupting \(\tau\) and \(\chi^{2}\) processing in such exceptional cases. Therefore, the tasks performed by the RODs can be simplified to postpone more complex processing to downstream software system. Following this most reasonable and natural way is also a very important issue for easy upgrade and maintenance of DSP codes.
+
+## II) The DSP C64x versus DSP C62x at the CPU level
+
+### General overview
+
+The C6203 DSP was intensively studied [4, 5] and shown to be able to treat up to 128 cells (1 FEB) in less than 10 microseconds including computation of E, \(\tau\) and \(\chi^{2}\) as well as histogram filling, however it appeared that the margin left for possible subsequent treatment may be insufficient. This led to investigate the new TMS320C64x DSP family [6, 7, 8, 9]. Apart from a factor two improvement obtained from the clock speed (600MHz for the C6415 vs. 300MHz for the C6203), performances of the new C64x DSP must be carefully evaluated with a dedicated benchmark algorithm to allow precise comparisons with the well-studied C6203 performances.
+
+The TMS320C64x and TMS320C62x DSP families share the same core organization with eight functional units working in parallel. However, new powerful instructions as well as twice the number of general purpose registers (from 32 to 64) lead to an efficient reduction in the number of instructions involved in the algorithm. The more powerful new version CCSv2 of Code Composer Studio optimizer also allows a better and simpler parallelization of the instructions. It was shown that the processing of the energy in a floating point format plus \(\tau\) and \(\chi^{2}\) can not be achieved in less than 15 to 16 cycles for two cells in parallel [10]. In the following, we describe an algorithm whose performances are at the level of these best reachable ones. Then we describe how an optimized algorithm designed to only process useful variables if sufficient resolution can be achieved meet the ROD physic requirements.
+
+### 2. E, \(\tau,\chi^{2}\) Algorithm
+
+Out of the five samples, an algorithm written in linear assembly (appendix A) computes E, \(\tau\) and \(\chi^{2}\), according to the gain (high, medium or low gain), for two channels in parallel. This algorithm proceeds in the most natural way as follows:
+
+\[s_{i}^{\prime}=s_{i}-p\quad\ i=1\ to\ 5\]
+
+\[E=\sum_{i=1}^{5}a_{i}s_{i}^{\prime}\]
+
+\[E\tau=\sum_{i=1}^{5}b_{i}s_{i}^{\prime}\]
+
+\[\tau=\frac{E\tau}{E}\]
+
+\[s_{i}^{\prime\prime}=s_{i}^{\prime}-EH_{i}\quad i=1\ to\ 5\]
+
+\[\chi^{2}=\sum_{i=1}^{5}\left(s_{i}^{\prime\prime}\right)^{2}\]The subtraction of the 16-bit pedestals p from the incoming 16-bit samples s\({}_{\rm i}\) is first performed. Two sets of calibration constants, the 16-bit a\({}_{\rm i}\) and b\({}_{\rm i}\) weights, enter in the computation of E and Et. The H\({}_{\rm i}\) normalized samples are the theoretical shape normalized samples. Subtracting at first the pedestal minimizes the total number of instructions required by the algorithm as well as the number of input weights. This will have a non-negligible impact on the memory occupancy. Most of the cells receive small energy deposits. Their energies can be subsequently coded in 16-bit integer format thereby reducing in a simple way the output bandwidth by almost a factor two. For simplicity and uniformity of the coding format the energy is computed and stored in integer 32-bit format. CCSv2 delivers in several seconds a parallelized 15 cycles loop code, which is exactly at the level of the expected optimal value. If stall issues are neglected, this shows that CCSv2 performances are now satisfactory. Therefore writing code by hand is now not only superfluous but also not desirable even if it would give a few cycles improvement on the loop processing time. This is because the linear assembly coding is much simpler and intuitive. Thus it allows straightforward upgrades and easy code maintenance. While with hand written code, any upgrade, such as processing with more samples, implies complete and difficult rewriting of the whole code to keep a good parallelization of the instructions.
+
+## 3 An optimized algorithm
+
+In the previous paragraph we saw that it is possible by using CCS v2 to have an algorithm computing E, \(\tau\) and \(\chi^{2}\) in 15 cycles for two cells which is close to the best-expected performance. Moreover, further optimization can be obtained by dividing the algorithm in two different loops. 90% cells energies are smaller than twice the rms noise [11]. For these 'empty' cells the time resolution is so bad that this variable is completely useless. The corresponding \(\chi^{2}\), as noise information, is also useless since this noise can be much better studied in the baseline (first) sample histogram. To take advantage of this situation, \(\tau\) and \(\chi^{2}\) will only be processed for cells with energies above a predefined threshold.
+
+The first loop processes energies for all cells and builds fixed length block in 16-bit integer format for these energies. For cells above a predefined energy threshold a tag word is instead written in the block and the 32-bit integer energy is computed and filled in a variable length block. The loop kernel takes 8 cycles to process two cells.
+
+The second loop, only called for cells above a predefined energy threshold, processes \(\tau\) and \(\chi^{2}\) and packs them together with the gain in a single 32-bit word stored in the variable length block near the 32-bit energy. Corresponding samples are also stored in a special raw data block waiting for compression and transmission to the ROBs and local DAQ system. The loop kernel takes 15 cycles to process two 'non empty' cells. If the number of cells above threshold is odd, the loop, designed to work in parallel on couples of cells, has to process one of the 'empty' cells. This parallel processing, though not mandatory, simplifies the code and makes it well balanced between the two available sides of the functional units and general registers of the DSP core.
+
+The total number of cycles for the loop kernel processing is 8 cycles for the empty cells and 15+8=23 cycles for cells above threshold. Therefore, the mean value of the loop kernel processing assuming 10% of cells above threshold is: 10 % x 23 + 90% x 8 = 9.5 cycles. The improvement over the monolithic code (15 cycles) is satisfactory. However, there is a linear increase of the processing time with the number of cells above threshold. One may be disappointed by the performances of the second loop computing \(\tau\) and \(\chi^{2}\) in only 15 cycles compared to the monolithic code performing the complete processing in 15 cycles. This is due to the complicated manipulation of pointers needed to treat a selected sub-sample of tagged cells, as well as the fact that the monolithic code is naturally much better balanced between instructions using unit M (designed for the multiplications) and other type instructions which can be handled by the more generalist three other available units L, S and D in the C64x DSP.
+4) Resolution considerations
+
+## 0.1 Introduction
+
+Code performances much depend on the level of accuracy on the processed variables one wants to achieve. For example, subtracting pedestals first require that pedestals be coded in the same units as samples. Then, pedestal uncertainties, given by the pedestal least significant bit (LSB) are not dominated by the sample uncertainties. Therefore a new source of error is introduced at the same level as ADC quantization effects on samples. This source of error is smaller with an algorithm subtracting a 32-bit \(p\!\sum\limits_{i=1}^{5}a_{i}\) from the first computed \(\sum\limits_{i=1}^{5}a_{i}s_{i}\). However, the main apparent drawback of this method is that it requires many 32-bit calibration constants (\(p\!\sum\limits_{i=1}^{5}a_{i}\) for E, \(p\!\sum\limits_{i=1}^{5}b_{i}\) for \(\tau\), 5p\({}^{2}\) and \(p\!\sum\limits_{i=1}^{5}H_{i}\) for \(\chi^{2}\)) instead of a single 16-bit pedestal. This is a concern since, as will be shown in the next section, it is very important to keep as small as possible the total memory occupied by the calibration constants. Moreover, as already said, the total number of instructions required by this method is greater than the direct pedestal subtraction method. Therefore, a clear idea on which resolution level is actually needed on the parameters is requested before choosing any coding method.
+
+Another issue is related to the Look Up Table (LUT) from which the inverse energies have to be loaded in order to get \(\tau\). The LUT memory occupancy is obviously determined by the desired inverse energy accuracy. This occupancy must not only be kept as small as possible but the way inverse energies are accessed in memory is also essential. It is expected that most of the energies be small. If the LUT addresses for these energies are contiguous, the accesses will most of the time be restricted to a small fraction of the entire LUT. This will largely reduce the mean number of misses and stalls per event as will be explained later. Consequently, the impact on the code performances is again very critical.
+
+## 0.2 E
+
+The five incoming samples are coded on 12 bits, which determines the maximum precision that can be achieved on all the processed variables. To keep this precision during the computation, it is sufficient that multiplicative parameters entering in the process be coded with a relative precision smaller than that of the samples and additive parameters such as the pedestal be coded with an absolute precision dominated by the sample LSB. The pedestal must be coded on more than twelve bits.
+
+In the monolithic code, we decided to apply the pedestal subtraction first to simplify the algorithm and reach the best performances. We assumed that the input FPGA(programmable component) chip, which task (among others) is to reorganize the input data to facilitate the DSP processing, has left shifted all the samples by one bit after checking the parity and clearing the gain and parity bits. Subtracting from these samples a pedestal value coded on 13 bits is satisfactory from the resolution point of view since the absolute resolution on the pedestals is dominated by the ADC quantization effect on the samples. Of course the final result must be correctly right shifted, as it is the case in the algorithm. In this way, the impact on the resolution is small though not negligible. For the optimized code first loop, pedestal subtraction is not performed first. Instead, a 32-bit loaded register equal to \(p.\sum\limits_{i=1}^{5}a_{i}\) is subtracted from the optimal filtering weighted sum. Energies are therefore computed with the best possible precision. The impact on the resolution is negligible.
+
+Because samples are 12-bit coded, an energy computed in the same units (ADC counts) should have a value close to the maximum sample, therefore not exceeding a 13-bit value. Let us rescale the physical weights \(a_{i}\) by a factor \(\mathrm{F_{scale}}\left(1>\mathrm{F_{scale}}>\gamma_{2}\right)\):
+
+\[a_{i}^{\prime}=F_{scale}a_{i}\]
+
+in such a way that:
+
+\[\sum\limits_{i=1}^{5}a_{i}^{\prime}\leq 1\]
+
+The weights \(a_{i}^{\sigma}\) used in the algorithm are obtained from these \(a_{i}^{\prime}\) by left shifting as much as possible:
+
+\[a_{i}^{\sigma}=a_{i}^{\prime}.2^{14}\]
+
+This gives to the weights the best possible relative accuracy (left shifting by 15 bits may have affected the sign bit!). The energy is then given by:
+
+\[E_{-ADC}=\frac{\sum\limits_{i=1}^{5}a_{i}^{\sigma}s_{i}^{\prime}}{2^{14+1}}\]
+
+Due to the rescaling, the energy \(E_{-ADC}\) obtained in this way in approximate units of ADC counts is for sure coded on 12 bits at most if the samples are coded on 12 bits. This 12-bit coded energy will be used to access the LUT. Thanks to this method, a 12-bit LUT will be enough to get the inverse energies while minimizing the LUT memory occupancy.
+
+The same fixed value of 14 can be used for all gains and cells because \(\sum\limits_{i=1}^{5}a_{i}^{\prime}\) is expected to be close to unity whatever the luminosity and gain are. Multiplication by a calibration factor depending on the gain is then needed to get \(E_{MeV}\) in physical energy units.
+
+\[E_{MeV}=C_{calib}.E_{-ADC}\]
+
+[MISSING_PAGE_FAIL:9]
+
+\[b_{i}^{\prime}=F_{scale}b_{i}\]
+
+Then \(\tau\) is:
+
+\[\tau=\frac{E\tau_{-ADC}}{E_{-ADC}}=E\tau_{-ADC}\,2^{sb+1}.\,LUT_{-ADC}\,\cdot\,2^ {Inbd(E_{-ADC})-45-sb-1}\]
+
+The product of \(E\tau_{-ADC}\,2^{sb+1}\), coded on 32-bit, times \(LUT_{-ADC}\), coded on 16 bits, is performed using the MPYLIH instruction, which includes a 15 bits right shift. \(\tau\) is then obtained in the upper half of a 32-bit register by a single left shift of lmbd(E)-45+15+16-sb-1 where -15-sb = sb' is the only information which has to be loaded together with the weights.
+
+### \(\chi^{2}\)
+
+Pedestal subtraction is again performed first. A good \(\chi^{2}\) resolution is not required. The DSP processes \(s_{i}^{\prime}\)=\(s_{i}^{\prime}\)=\(2^{3}E_{-ADC}\)\(H_{i}^{\prime\prime}\). \(\frac{1}{2^{16}}\) for each sample. The H\({}_{i}\), loaded along with the other weights, are scaled to the best accuracy:
+
+\[H_{i}^{\prime}=H_{i}^{\prime}\ 2^{14}\]
+
+with
+
+\[H_{i}^{\prime}=H_{i}.\frac{1}{F_{scale}}\,with\,H_{i}\leq 1\]
+
+The H\({}_{i}\) are the theoretical shape samples normalized to one. This insures that the product \(2^{3}E_{-ADC}\)\(H_{i}^{\prime\prime}\cdot\frac{1}{2^{16}}=2.E_{-ADC}\)\(H_{i}^{\prime}\) and the pedestal-subtracted samples are in the same units. The 16-bit left shift involved in the process is performed by packing instructions. The most significant bits of the sum of the squared \(s_{i}^{\prime\prime}\) provide a \(\chi^{2}\). However, it should be stressed that this variable is not an exact \(\chi^{2}\), which would require an appropriate set of weights to correct for the time shift as well as to take into account the noise autocorrelation matrix. A much more complicated and cycle consuming task for a DSP.
+
+### 5 Conclusion
+
+We have shown that by working with CCS v2 and by taking advantage of the expected small amount of high energy cells, it is possible to reach performances close to the best expected ones. In addition, optimal accuracy on energies and very good precision on \(\tau\) and \(\chi^{2}\) can be achieved with a simple, intuitive and easily up gradable algorithm.
+
+At first sight, it seems that the mean performances to treat two cells in parallel for the DSP C64x, are improved by a factor two to three compared to the 26 cycles of the C62x. Another factor two is provided by the clock speed improvement. If these performances are confirmed, one DSP could comfortably treat 256 cells from two FEBs i.e. with great margin at least from the point of view of the processing power. However,
+
+[MISSING_PAGE_EMPTY:11]
+
+used for cells below several GeV so the loading of medium and low gain weights is quite exceptional. Therefore if the same sets in the L1D cache are booked for the three gain weights, implying a 10 Kbytes total weights occupancy in L1D, the overwriting of the high gain weights by the others, with the associated misses and stalls will have for sure a completely negligible impact on the mean processing time.
+
+Samples should never overwrite the high gain weights [12] in the cache. 3 Kbytes of distinct L1D sets are needed. There is 3Kbytes left available in L1D. The LUT represents 8 Kbytes of adjacent addresses while there is only 1.5 Kbytes available with adjacent addresses in the L1D. However the energy will most of the time be coded on nine bits or less and the corresponding LUT address will lie in these unshared 1.5 Kbytes of L1D. Misses and stalls are expected if the 12-bit coded energy is greater than 2\({}^{9}\)+2\({}^{8}\). The overwriting of the sample memory is expected above this level with no consequences on the number of miss and stalls for the subsequent event. Above 2\({}^{10}\), which is even more exceptional, the high gain weights can be overwritten.
+
+The last 1.5 Kbytes are left for the block of output E_time_chi2 words. This has 2 Kbytes of occupancy and will overwrite part of the L1D memory reserved for the samples if more than 80% cells are above threshold, which is highly improbable. If this happens, the histogram loop will have first to reload part of the samples before being able to histogram them. Samples from the raw data block stored by the second loop as well as 16-bit energy outputs share the same sets as the input samples. This will result in a certain number of unavoidable reloads of information sharing this part of L1D.
+
+To conclude, the data organization proposed and tested in table 1 insures that apart for a fixed number of unavoidable misses and stalls due to the reload of input samples, for each new event, additional misses and stalls should be exceptional for the proposed code. If additional processing tasks take place in the DSP, they can make use of the data in the various output blocks all sharing the same sets in L1D as the input samples. If the
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|c|} \hline \multicolumn{2}{|c|}{Sets} & \multicolumn{5}{|c|}{Base addresses} \\ \hline  & \multicolumn{5}{|c|}{Input samples} \\ \cline{2-7}
+0h\(\Rightarrow\)600h & 4000h & & 6008h \\ \cline{2-7}
+8h\(\Rightarrow\)608h & \multicolumn{5}{|c|}{E\_16bits} \\ \cline{2-7}  & \multicolumn{5}{|c|}{84000h} \\ \cline{2-7}  & \multicolumn{5}{|c|}{Output samples} \\ \cline{2-7}  & \multicolumn{5}{|c|}{A4000h} & \multicolumn{5}{|c|}{A6008h} \\ \hline
+630h\(\Rightarrow\)E30h & \multicolumn{5}{|c|}{Weights\_E} \\ \cline{2-7}
+638h\(\Rightarrow\)E38h & H & M & L & H & M & L \\ \cline{2-7}  & 4630h & 8630h & C630h & 6638h & A638h & E638h \\ \hline E50h\(\Rightarrow\)1A50h & \multicolumn{5}{|c|}{Weights\_t\_\(\chi^{2}\)} \\ \cline{2-7} E58h\(\Rightarrow\)1A58h & H & M & L & H & M & L \\ \cline{2-7}  & 4E50h & 8E50h & CE50h & 6E58h & AE58h & EE58h \\ \hline
+1AA0h\(\Rightarrow\)1FFFH & \multicolumn{5}{|c|}{LUT} & \multicolumn{5}{|c|}{E\_32bits\_t\_\(\chi^{2}\)\_gain} \\ \cline{2-7}  & \multicolumn{5}{|c|}{11AA0h} & \multicolumn{5}{|c|}{7A60h} \\ \hline \end{tabular}
+\end{table}
+Table 1:remaining codes carefully schedule their needed reloads they will produce a small number of additional misses and stalls because the blocks have small memory occupancy. However extra data loading such as histogram bins which will most probably require the entire memory available in L1D is expected to produce stalls and misses in the processing of the current event as well as in the following one due to the overwriting of the weights. The histogram bins should be organized in memory such as the most frequently filled bins should reside in the input samples sets. The mean number of misses for the histogram tasks would then be kept small as is the case for the inverse LUT loads.
+3. Minimizing stalls As already explained, the stall penalty for a given miss is variable. An isolated instruction producing a miss will produce the maximum of stalls: 6 cycles. But if the instructions generating misses are scheduled in parallel or in neighboring cycles, a pipeline can reduce the number of stalls per miss to two cycles at best. As a consequence it is possible to minimize the number of stalls per miss by carefully scheduling the load instructions in the same or successive cycles. However this does not seem to be possible if one makes use of the optimizer of CCS v2, because no special directive is available to tell the optimizer to organize the instructions in this way. Nevertheless, a simple procedure using a special ad hoc small loop called before the processing itself allows the best achievable stall minimization. At the cost of only 24 cycles (two loads per cycle) all the samples can for example be loaded in L1D with the following simple loop, which loads a dummy data every 64 bytes. 
+
+CCS v2 simulation shows that the mean number of stalls per miss is then only 2.1. Add 32/50 cycle penalty per miss (the loop scheduled requires 32 cycles and produces 50 misses) to this value and you get 2.74 the equivalent mean number of stall penalties that you should reach by writing by hand the processing loop to obtain equivalent performances. This is of course impossible for a handwritten loop of the processing code because there will be misses every several loop iteration only. The same strategy could be used to reload the weights in case too many of them have been overwritten by histogram bins or LUT inverse energies. Of course, the mean number of stall penalties would again be optimal (2.74) if all weights have been overwritten. However, if a small number of overwriting occurred, this method is obviously not applicable because the misses would also be isolated in the reloading loop.
+4. Minimizing Bank conflicts The data memory is organized in eight 32bits banks in the C64x. This allows two double word loads or stores to be performed in parallel as soon as they use distinct couples of banks. As much as 16 bytes can then be loaded or stored in a given cycle. On the other hand two instructions accessing the same byte number in the same bank in parallel will produce a bank conflict resulting in one CPU clock stall. Since the first loop is treating two cells in parallel, it is quite easy to prevent such occurrences by an 8-byte systematic shift of cellA addresses relative to cellIB addresses. In this way, double word data accesses can be scheduled in parallel without conflict for cellA and cellB.
+
+The number of bank conflicts in the second loop is unpredictable since it very much depends on the selected cells memory location. The bank conflict probability can be substantially reduced by using non-aligned store and load instructions whenever possible (these cannot be scheduled in parallel with any other load or store instruction). The expected mean number of bank conflicts in loop2 iteration can roughly be estimated. Two accesses to the same bytes among the 32 available produce a bank conflict. The probability is 1/4 for a double word access in parallel with any other aligned access, 1/8 for a word access in parallel with another aligned word or half word access and 1/16 for two half word accesses in parallel. Inspecting the kernel loop one finds that the mean number of bank conflicts per loop iteration is 1/16+1/4+1/8+1/8 \(\sim\) 0.7. The number of bank conflicts can be as large as 5 in a given loop iteration.
+5. **Mean overall performances** The overall performances of the code alone (assuming no other processing is being performed) can be summarized as follows. The mean effect of the weights overwriting should be very small due to the very small fraction of very high-energy cells (source of low or medium gain weights misses or high energy inverse LUT accesses). Misses and stalls are mainly produced by samples reloading at each new event. The loop kernel performances are known and the mean number of bank conflicts has been estimated. There are also additional cycles for the loop initializations, prologs and epilogs. The mean number of cycles for two cells treated in parallel taking all effects into account is therefore estimated to be approximately: \[8+1.05(\text{stalls})+0\text{ (bank conflicts)}+38/128\text{ (loop1 init\_prolog\_epilog)}\] \[+10\%\text{ (15}+0.7\text{ (bank conflicts)}+0\text{ (stalls))}+56/128\text{ (loop2 init\_prolog\_epilog)})\] \[\sim 11.5\text{ cycles}\] If an exceptional number of misses and stalls is expected for the next event because of the histograms or other processing involved, the high gain weights can be reloaded as already explained for the samples.
+
+## 4 Simulation results
+
+The loop performances have been checked with CCS v2 showing the expected performances. In order to ease loop2 performance estimates, half of the 256 cells have been taken above energy threshold. The corresponding results will have to be rescaled to 10% to get final performances.
+
+Table 2 reports loop performances in CPU cycles for both cold start (CS) and normal running mode (NR). For the whole 256 cells, no access to medium or low gain weights is performed (as is expected most of the time), nor to the LUT high-energy region (optimistic case). We then expect no misses at all for such event after cold start, apart from the samples loading misses. And this is actually what we can see from the reported simulation results. A certain number of PIPE_STALL occur the first time the loops are being called (at cold start) and never happen again after cold start. Tables 2 and 3 show that the sample preloading allows 200 cycles improvement after cold start because the mean miss penalty is reduced.
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop1 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 3**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|c|} \hline  & & Bk & L1D Rd Miss & L1D Stall & Total CPU \\ \hline Load & CS & 2 & 0 & 50 & 105 & 137 \\ \cline{2-4} samp & NR & 0 & 0 & 50 & 105 & 135 \\ \hline Loop1 & CS & 100 & 0 & 67 & 561 & 1727 \\ (256) & NR & 0 & 0 & 0 & 1066 \\ \hline Loop2 & CS & 266 & 3 & 67 & 486 & 1787 \\ (128) & NR & 0 & 3 & 0 & 0 & 1039 \\ \hline \end{tabular}
+
+**Table 2**
+
+Table 2 reports loop performances in CPU cycles for both cold start (CS) and normal running mode (NR). For the whole 256 cells, no access to medium or low gain weights is performed (as is expected most of the time), nor to the LUT high-energy region (optimistic case). We then expect no misses at all for such event after cold start, apart from the samples loading misses. And this is actually what we can see from the reported simulation results. A certain number of PIPE_STALL occur the first time the loops are being called (at cold start) and never happen again after cold start. Tables 2 and 3 show that the sample preloading allows 200 cycles improvement after cold start because the mean miss penalty is reduced.
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop1 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 3**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop1 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 4**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop2 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 5**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop1 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 6**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop2 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 7**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop1 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 8**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop2 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 9**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop1 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 10**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop2 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 11**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop3 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 12**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|c|} \hline  & & L1D Stall \\ \hline Loop4 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 13**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Rd Miss & L1D Stall \\ \hline Loop5 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 14**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Stall \\ \hline Loop6 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 15**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Stall \\ \hline Loop7 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 16**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Stall \\ \hline Loop8 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 17**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Stall \\ \hline Loop9 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 18**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Stall \\ \hline Loop1 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+**Table 19**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Stall \\ \hline Loop1 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 20**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Stall \\ \hline Loop1 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+
+**Table 21**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+
+\begin{tabular}{|c|c|c|c|} \hline  & & L1D Stall \\ \hline Loop2 without & CS & 116 & 865 \\ \cline{2-4} sample reload & NR & 49 & 336 \\ \hline \end{tabular}
+**Table 22**
+
+The mean number of cycles for 2 cells in parallel can be computed from the simulation results after cold start:
+Input and output bandwidths
+
+A careful estimation of the TMS320C6414 DSP bus performances is also mandatory to show that treating 256 cells is possible. The TMS320C6414 DSP has two external memory interfaces EMIFA and EMIFB. Each of them can be used to transfer data through EDMA [13]. EMIFA is a 64bits wide bus and EMIFB is only 16bits. Both can be configured to work at up to 150 MHz however working at 100 MHz should be preferred as it makes PCB routing much easier. The input bandwidth for 256 cells is 32bits@80MHz. The optimized code naturally reduces the output bandwidth of the data to be transmitted either to the ROBs or to the local DAQ system. This is because the outputs for 90% of the cells are only 16-bit energies. For these cells there is a factor five reduction of the amount of data. For the small fraction of cells above threshold, we want to output one 32-bit energy together with the five 16-bit samples. The mean output bandwidth reduction factor if no more compression is being applied to the data is then roughly around three (10 bytes \(\xrightarrow{}\) 2 bytes + 10% (14 bytes) = 3.4 bytes) but for a 100% cells above threshold fluctuation, the output instantaneous bandwidth is increased by a factor 1.6 compared to the input bandwidth.
+
+Sharing EMIFA alternatively between the input and output transfers is the fastest solution as can be seen from table 4. This solution is preferred if we want to treat 256 cells in the DSP. Indeed, it offers much more safety margin than using EMIFB for the outputs. One can absorb transfer time fluctuations far exceeding the capacity of EMIFB. Then the total time for DMA input and output transfers would be kept below 10 \(\upmu\)s almost all the time without compression. A small compression factor can easily keep this total time always below 10 \(\upmu\)s by triggering a dedicated compression code only in case of a very improbable fluctuation.
+
+## VI Conclusion
+
+The second version of Code Composer Studio completely suppress the need to hand write code to reach performances close to the best predicted. Its use allows working with a much more friendship and easily up gradable algorithm in linear assembly. But, the main result of this study is that the C64x performances, at least for the main processing tasks, are more than a factor four better than the C62x performances (factor two from the clock, factor greater than 2 from the algorithm performances). Therefore, 256 cells can comfortably be treated (with a factor two margin) with the DSP C64x. EMIFA DSP bus is also able at 100 MHz to transfer input and output data for 256 cells in less than 10 \(\upmu\)s all the time assuming a small compression factor. One should take this into account when designing the ROD mother board and processing units.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline  & \multicolumn{3}{c|}{**Transfer Time (\(\upmu\)s)**} \\ \cline{2-4}  & **Input** & **Output (mean)** & **Output (worst fluctuation)** \\ \hline EMIFA & 4 & 1,33 & 6,4 \\ \hline EMIFA+B & 4 & 5,32 & 25,6 \\ \hline \end{tabular}
+\end{table}
+Table 4: EDMA Transfer times 
+
+[MISSING_PAGE_FAIL:17]
+
+[MISSING_PAGE_EMPTY:18]
+
+[MISSING_PAGE_FAIL:19]
+
+[MISSING_PAGE_FAIL:21]
+
+## b Parallelized code
+
+To get the asm code, compile the code with the following compiler options:
+
+-k -q -os -o3 -fir"D:\(\langle\)ti\(\rangle\)myprojects\(\langle\)toto\(\rangle\)Debug" -fs"D:\(\langle\)ti\(\rangle\)myprojects\(\langle\)toto\(\rangle\)Debug" -d"_DEBUG" -me -mt -mw -mh -mv6400.
+
+Build with vectors.asm, rts6400e.lib and the following.cmd:
+
+MEMORY
+
+\(\{\)
+
+IPROM1 : origin = 0x00000000, len = 0x20
+
+IPROM : origin = 0x00000DA0, len = 0x2000
+
+IDRAM : origin = 0x80008f00 len = 0x6100
+
+BMEM : origin = 0x80000000 len = 0x800
+
+}
+
+SECTIONS
+
+\(\{\)
+
+vector \(>\) IPROM1
+
+.text \(>\) IPROM
+
+.stack \(>\) IDRAM
+
+.data \(>\) BMEM
+
+.bss \(>\) BMEM
+
+.cinit \(>\) BMEM
+
+}
+
+## VIII) References
+
+* 1 The ROD Demonstrator description document. Ilias Efthymiopoulos et al., [http://atlasinfo.cern.ch/Atlas/GROUPS/LIQARGON/ROD/rod-docs.html](http://atlasinfo.cern.ch/Atlas/GROUPS/LIQARGON/ROD/rod-docs.html)
+* 2 Study of energy reconstruction using optimal filtering with the Lar electromagnetic calorimeter, I Wingerter-Seez, 1995
+* 3 What we should compute in the RODs, F. Henry-couannier, 1998, [http://cpppm.in2p3.fr/SimulROD.html](http://cpppm.in2p3.fr/SimulROD.html)
+* 4 A brief description of the loop26 algorithm. Nevis Labs, Columbia University, [http://www.nevis.columbia.edu/~stephan/lhc/rod/dsp/algo26.ps](http://www.nevis.columbia.edu/~stephan/lhc/rod/dsp/algo26.ps)
+* 5 The ATLAS Liquid Argon Calorimeters Read Out Driver (ROD) System. IEEE conference, F Henry-couannier, September 2000
+* 6 TMS320C6000 CPU and Instruction Set Reference Guide SPRU189F, Texas Instruments, October 2000
+* 7 TMS320C6000 Peripherals Reference Guide SPRU190D, Texas Instruments, February 2001
+* 8 TMS320C6000 Assembly Language Tools User's Guide SPRU186I, Texas Instruments, April 2001
+* 9 TMS320C6000 Programmer's Guide SPRU198F, Texas Instruments, February 2001
+* 10 Evaluating the TI C64x DSP for the Liquid Argon ROD, S. Simion, Nevis Labs, Columbia University, September 2001
+* 11 ATLAS Detector and Physics performance Technical Design Report, ATLAS collaboration, May 1999
+* 12 DSP TMS320C64x Stall problems and solutions, N.Chevillot, LAPP, September 2001
+* 13 EDMA Considerations for the ROD system, N.Chevillot, LAPP, October 2001

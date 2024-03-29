@@ -1,0 +1,365 @@
+ATLAS-INDET-2003-006
+
+ATLAS-SOFT-2003-006
+
+June 25, 2003
+
+**Material Integration Service for the ATLAS Inner Detector**
+
+S. Armstrong, C. Hansen\({}^{\dagger}\), R. Sandstrom\({}^{\ddagger}\)
+
+_European Organization for Nuclear Research (CERN) - EP Division Geneva, SWITZERLAND_
+
+\({}^{\dagger}\)also at _Uppsala University - Department of Radiation Sciences Uppsala, SWEDEN_
+
+\({}^{\ddagger}\)also at _Gothenburg University Gothenburg, SWEDEN_Introduction
+
+Due to the high rates at the LHC and subsequent design considerations, the material budget of the Inner Detector (ID) is substantial, in some places exceeding one radiation length [1]. A description of the active DetectorElement and passive material (_e.g._, support structures, readout electronics, cooling infrastructure) is available in the ATLAS Detector Description. In order to perform track reconstruction properly, this same description should be drawn upon to provide information about material through which hypothetical particle trajectories traverse within the fiducial volume of the detector.
+
+In this note, we present a novel and configurable Material Integration Service (MIS) which accomplishes this by drawing upon the Geant4 detector description. The clients of this Service are intended to be Offline Reconstruction Packages (ORPs) which find and fit Tracks in the ID. However, we do not preclude the possibility of using this method and software package for other subdetector systems with Geant4 descriptions including passive material such as the Muon Spectrometer.
+
+The note is organized as follows. Section 2 defines terms used throughout this document. Section 3 summarizes known use cases for the MIS. Section 4 captures the requirements for the MIS. The software components and design considerations of the MIS are given in Section 5. Results for the TRT in terms of accuracy and system performance are presented in Section 6. A User Guide is presented in Section 7.
+
+## 2 Definition of Terms
+
+* **ORPs**: An acronym for any ATLAS Offline Reconstruction Package. The primary ORPs considered as clients of MIS are the two full Track reconstruction packages xKalman++ [4] and iPatRec [5].
+* **Geant** A toolkit for the simulation of the passage of particles through matter. The version used is Geant4.
+* **RadiationLength**: A material-dependent quantity either provided directly from Geant4 or can be given as \[X_{0}=\frac{716.4\,\mathrm{g/cm^{2}}\ A}{Z(Z+1)\ln(287/\sqrt{Z})}\frac{1}{\rho}\,\] (1) where \(A\) and \(Z\) are the average atomic mass and average atomic number respectively of the material, and \(\rho\) is the density.
+* **Geantinos**: Purely algorithmic particles used internally by the Geant4 packages. Geantinos are non-interacting neutral particles; however, they retain knowledge about the material through which they traverse and are therefore often used as probes. For the MIS, they traverse the ID fiducial volume from the center nominal origin of the ATLAS coordinate system with varying \(\eta\) and \(\phi\) angles.
+* **GeantinoStep**: Each GeantinoStep, consisting of two StepPoints and a StepLength (\(\delta x\)), has a well defined RadiationLength, i.e. the RadiationLength of the first StepPoint. The geantinos are controlled to take a new StepPoint after a user defined StepLength. For TRT we used 1 mm for \(\delta x\).
+* **GeantinoMap**: A description of detector material resulting from the passage of Geantinos through a detector and the retention of information related to the material through which they traverse. An example illustrating the production of a GeantinoMap can be seen in Figure 1.
+* **VolumeElement**: A volume defined with cylindrical limits: \(\rho_{min}\), \(\rho_{max}\), \(\phi_{min}\), \(\phi_{max}\), \(z_{min}\), and \(z_{max}\). During the GeantinoMap production the VolumeElement has two associated quantities: the StepLengthSum \(\Sigma\delta x\) and the StepLengthDividedByRadiationLengthSum \(\Sigma\frac{\delta x}{X_{0}}\), where the sums are taken over all GeantinoSteps in the VolumeElement. After the production the GeantinoMap contains information about all VolumeElements, which now have one associated quantity, the AverageRadiationLength, \(\overline{X_{0}}\). One can define which parts of the ID that should be filled with VolumeElements and the sizes of the VolumeElements.
+* **AverageRadiationLength**: A ratio of sums given as \[\overline{X_{0}}=\frac{\Sigma\delta x}{\Sigma\frac{\delta x}{X_{0}}}\,\] (2) which is stored with the geometrical information for each VolumeElement in the GeantinoMap.
+* **InputPoints**: Two space points inside the fiducial volume of the ID, denoted as \(x_{1}\) and \(x_{2}\).
+* **Sector**: A restricted part of the ID which can be used to represent the whole ID if \(\phi\) and \(z\) symmetry are assumed.
+* **RegionMap**: A subset of the GeantinoMap. VolumeElements which lie within limits defined by the coordinates of the InputPoints are read in from the GeantinoMap and stored as the RegionMap. If the two InputPoints are in different Sectors, a RegionMap is produced for each Sector.
+* **TouchedVolumeElement**: A VolumeElement that is intersected by a straight line connecting the two InputPoints.
+
+Figure 1: An example of the production of a GeantinoMap within the ID. Geantinos traverse the ID fiducial volume with steps in \(\phi\) and \(\eta\). The geantinos take a new StepPoint after a fixed StepLength, \(\delta x=1\,\mathrm{mm}\).
+
+* **TraversedLength**: The length of the part of the straight line between the InputPoints that intersects a TouchedVolumeElement, denoted \(\Delta x_{j}\). The TraversedLength is saved together with the geometrical limits and the AverageRadiationLength for the TouchedVolumeElements.
+* **FractionOfRadiationLength**: The sum of the ratios between the TraversedLength \(\Delta x_{j}\) and the AverageRadiationLength \(\overline{X_{0_{j}}}\), \[\frac{x}{X_{0}}=\Sigma_{j}\left(\frac{\Delta x}{\overline{X_{0}}}\right)_{j}\,.\] (3) This dimensionless quantity is the output provided by MIS.
+* **ScatteringAngle**: The multiple scattering angle between the two InputPoints, given as \[\theta_{0}=\frac{13.6\ \mathrm{MeV}}{\beta cp}z\sqrt{\frac{x}{X_{0}}}\left[1+0.038\ln\left(\frac{x}{X_{0}}\right)\right]\ \.\] (4) Here \(p\), \(\beta c\), and \(z\) are the momentum, velocity, and charge number of the incident particle respectively; \(x/X_{0}\) is the FractionOfRadiationLength (_i.e._ the output of the MIS, defined above).
+
+## 3 Use Cases
+
+**UC1**: During the reconstruction iPatRec requests information about the radiation length between two arbitrary points in the ID.
+
+Figure 2: Geantinos traversing a VolumeElement. After a fix StepLength, \(\delta x=1\,\mathrm{mm}\), geantinos make a new StepPoint (denoted by a \(\times\)).
+
+**UC2**_Ibid_ for xKalman++.
+
+## 4 Requirements
+
+### Common Requirements
+
+**UR1.1**: Input to the MIS shall be two arbitrary points within the tracking volume of the ID.
+**UR1.2**: Upon initialization, a flag shall specify whether the GeantinoMap should have been produced by the Geant4 or Geant3 description of the ID.
+**UR1.3**: The MIS shall provide \(x/X_{0}\), the thickness of the scattering medium in radiation lengths between the two InputPoints.
+
+### xKalman++ specific Requirements
+
+**UR2.1**: Input to the MIS could also be supplied as a list of points.
+**UR2.2**: The assumed trajectory-type (_e.g._, a line or helix) between the input points shall also be specified.
+**UR2.3**: The MIS shall provide all VolumeElements that were taken into account for the radiation length calculation, (_i.e._ all TouchedVolumeElements).
+
+### iPatRec specific Requirements
+
+**UR3.1**: The MIS shall also provide the position of the weighted midpoint between the two InputPoints. This midpoint is weighted with the mass between the InputPoints and will be the point from where the scattering angle \(\theta_{0}\) (see eq. 4) is supposed to be taken from.
+
+## 5 MIS Components
+
+### GeantinoMap
+
+A GeantinoMap is produced by sending geantinos through either a Geant4 or Geant3 description of the ID.1 Geantinos are sent from the nominal origin of the ATLAS globalcoordinate system through the fiducial volume of the ID with different \(\eta\) and \(\phi\) angles. For a GeantinoMap production, one can define \(\eta_{min}\), \(\eta_{max}\), and the number of different \(\eta\) steps in which the geantinos should be sent out for a fixed \(\phi\). Then one also defines \(\phi_{min}\), \(\phi_{max}\) and the number of steps in \(\phi\). In this way, one can decide how accuracy of the GeantinoMap: the more geantinos going through a VolumeElement, the higher the AverageRadiationLength accuracy. The accuracy of the GeantinoMap is also affected by the sizes of the VolumeElements. The control of these sizes is discussed below.
+
+The AverageRadiationLength is given by equation (2). Assume \(E_{i}\) is the energy an electron has before it went inside a VolumeElement and \(E_{f}\) the energy the electron has after it went through the VolumeElement. Then equation (2) can be explained by the fact that
+
+\[E_{f}=E_{i}e^{-\Sigma_{i}\left(\frac{\delta x}{X_{0}}\right)_{i}}\, \tag{5}\]
+
+where the ratios \(\frac{\delta x}{X_{0}}\) are given from each GeantinoStep, where \(\delta x\) is the StepLength and \(X_{0}\) is the RadiationLength for the steps. In order to save one single number as the AverageRadiationLength for one VolumeElement the sum of these ratios, \(\Sigma_{i}\left(\frac{\delta x}{X_{0}}\right)_{i}\), and the sum over the StepLengthes, \(\Sigma\delta x\), are saved and in the end the AverageRadiationLength for a specific VolumeElement is calculated by taking the ratio of these two sums,
+
+\[\overline{X_{0}}=\frac{\Sigma\delta x}{\Sigma\frac{\delta x}{X_{0}}}. \tag{6}\]
+
+For each GeantinoMap production, one can also define what part of the ID should be filled with VolumeElements and the granularity of VolumeElements in those parts of the ID. For the barrel, one defines the number of RhoZones that should have VolumeElements and \(\rho_{min}\) and \(\rho_{max}\) for each RhoZone. One then defines the granularity of VolumeElements inside those RhoZones by defining: NbrSubRhoZones, NbrPhiSectors and NbrZSlices for each RhoZone. From these numbers the size of each VolumeElement is calculated. For the end-cap it work similar but there one defines ZSlices where one want VolumeElements to fill the ID. The granularity of VolumeElements in the ZSlices is defined by the numbers: NbrSubZSlices, NbrPhiSectors and NbrRhoZones for each ZSlice.
+
+### Dependency of MIS
+
+Figure 3 shows a Package diagram for the MIS. One of the two ORPs, iPatRec or xKalman++, gives two InputPoints \(x_{1}\) and \(x_{2}\) to the MIS. The MIS returns \(x/X_{0}\), the thickness of the scattering medium in radiation length between the two InputPoints, (or as called in the document, RadiationLengthFraction) as output back to the ORP. Then the fractions of a ScatteringAngle can be calculated (see eq. 4).
+
+### Classes of MIS
+
+Figure 4 shows a class diagram for the classes of MIS. If \(\phi\) and \(z\) symmetry were assumed upon production of the GeantinoMap the first class of the MIS package _Transformation_ transforms the two InputPoints to that sector of the ID that the GeantinoMap fills with VolumeElements. If the two InputPoints lie in different Sectors, _Transformation_ also takes care of splitting up the rest of the RadiationLength calculation into different parts for each used Sector by giving a new pair of InputPoints transformed into the Sector that is filled by the GeantinoMap. This class is only useful if symmetry of the ID can be assumed in either \(\phi\) or in \(z\).
+
+Upon initialization, the class _DataManager_ reads in the GeantinoMap from an ASCII file and saves it in memory by filling an STL MultiMap. The class _Region_ checks all VolumeElements from the GeantinoMap and if a VolumeElement is completely inside a Region-of-Interest (RoI), the VolumeElement is saved into another MultiMap called RegionMap. The limits of the RoI are decided from the coordinates of the two InputPoints, \(x_{1}\) and \(x_{2}\), referred to as \(\vec{x}\). The class Region also decides which VolumeElements of those in the RegionMap are intersected by \(\vec{x}\). This is done by calling the _VolumeElement_ class that gives the length of \(\vec{x}\) which intersects the it. If this length is non-zero
+
+Figure 3: A Package diagram showing the dependencies of the MaterialIntegrationService.
+
+for a VolumeElement in the RegionMap then this VolumeElement is saved as a Touched-VolumeElement (see Figure 5). A TouchedVolumeElement stores the TraversedLength, AverageRadiationLength and its geometrical information.
+
+The _RadiationLengthCalculation_ class gets all TouchedVolumeElements from the Region class and calculates \(x/X_{0}\), the RadiationLengthFraction or the thickness of the scattering medium in radiation lengths between the two InputPoints, by adding together the ratio between the TraversingLength and the AverageRadiationLength for each Touched-VolumeElements (see Section 2 for the definition of Output).
+
+The quantity \(x/X_{0}\) is then given as output to the ORP that will use it to calculate the ScatteringAngle (see Section 2 for the definition of ScatteringAngle).
+
+Figure 6 shows the corresponding UML sequence diagram for this procedure.
+
+Figure 4: A Package diagram showing the dependency of the classes of MaterialIntegrationService.
+
+## 6 Results from TRT
+
+The concept of MIS has proved to be successful for TRT, the subdetector of the ID whose material distribution is relatively homogeneous. For Pixel and SCT, where the material is more or less concentrated into layers, MIS is currently under development.
+
+### RadiationLengthFraction as a Function of Pseudorapidity
+
+As an indication of the MIS performance, the RadiationLengthFraction is calculated from the information given by the TRT GeantinoMap and compared with the truth (_i.e._, the corresponding calculations directly from the Geant4 TRT detector description). Several \(\eta\)-scans from both MIS and Geant4 were made in the following manner: MIS was called several times with the first InputPoint, x\({}_{1}\), in the nominal origin of ATLAS global coordinate system and the second point x\({}_{2}\) positioned outside from TRT so that the line between the points traverses through the entirity of the TRT volume at different \(\eta\) directions (but with a fixed \(\phi\) angle) for each call. For each of these MIS calls the calculated RadiationLengthFractions were stored. These \(\eta\)-scans were made with three TRT GeantinoMaps as input each with different granularity (_i.e._, they all had a different amount of VolumeElements with which to describe the TRT detector: a very fine 5400, a medium 1900 and a coarse 580 number of VolumeElements.
+
+Of course, MIS must be very fast, since it will be called by ORPS many times per event. Hence the execution time per MIS call was benchmarked. The average time needed for each call using a Pentium III processor with 1 GHz was 0.14 seconds (very fine
+
+Figure 5: A diagram showing the distance between the two InputPoints \(x_{1}\) and \(x_{2}\) which traverses one VolumeElement. The dashed-dotted part of the line is here the traversed part of the line (_i.e._ one of the \(\Delta x_{j}\) in equation 3).
+
+generators (and same fixed \(\phi\) angle) as for the MIS calls calculated the total RadiationLengthFraction they traversed while intersecting the whole subdetector (see sSction 7.2.2).
+
+The results from these Geant4 \(\eta\)-scan and from the three \(\eta\)-scans made by MIS can bee seen in Figure 7.
+
+Figure 7 illustrates that finer granularity GeantinoMaps yield better accuracy. However, since more VolumeElements are processed, GeantinoMaps with finer granularity also impedes performance in terms of execution time per call. However, it is important to note that this type of MIS calls (_i.e._, RadiationLengthCalculations for a line traversing the whole subdetector) are not representative of the way in which MIS will normally be used. A more realistic approach is presented in the next Subsection.
+
+### A Toy Monte Carlo Scheme for Performance Evaluation
+
+To demonstrate realistic use cases for MIS, a Toy Monte Carlo scheme is used to define a large sample of track segments was suggested. For each call, the x\({}_{1}\) is randomly positioned inside the detector. Then a helix from this point is defined. The particle hypothesis for
+
+Figure 6: A UML Sequence diagram of the MaterialIntegrationService.
+
+the helix has a momentum of 500 MeV and the mass and charge of an electron. The magnetic field is set to 2 Tesla. Then the second InputPoint, x\({}_{2}\), is positioned on the helix but with a random distance between 10 and 30 cm from x\({}_{1}\). One thousand of these semi-randomly generated track segments were defined within the TRT subdetector, and then both MIS and Geant4 calculated the RadiationLengthFraction for these tracks. The relative errors,
+
+\[\sigma=\frac{MIS-G4}{G4}\, \tag{7}\]
+
+were fitted to a Gaussian as shown in Figure 8 where the smallest GeantinoMap (the one with 580 VolumeElements) was used as input to MIS. For these type of calls, x\({}_{1}\) and x\({}_{2}\) defined on use case helices, and with this coarse GeantinoMap, the average time it took for MIS to calculate the RadiationLengthFraction between the points was 0.88 \(\mu\)s on a 1 GHz LXPLUS machine.
+
+Figure 7: The total RadiationLengthFraction for the TRT detector with different \(\eta\) trajectories. Three GeantinoMaps of differing granularity were used as input for the MIS calculations. These GeantinoMaps had 5400, 1900 and 580 number of VolumeElements, and each MIS call using these GeantinoMaps took an average of 0.14, 0.04 and 0.012 CPU seconds on a 1 GHz LXPLUS machine respectively.
+
+## 7 User Guide
+
+Both the Production of GeantinoMaps and MIS are controlled by _management files_. These files contain all input numbers and all decisions about what kind of maps are generated and stored.
+
+### Production of Geantino Maps
+
+Since Pixel and SCT Geant4 detector descriptions run in Athena, the same management file, called MISmanagement, is used for these subdetectors. This file exists in a package named G4MaterialDistribution which controls the production of the GeantinoMaps from the two Geant4 simulations. It is a goal that the production of the GeantinoMap from the Geant4 simulation of the TRT also will be controlled from this management file, once the TRT Geant4 detector description runs in Athena. For the time being, the production of the TRT GeantinoMap are done with a locally running Geant4 simulation of TRT, but is controlled with a similar management file.
+
+Figure 8: A histogram of the relative error of MIS calculation of the RadiationLength-Fraction for tracks defined semirandomly inside the TRT volume using toy Monte Carlo helices as defined in the text. The GeantinoMap used had 580 VolumeElements, and each MIS call took an average \(0.88\,\mathrm{\mu s}\) on a \(1\,\mathrm{GHz}\) LXPLUS machine.
+
+From the package G4SimRelease, all packages can be compiled by giving the command cmt broadcast gmake in the cmt directory. In the run directory of the same package one executes the program.
+
+To use the Pixel detector description type:
+
+ athena jobOption.PixelG4.txt and for the SCT:
+
+ athena jobOption.SCT.txt.
+
+The package dealing with the generation of geantino trajectories is called MyParticleGun. To give MyParticleGun the parameters to control the geantino trajectories in the way defined in MISmanagement (as will be described below) the jobOption file (_i.e._, jobOptions.PixelG4.txt or jobOptions.SCT.txt which are both in the run directory of the G4SimRelease package) needs to be edited. The variable MyParticleGun.Mode has to be put in mode number 1 and ApplicationMgr.EvtMax should be set to 1.
+
+In order to "shoot" geantinos through the Pixel or SCT detector simulation in different \(\eta\) and \(\phi\) steps and from the information given by these geantinos produce a GeantinoMap, some variables in the MISmanagement file should be set as shown below.
+
+\begin{tabular}{l l} \(\#\) & \(<\)ProduceGeantinoMap = 1 \(>\) \\ \(\#\) & \(<\)DoRadLenFromTracksCalculation = 0 \(>\) \\ \(\#\) & \(<\)SendOutGeantinosSpherically = 1 \(>\) \\ \(\#\) & \(<\)SendTracksFromFile = 0 \(>\) \\ \(\#\) & \(<\)ControleGeantinoStepLength = 1 \(>\) \\ \(\#\) & \(<\)WriteOutGeantinoMapFile = 1 \(>\) \\ \(\#\) & \(<\)WriteRadLenFromTracksFile = 0 \(>\) \\ \end{tabular}
+
+The first pair of variables controls the kind of run. When the variable ProduceGeantinoMap is set to 1 the geantino information is saved in intersected VolumeElements, and if the variable WriteOutGeantinoMapFile = 1 the GeantinoMap with filled VolumeElements will be written out in the end of the run to an ASCII file named geantinoMap.dat 2. For a GeantinoMap production, it is also necessary that the geantinos are sent out spherically (_i.e._, that SendOutGeantinosSpherically = 1) and that the maximal step length of the geantinos are controlled (_i.e._, that ControleGeantinoStepLength = 1). In order to define the number of geantinos going through the simulation and the directions of these geantinos, the following list of variables is available
+
+\begin{tabular}{l l} \(\#\) & \(<\) NbrOfGeantinoStepsInPhi = 360 \(>\) \\ \(\#\) & \(<\) PhiMax = 360.0 \(>\) \\ \(\#\) & \(<\) PhiMin = 0.1 \(>\) \\ \(\#\) & \(<\) NbrOfGeantinoStepsInEta = 500 \(>\) \\ \(\#\) & \(<\) EtaMax = 3.5 \(>\) \\ \(\#\) & \(<\) EtaMin = -3.5 \(>\) \\ \end{tabular}
+
+If the variables are put as shown in this example a total of 180000 geantinos are sent out with 360 different \(\phi\) directions and 500 different \(\eta\) directions. Geantinos always take a new GeantinoStep when it encounters a new material. If the step lengths are not controlled, some material structures could be too big to be recorded in the VolumeElements. This is the motivation for controling the maximum step length from geantinos when producing a GeantinoMap. The maximum step length in millimeters for geantinos are decided by the variable
+
+\begin{tabular}{l l} \(\#\) & \(<\) MaxStepLengthForAllVolumes = 0.1 \(>\). \\ \end{tabular}
+
+#### 7.1.1 Pixel Detector
+
+To use the Geant4 simulation of the Pixel detector to produce the GeantinoMap set the UsePIX variable to one and the others to zero:
+
+\begin{tabular}{l l} \(\#\) & \(<\) UseTRT = 0 \(>\) \\ \(\#\) & \(<\) UseSCT = 0 \(>\) \\ \(\#\) & \(<\) UsePIX = 1 \(>\) \\ \end{tabular}
+
+Geometrical variables also have to be set. For the barrel:
+
+\begin{tabular}{l l} \(\#\) & \(<\) innerRadiusOfPIXBarrel = 42. \(>\) \\ \(\#\) & \(<\) outerRadiusOfPIXBarrel = 250. \(>\) \\ \(\#\) & \(<\) lengthOfPIXBarrel = 920. \(>\) \\ \end{tabular}
+
+and for the EndCap:
+
+\begin{tabular}{l l} \(\#\) & \(<\) innerRadiusOfPIXEndCap = 42. \(>\) \\ \(\#\) & \(<\) outerRadiusOfPIXEndCap = 250. \(>\) \\ \(\#\) & \(<\) zMinForPIXEndCap = 460. \(>\) \\ \(\#\) & \(<\) zMaxForPIXEndCap = 1100. \(>\). \\ \end{tabular}
+
+All these geometrical variables are expressed in millimeters. The regions that will be filled with VolumeElements and the granularity of VolumeElements in these regions are also defined in MISmanagement. First, one defines the number of different regions, and, for each of these regions, their size and the number of VolumeElements in each coordinate direction. For example, for the barrel, the regions are cylinders and called RhoZones and with in the following example, it is defined that there will be 6 of them:
+
+\(\#\)\(<\) nbrOfDiffRhoZonesInPIXBarrel = 6 \(>\)
+
+The maximum and minimum \(\rho\) is defined (in millimeters) for each of these RhoZones. For example for, the first zone:
+
+\(\#\)\(<\) rhoMinForPIXBarrelRhoZone1 = 43.0 \(>\)
+
+\(\#\)\(<\) rhoMaxForPIXBarrelRhoZone1 = 58.0 \(>\)\(.\)
+
+The granularity is defined by the size of the RhoZone (given by \(\rho_{min}\) and \(\rho_{max}\) above) and the number of VolumeElements in \(\rho\), \(\phi\) and \(z\) directions, given by the following three variables:
+
+\(\#\)\(<\) nbrSubRhoZonesInPIXBarrelRhoZone1 = 15 \(>\)
+
+\(\#\)\(<\) nbrPhiSectorsInPIXBarrelRhoZone1 = 90 \(>\)
+
+\(\#\)\(<\) nbrZSlicesInPIXBarrelRhoZone1 = 10 \(>\)
+
+For the EndCap, a similar system is used, with ZSlices defining the maximum and minimum \(z\) values (instead of RhoZones).
+
+If everything has been set correctly, an ASCII file, named geantinoMap_PIX.dat, including the GeantinoMap of Pixel will be produced in the end of the run.
+
+#### 7.1.2 SCT Detector
+
+To use the Geant4 simulation of the SCT detector to produce the geantinoMap_SCT.dat file, set the UseSCT variable to one and the others to zero;
+
+\(\#\)\(<\) UseTRT = 0 \(>\)
+
+\(\#\)\(<\) UseSCT = 1 \(>\)
+
+\(\#\)\(<\) UsePIX = 0 \(>\)
+
+The geometrical variables of SCT and the variables to control the regions for the VolumeElements are set in a similar way as for Pixel described in the previous subsection.
+
+#### 7.1.3 Trt
+
+At the time of writing, TRT is not yet available in Athena. Hence, the file geantinoMap_TRT.dat has so far been produced by locally running TRT Geant4 simulation. Also here everything is controlled from a management file where the variables has to be set in a similar way as for Pixel and for SCT.
+
+### Running the Material Integration Service
+
+For a run of MaterialIntegrationService (MIS) one of the three ASCII files geantinoMap_TRT.dat, geantinoMap_SCT.dat, or geantinoMap_PIX.dat, is used as input. The file to be used should be copied to /SCRATCH/GEANTINOMAPS/geantinoMap.dat. It is the goal that MIS will run with all GeantinoMaps for all three subdetectors of the ID simultaneously, but this is not yet implemented.
+
+#### 7.2.1 An Example of a Simple MIS Run
+
+The basic idea of MIS is given two arbitrary InputPoints somewhere in the ID, the output of MIS is the RadiationLengthFraction between these two points. There are two different ways to make this kind of simple run. Either one uses the constructor
+
+MaterialIntegrationService(Hep3Vector x1, Hep3Vector x2),
+
+where x1 and x2 are the two InputPoints. Alternatively, the constructor can be called without any arguments. The former case is the manner in which ORPs will call MIS; the latter case is for the two InputPoints being specified in the management file. The variable typeOfInputPoints should be set to 1 to specify that a simple run, with only one pair of InputPoints, will be made and the \(\rho\), \(\phi\) and \(z\) coordinates for the two InputPoints, x\({}_{1}\) and x\({}_{2}\), are defined as shown below.
+
+\(\#\)\(<\) typeOfInputPoints = 1 \(>\)
+
+\(\#\)\(<\) x1Rho = 750. \(>\)
+
+\(\#\)\(<\) x1Phi = 0.4 \(>\)
+
+\(\#\)\(<\) x1Z = 500. \(>\)
+
+\(\#\)\(<\) x2Rho = 800. \(>\)
+
+\(\#\)\(<\) x2Phi = 0.3 \(>\)
+
+\(\#\)\(<\) x2Z = 650. \(>\)
+
+#### 7.2.2 An Example of a MIS Run: Generation of Radlength vs. Pseudorapidity Plot
+
+If the variable typeOfInputPoints is set to 3 the RadiationLengthFraction between many different pairs of InputPoints will be calculated. For all of these pairs the first points, x\({}_{1}\)are positioned at the nominal origin of the ATLAS global coordinate system. The other points, x\({}_{2}\), are defined to be at large radii outside the ID in specified \(\eta\) and \(\phi\) directions. Using this type of run, it is possible to make a so called \(\eta\)-scan, (_i.e._, calculating the total RadiationLengthFractions going through the whole ID with a fixed \(\phi\) and with varying \(\eta\)). Since it is not yet possible to run all three subdetectors of the ID simultaneously, we will in this section from here on assume that the subdetector Pixel is being investigated. For the two other subdetectors, it works in a similar way.
+
+First, the Pixel GeantinoMap, (_i.e_,. the file geantinoMap_PIX.dat), must be specified as input.
+
+\begin{tabular}{l l} \# & \(<\)CalculateRadLenUsingTRT = 0 \(>\) \\ \# & \(<\)CalculateRadLenUsingSCT = 0 \(>\) \\ \# & \(<\)CalculateRadLenUsingPIX = 1 \(>\) \\ \end{tabular}
+
+Then to make an \(\eta\)-scan variables in the management file can be specified as shown in this example.
+
+\begin{tabular}{l l} \# & \(<\)typeOfInputPoints = 3 \(>\) \\ \# & \(<\)nbrDiffDirectionsInEta = 100 \(>\) \\ \# & \(<\)etaMin = 0.0 \(>\) \\ \# & \(<\)etaMax = 3.5 \(>\) \\ \# & \(<\)nbrDiffDirectionsInPhi = 1 \(>\) \\ \# & \(<\)phiMin = 0.00174533 \(>\) \\ \# & \(<\)phiMax = 0.2 \(>\) \\ \end{tabular}
+
+In this \(\eta\)-scan, the RadiationLengthFraction for one hundred different \(\eta\) directions, with \(\eta\) ranging from 0 to 3.5, are being calculated and if
+
+\begin{tabular}{l l} \# & \(<\)WriteMISTrackFile = 1 \(>\) \\ \end{tabular}
+
+these calculations are stored in an ASCII file named trackFilePIX_MIS.dat. This file would be enough to make a RadiationLength versus pseudorapidity plot of these results from MIS. This plot will however be nicer with a comparable plot from the truth (_i.e_,. from the Geant4 simulation).
+
+If one moves the file trackFilePIX_MIS.dat to the directory SCRATCH/TRACKFILES/, it will be read from the Geant4 simulation.
+
+In the example below, this file defines 100 geantinos sent through the Geant4 Pixel simulation with the same \(\eta\) and \(\phi\) angles as the 100 directions in the \(\eta\)-scan. The run should not produce a GeantinoMap but instead just calculate RadiationLengthFraction from simple geantino tracks. For this type of Geant4 run the following variables have to be set in the MISmanagement file:\(\#\)\(<\)ProduceGeantinoMap = 0 \(>\)
+
+\(\#\)\(<\)DoRadLenFromTracksCalculation = 1 \(>\)
+
+The 100 tracks should be specified from the trackFilePIX_MIS.dat file as
+
+\(\#\)\(<\)SendTracksFromFile = 1 \(>\)
+
+\(\#\)\(<\)NbrOfTracksFromFile = 100 \(>\)
+
+The maximum step length need not be specified.
+
+\(\#\)\(<\)ControleGeantinoStepLength = 0 \(>\)
+
+Also, the subdetector must be specified:
+
+\(\#\)\(<\)UseTRT = 0 \(>\)
+
+\(\#\)\(<\)UseSCT = 0 \(>\)
+
+\(\#\)\(<\)UsePIX = 1 \(>\)
+
+Then execute it from the run directory in the G4SimRelease package with the command athena jobOption.PixelG4.txt. In the end of this run an ASCII file named trackFilePIX_MIS_G4.dat will be produced if
+
+\(\#\)\(<\)WriteRadLenFromTracksFile = 1 \(>\).
+
+In this file the RadiationLengthFraction for traversing the whole pixel detector in the 100 \(\eta\) directions are stored from both the Geant4 and MIS calculations. These two curves are drawn in the same plot from the directory /ATLAS/MATERIALINTEGRATIONSERVICE/ANALYS/RADLVSETA. From here, launch ROOT and then give the commands
+
+root [0].x load.cxx
+
+root [1].x radlVsEta.cxx.
+
+#### 7.2.3 An Example MIS Run: Generate Error Distributions
+
+To make Error Distributions similar directions as in the previous section have to be made. First, MIS calculations are stored in the trackFilePIX_MIS.dat file and then similar calculations are made from Geant4 and the results from both Geant4 and from MIS will finally be put in a trackFilePIX_MIS_G4.dat file, from which plots will be made.
+
+The idea of this type of run is to make a toy Monte Carlo of MIS and then compare the results with same tracks going through the Geant4 simulation. The Monte Carlo aim to check the program with use cases, that is with tracks that could simulate real particle tracks. First, the number of these kind of randomly chosen tracks is defined in the management file.
+
+\[\#\ \ <\texttt{nbrOfRandomMISCalls}\ =\ 20000\ >\]
+
+Then the tracks are defined by first setting parameters for helices:
+
+\[\#\ \ <\texttt{maxMomenta\_MeVdivc}\ =\ 500.\ >\] \[\#\ \ <\texttt{minMomenta\_MeVdivc}\ =\ 500.\ >\]
+
+If the maximum and minimum momenta are defined to not be the same, the momenta is decided randomly (with a flat distribution) between these extreme numbers. Then, the parameters for the mass and charge of the particle for the helix is defined in the same way.
+
+\[\#\ \ <\texttt{maxRestMass\_kg}\ =\ 9.10939\texttt{e-31}\ >\] \[\#\ \ <\texttt{minRestMass\_kg}\ =\ 9.10939\texttt{e-31}\ >\] \[\#\ \ <\texttt{maxCharge}\ =\ 1>\]
+
+To completely define a helix the magnetic field also must be set:
+
+\[\#\ \ <\texttt{magneticInduction\_tesla}\ =\ 2.\ >\]
+
+The first InputPoint, \(\mathrm{x_{1}}\), will be randomly positioned somewhere inside the detector and the helix will be start from this point. Then \(\mathrm{x_{2}}\) will be positioned somewhere on the helix but also inside the detector and within a restricted distance range from the first point.
+
+\[\#\ \ <\texttt{maxStraightLengthBetweenPoints\_mm}\ =\ 300.\ >\] \[\#\ \ <\texttt{minStraightLengthBetweenPoints\_mm}\ =\ 100.\ >\]
+
+The RadiationLengthFraction between the points \(\mathrm{x_{1}}\) to \(\mathrm{x_{2}}\) are then calculated for each of these tracks that are distributed semi randomly inside the detector. Set
+
+\[\#\ \ <\texttt{WriteMISTrackFile}\ =\ 1>\]
+
+the results will be written to trackFilePIX_MIS.dat. In the same way as in previous section this file is used by the Geant4 simulation to produce the file trackFilePIX_MIS_G4.dat that includes the RadiationLengthFraction for these randomly decided tracks from both the MIS calculation and the Geant4 calculation. From this file ROOT trees are filled and then error plots are drawn in the directory /ATLAS/MATERIALINTEGRATIONSERVICE/ANALYS/SIGMA.
+
+### Production of Visual Maps
+
+From the GeantinoMap files the program VisualGeantinoMap can produce pictures showing slices of the detector in any arbitrary \(z\)-slice (see Figure 9). This is done from the directory /ATLAS/MATERIALINTEGRATIONSERVICE/VISUALGM by launching ROOT and then giving the commands
+
+ root [0].x loadVisualGeantinoMap.cxx  root [1].x visualGeantinoMap.cxx.
+
+If the variable
+
+\[\#\ \ <\texttt{WriteTouchedElementsToFile = 1}>\]
+
+while making for example a simple MIS run (see Section 7.2.1), all the VolumeElements intersected by this track will be written out in an ASCII file, named touchedElements.dat. While using VisualGeantinoMap to make a graphical plot of a z-slice of the detector this file could be used to emphasize those VolumeElements that was touched by the track.
+
+Figure 9: The visualization program, VisualGeantinoMap, shows a slice of the TRT Barrel at \(z=5\,\)cm. A GeantinoMap with 1900 VolumeElements was used for this picture.
+
+Implementation Details
+
+All relevant code can be found via Ref. [6]. Our goal is to provide it as a component of the next major Offline Software release.
+
+## 9 Summary
+
+A novel and configurable Material Integration Service has been developed suitable to the needs of track reconstruction programs for the Inner Detector. This method could also be used for the Muon Spectrometer. The source code and documentation is publicly available and will soon be integrated into the next major Offline Software release.
+
+## Acknowledgments
+
+The authors would like to acknowledge useful discussions within the CERN Atlas Team Software and Physics Tools Working Group. We are also grateful for valuable help from and discussions with Andrea Dell'Acqua, Dario Barberis, Joe Boudreau, Jordi Burguette, Davide Costanzo, Markus Elsing, Daniel Froidevaux, Grant Gorfine, Fred Luehring, Pavel Nevski, David Quarrie, and Andrei and Iouris Zalite.
+
+## References
+
+* [1] ATLAS Inner Detector Community, _Inner Detector Technical Design Report Volume I_, CERN/LHCC 97-16 (1997).
+* [2]_Geant4_, see [http://wwwinfo.cern.ch/asd/geant4/geant4.html](http://wwwinfo.cern.ch/asd/geant4/geant4.html)
+* [3] ATLAS PESA Core Algorithms Group (S. Armstrong editor), _Algorithms for the ATLAS High Level Trigger_, ATLAS-COM-TDAQ-2003-XXX.
+* [4] I. Gavrilenko, _xKalman++_, see [http://maupiti.lbl.gov/atlas/xkal/xkalmanpp/index](http://maupiti.lbl.gov/atlas/xkal/xkalmanpp/index). en.html.
+* [5] R. Clifft and A. Poppleton, _IPATREC: inner detector pattern-recognition and track-fitting_, see [http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/DOCUMENTS](http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/DOCUMENTS) /IPATREC/ipatrec.html.
+* [6] /afs/cern.ch/user/c/chansen/PUBLIC

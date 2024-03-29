@@ -1,0 +1,304 @@
+ATLAS DAQ Note 65
+
+12/Mar/97
+
+Rudolf Bock and Bernardo Kastrup
+
+Realistic Calorimeter Feature Extraction:
+
+Algorithm, Benchmarks, and Implementation Options
+
+## 0 Introduction
+
+This document describes the algorithm for the data preparation procedure which precedes the electron/gamma feature extraction for the ATLAS calorimeter system [1, 2]. The aim of data preparation is to translate the raw data [3], coming in the packets sent from the readout buffers, into RoI information which the feature extraction code can handle. Benchmarks of both data preparation and feature extraction itself are made in a set of different technologies, covering the range of processors used in the trigger level-2 demonstrator programme [4] in the ATLAS collaboration. We are thankful to A. Bogaerts, G. Crone, R. Dankers, E. Denes, R. Hauser, C. Hortnagl and J. Seixas for helpful discussions concerning this work.
+
+## 0 Subdivisions of Feature EXtraction (FEX)
+
+The entire FEX procedure can be divided into three main phases: Data collection, data preparation and feature extraction itself.
+
+The data collection phase is responsible for collecting all ReadOut Buffers' (ROBs) packets concerning to the same event and RoI (those packets arrive asynchronously for both events and RoI fragments), and sending them for data preparation. In the data preparation phase, raw data inside the ROBs' packets are translated into RoI information which can be processed by the feature extraction code.
+
+### Complete FEX algorithm
+
+Packet collection --\(\cdot\)-\(>\) Data preparation --\(>\) Feature Extraction itself
+
+Initial ideas for the data collection code have been defined so far, as well as an initial approach for its interface with the data preparation part. In the present work, we use a simplified version of the interface defined by R. Hauser in his collection code, in which a structure of RoID [5] packets (the so called "struct collect"), concerning to the same event and RoI IDs, is sent for data preparation. This is described in figure 1.
+
+[MISSING_PAGE_EMPTY:2]
+
+[MISSING_PAGE_FAIL:3]
+
+All the possible granularity indices, and their corresponding eta ranges, are described in figure 2. That corresponds completely to what is described in [3], section 4.0.
+
+Figure 3 illustrates the process of reading the lookup table.
+
+After reading the lookup table information, each trigger tower inside the given packet receives eta and phi indices, based on the eta and phi indices of the ROB. Thus, the code can recognize which towers in the packet actually belong to the ROI (the valid towers) by simply comparing their indices with the eta and phi indices of the RoI (see figure 1). The valid towers also have their positions identified inside the RoI 4x4 eta-phi matrix. The remaining ones are ignored. Summarizing:
+
+Figure 2: Possible Granularity indices in the calorimeter (from [3]).
+
+### The _loop over RoI positions_
+
+In this phase, each of the 16 RoI positions (one position corresponds to one trigger tower in the different calorimeter portions) is "mounted". The meaning of the term "mounted" depends on the feature extraction algorithm which will be used. In the present case, it's based on B. Thooris' algorithm for calorimeter feature extraction, which only considers the radial energy distribution around the particle's interaction point, in the eta-phi plane, and ignores the information in depth (\(r\) direction). Thus, in the present case, to "mount" the RoI position means to project all energy information in the eta-phi plane, for both electromagnetic and hadronic calorimeters, with a granularity of.025 x (2\(\pi\)/256) in eta x phi (the granularity of the middle layer in the electromagnetic barrel) for the em. part, and of.1 x (2\(\pi\)/64) for the had. part.
+
+Depending on the granularity index of a given RoI position, different _auxiliary functions_ have to be called. Once different calorimeter portions will send different packets (they are read out by different ROBs), more than one auxiliary function may be called (each one dealing with a unique packet) for a given RoI position, depending on the number of portions concerned (see figure 2). Table 1 summarizes which functions are called for a given granularity index. The actual functions' names used in the code
+
+Figure 3: Reading the lookup “magic” table.
+
+are shown. Their names are suggestive (e.g. "embar1" means "function 1 for the em. barrel"), and could be directly compared to what is described in figure 2.
+
+Summarizing:
+
+Loop over Rol positions (4x4 matrix = 16 positions)
+
+\(\{\)
+
+For the given position, check the gran. index (read from the lookup table);
+
+Call correspondent auxiliary functions;
+
+\(\}\)
+
+### An output example
+
+Presently, there are 3 different versions of the data preparation \(+\) feature extraction code: one library, to be integrated with a real collection code, one test version, with a fake collection code, for debugging purposes, and one benchmark version. An example of output of the test version follows:
+
+Main program started...
+
+File for reading open...
+
+Data read...
+
+CALIIING DO_FEXI
+
+Intitolizing lookup table...
+
+Reading lookup table file...
+
+Table readi
+
+\begin{table}
+\begin{tabular}{|c|l|} \hline
+**Granularity index of the given Rol** & **Auxiliary functions to be called** \\
+**positions** & \\ \hline
+1 & TT\_assembly\_embar1 \\  & TT\_assembly\_hadbar1 \\ \hline
+2 & TT\_assembly\_emend1 \\  & TT\_assembly\_hadbar1 \\ \hline
+3 & TT\_assembly\_embar1 \\  & TT\_assembly\_hadbar1 \\  & TT\_assembly\_hadend1 \\ \hline
+4 & TT\_assembly\_embar1 \\  & TT\_assembly\_hadend2 \\ \hline
+5 & TT\_assembly\_emend2 \\  & TT\_assembly\_hadend2 \\ \hline
+6 & TT\_assembly\_emend3 \\  & TT\_assembly\_hadend2 \\ \hline
+7 & TT\_assembly\_emend4 \\  & TT\_assembly\_hadend2 \\ \hline \end{tabular}
+\end{table}
+Table 1: Auxiliary functions called for a given granularity index.
+
+Starting memory allocation for the table...
+
+Table contents allocated in memory!
+
+Starting main loop over packets...
+
+This is packet 1.
+
+Value of subdetector number: 8.
+
+Calling magic table now...
+
+Information from the magic table has been read...
+
+ROB eta index: 37
+
+ROB phi index: 20
+
+Finished eta_phi indexing of trigger towers...
+
+Tower 6 belongs to ROI in this packet...
+
+Tower 7 belongs to ROI in this packet...
+
+Tower 8 belongs to ROI in this packet...
+
+This is packet 2.
+
+Value of subdetector number: 8.
+
+Calling magic table now...
+
+Information from the magic table has been read...
+
+ROB eta index: 37
+
+ROB phi index: 24
+
+Finished eta_phi indexing of trigger towers...
+
+Tower 5 belongs to ROI in this packet...
+
+...
+
+This is packet 10.
+
+Value of subdetector number: 11.
+
+Calling magic table now...
+
+Information from the magic table has been read...
+
+ROB eta index: 40
+
+ROB phi index: 24
+
+Finished eta_phi indexing of trigger towers...
+
+Tower 1 belongs to ROI in this packet...
+
+Tower 9 belongs to ROI in this packet...
+
+Starting loop over towers in the formed ROI...
+
+ROI position eta,phi = 1,1...
+
+Granularity index: 1
+
+Entered emboral function (electromagnetic barrel's packet)...
+
+Taking IT# 6 (which belongs to ROI) in the packet and skipping the others...
+
+Entered hadoral function (hadronic barrel's packet)...
+
+Taking IT# 54 (which belongs to ROI) in the packet and skipping the others...
+
+...
+
+ROI position eta,phi = 4.4...
+
+Granularity index: 4
+
+Entered emboral function (electromagnetic barrel's packet)...
+
+Taking IT# 5 (which belongs to ROI) in the packet and skipping the others...
+
+Entered hadoral function (hadronic endcaps' packet)...
+
+Taking IT# 9 (which belongs to ROI) in the packet and skipping the others...
+
+Feature extraction itself starts here...
+
+The program also stores a file with the mounted RoI contents for checking.
+
+### Benchmarks results and discussion
+
+From now on, the following conventions are assumed:
+
+* _Total time_: Includes execution time for data preparation and feature extraction itself, but excludes the execution time for packet collection;
+* _Loop over packets_: execution time for the "loop over packets", as described in section 4.1;
+* _Feature extraction itself_: Only execution time for the physics code based on B. Thooris' algorithm;
+
+Table 2 contains a brief description of the stations and boards used for the benchmarks.
+
+Table 3 summarizes some results.1
+
+\begin{table}
+\begin{tabular}{|p{56.9pt}|p{56.9pt}|p{56.9pt}|p{56.9pt}|p{56.9pt}|} \hline
+**Board** & **Processor** & **OS** & **Compiler** & **Remarks** \\ \hline CES RIO2 8061 & PowerPC 604. 96MHz. & LynxOS version 2.3.1 & gcc 2.3.1 & The PPC communicates to the DRAM via a PCI bridge chip (the IBM “Lanai Kauai” 27-82660) \\ \hline AlphaStation 200 & ALPHA. 166 MHz. & Digital unit V4.0B & cc 2.95 SPECint95 V4.0B & 2.95 SPECint95 \\ \hline AlphaStation 255 & ALPHA. 233MHz. & Digital unit V4.0B & cc 4.27 SPECint95 V4.0B & 4.27 SPECint95 \\ \hline Alpha Server 4000 & ALPHA. 300MHz. & Digital Unit V4.0B & cc 8.11 SPECint95 V4.0B & 8.11 SPECint95 \\ \hline Loughborough Sound Images & Texas Instruments TMS320C40. 40MHz. & None 40MHz. & TMS320 floating-point C compiler V4.5 & The C40 is directly connected to the external memory through its “local and global memory buses”. The processor operates, internally, at 20MHz. \\ \hline \end{tabular}
+\end{table}
+Table 2: Boards’ description.
+
+From table 3, one can realize that variations in the number of packets (or ROBs) involved do not affect proportionally the execution time of the algorithm. This was expected since the code was written in order to ignore the trigger towers which do not belong to the RoI, and only consider the fixed-sized 4x4 matrix of towers. More specifically, only the "loop over packets" (see section 4.1) has execution time dependent on the number of packets, while the "loop over RoI positions" (see section 4.2) has execution time dependent on the RoI size, which is constant for the electron/gamma trigger, and RoI eta position. In order to confirm that the "loop over packets" is not remarkably time consuming when compared to the rest of the code, benchmarks of its execution time have been made. Table 4 summarizes the results.
+
+1. These tests were made by looping back the same input file as the entry for the algorithm. It's reasonable to expect that the file contents would remain in the cache memory, making the access to it unrealistically fast. Anyway, we still don't expect to include access to memory in the benchmarks, leaving this step for a future test. Thus, this effect might not hide what was intended to be measured now: the execution time of the code itself.
+
+\begin{table}
+\begin{tabular}{|l|l|} \hline
+**Input file (as described in 3.0)** & **CES RIO2 8061** \\ \hline
+3 ROBS barrel & 43 microseconds \\ \hline
+8 ROBs endcap & 92 microseconds \\ \hline
+10 ROBs overlap & 147 microseconds \\ \hline \end{tabular}
+\end{table}
+Table 4: Benchmarks of the “loop over packets”.
+
+\begin{table}
+\begin{tabular}{|l|l|l|l|l|} \hline
+**Measurement and input file (as described in section 3.0)** & **CES RIO2** & **AlphaStation** & **AlphaStation** & **AlphaServer** \\ \hline total time for: 3 ROBS barrel & 768 microseces & 408 microseces & 286 microseces & 169 microsecs \\ \hline Total time for: 4 ROBs endcap & 676 microsecs & 366 microsecs & 272 microsecs & 162 microsecs \\ \hline Total time: 4 ROBs overlap region & 854 microsecs & 417 microsecs & 310 microsecs & 181 microsecs \\ \hline only FEX itself (does not depend on the input file) & 105 microsecs & 136 microsecs & 96 microsecs & 55 microsecs \\ \hline \end{tabular}
+\end{table}
+Table 3: Some benchmark results.
+
+One can conclude that the most time consuming part of the data preparation algorithm is the "loop over RoI positions", where each of the 16 positions of the RoI is mounted by means of a set of auxiliary functions. Thus, variations in the total time will be more related to variations in the eta position where the RoI sits (which defines the auxiliary functions to be called) than on variations on the number of packets. Particularly, the barrel is the region where the RoI mounting is more time demanding, due to the high number of channels to be taken into account per trigger tower.
+
+For the C40, we achieved the results shown in table 5.
+
+The Texas Instruments' "Parallel Debugger Manager", with JTAG controlling, was not used for the tests, since it does not support standard I/O functions as "printf()", "fopen()" and "fclose()", which turned to be of fundamental importance in an algorithm which has to read a lookup table file. Instead, the NIKHEF C40 Server was used, with VME controlling, which allows the work to be done remotely, in a standard workstation, with standard I/O possibilities.
+
+Some difficulties have been found during the tests, the main one being the shortage of memory in the DBV4x TI modules, as well as in the RHUL C40 boards, for storing the lookup table contents. The solution for this problem was to reduce artificially the size of the table, just keeping the lines which were actually going to be used by the input file selected, and deleting the others. Thus, the tests were limited to a single input file.
+
+\begin{table}
+\begin{tabular}{|p{113.8pt}|p{113.8pt}|} \hline
+**Measurement and** **input file (as described in 3.0)** & **TMS320C40** \\ \hline Total time, 10 ROBs overlap. & 3.7 milliseconds \\ \hline Only feature extraction itself. & 292 microseconds \\ \hline \end{tabular}
+\end{table}
+Table 5: Benchmarks on the TMS320C40.
+
+### Implementation possibilities
+
+In this section, different implementation possibilities for the FEX phases will be proposed and discussed.
+
+### ROB pre-processing
+
+In the data preparation algorithm, it's possible to implement the "loop over packets" and the "loop over RoI positions" in different processors, since a satisfactory interface (or packet format) between them is established. To explore the intelligence available in the readout buffers, one could think about running the "loop over packets" in parallel in the ROBs. The possible advantages are: the size of the packets sent to the FEX processors would be smaller, since only the trigger towers which actually belong to the RoI would be transmitted. Also, the processing time taken in the FEXes would be slightly shorter. Possible problems: though the execution time for the "loop over packets" is small compared to the rest of the FEX data preparation algorithm, it could represent a limitation for the ROBs.
+
+### The Alpha subfarm system
+
+The Alpha subfarm FEX implementation [6] is particularly attractive. The idea is to implement the packet collection code in the AlphaServer (the so called "Switch-Farm Interface", or SFI), and run the data preparation + feature extraction itself in each of the processing nodes (AlphaStations). As soon as a different event/RoI ID is completely collected in the server, it sends the set of packets to one of the processing nodes.
+
+Another possibility, proposed by R. Hauser, is to make the collector to assign one processing node to one particular event/RoI ID pair, as discussed above, but now sending a packet for data preparation as soon as it's collected in the server and the associated processing node is free. The server does not wait until collecting the complete set of packets concerning to the given pair. It does not mean that the buffering task is being transferred from the server to the processing nodes, since it's reasonable to expect that new packets belonging to the same pair might arrive in the server before the processing node finishes the data preparation for the previous packet.
+
+This is expected to optimize the FEX execution time. The data preparation code has to be adapted in order to work in a packet by packet basis, and a suitable interface has also to be defined between the collector and the processing nodes.
+
+Figure 4 shows the possible implementation.
+
+### Shared memory
+
+In order to take advantage of possible shared memory implementations, the data preparation code has been written in such a way that all the functions communicate to each other, and to the collector, through pointer passing. The header file of the code is reproduced above.
+
+Figure 4: Implementation of the calorimeter FEX algorithm in the Alpha Subfarm system.
+
+extern int\({}^{\star}\)TT_assembly_hadbar1(int "cellp, int TT_numb); extern float \({}^{\star}\)TT_assembly_emend1(int "cellp, int TT_numb); extern int \({}^{\star}\)TT_assembly_hadend1(int "cellp, int TT_numb); extern int \({}^{\star}\)TT_assembly_hadend2(int "cellp, int TT_numb, int crate_id); extern float \({}^{\star}\)TT_assembly_emend3(int "cellp, int TT_numb, int crate_id); extern float \({}^{\star}\)TT_assembly_emend4(int "cellp, int TT_numb);
+
+One example of such application has been suggested by A. Bogaerts. The idea is to map the ROB data buffers, through a SCI1 ring [7], in the address space of the FEX processors, and execute the FEX algorithm in shared memory mode. The FEX can, then, read directly in the ROBs the fields and trigger towers which are useful for the given RoI. As in 6.1, this is expected to reduce the amount of information being transmitted, but does not represent extra processing time for the ROBs. Naturally, such a kind of implementation is a so-called "pull architecture".
+
+Footnote 1: “Scalable Coherent Interface”, a high speed interconnection which allows memory sharing.
+
+### Distributed processing implementation
+
+The data preparation algorithm has inherent parallelism. The most obvious parallel processing application in the code is related to the auxiliary functions. As seen in table 1, for each cycle in the "loop over RoI positions", 2 or 3 auxiliary functions are called..These functions can be parallelized, with little data transfer needed, and this would speed up the overall execution time considerably, as they are the main CP time consumers (see sec. 5.0). One could also execute code on multiple RoI positions in parallel.
+
+One example of such idea, thought in the context of the so called SENNAPE Project [8], is the implementation of the data preparation \(+\) feature extraction code in a 16 nodes parallel computer (the Telmat TN310) based on DSPs and DS-Links, to check the possible advantages of a distributed processing environment. Implementations of other FEX algorithms have been underway in the same system [9].
+
+Figure 5 may represent a possible system configuration when 2 RoI positions are being executed in parallel, with granularity indices 5 and 3, respectively.
+
+### Conclusions
+
+The three main phases for the calorimeter feature extraction algorithm (packet collection, data preparation and feature extraction itself) have been described. Benchmarks of the data preparation + feature extraction phases have been made in a set of different processors which are being used in the ATLAS level-2 trigger demonstrator programme. The results have shown that the execution time of the algorithm is mostly dependent on the eta position where the RoI sits, and is not directly proportional to the number of RoID packets which form the RoI. This happens because the algorithm have been designed to ignore all the information, inside the packets, which do not belong to the fixed-sized RoI eta-phi matrix. It was also shown that the data preparation phase is the most time consuming part of the algorithm, if compared to the feature extraction itself.
+
+Different possible implementations of the complete calorimeter FEX procedure have been discussed, including ROB pre-processing, implementation in the Alpha Sub-farm System, shared memory applications, and an implementation in a distributed processing environment. The discussed implementations are concerned to a single FEX processing node, or local farm, in a vertical slice of the ATLAS level-2 trigger system.
+
+Figure 5: Implementation of the calorimeter FEX algorithm in the TN310 distributed processing system.
+
+Only electron/gamma triggers have been considered. We didn't approach, so far, the jet trigger problem, more critical in which concerns to RoI size and number of ROBs involved per RoI.
+
+## References
+
+* [1]_ATLAS Tile Calorimeter Technical Design Report_. CERN/LHCC/96-42. 15 December 1996.
+* [2]_ATLAS Liquid Argon Calorimeter Technical Design Report_. CERN/LHCC/96-41. 15 December 1996.
+* [3] B. Kastrup and R. Bock. _Data Formats and Readout Specifications For a Realistic Calorimeter FEX Algorithm_. Draft 1.3, 10 February 1997. [http://sunrans.cern.ch/~kastrup/papers/](http://sunrans.cern.ch/~kastrup/papers/)
+* [4][http://hepwww.rl.ac.uk/atlas/12/demonstrator/home.html](http://hepwww.rl.ac.uk/atlas/12/demonstrator/home.html)
+* [5][http://hepwww.rl.ac.uk/atlas/12/demonstrator/docs/demons_data_defs.html](http://hepwww.rl.ac.uk/atlas/12/demonstrator/docs/demons_data_defs.html) Draft 1.1, 23 October 1996.
+* [6] R. K. Bock et al. _Subfarms in the ATLAS level-2 trigger_. DRAFT document, 25 November 1996.
+* [7] B. Wu et al. _Distributed SCI-based Data Acquisition Systems constructed from SCI bridges and SCI switches_. The 10th International Symposium on Problems of Modular Information Systems and Networks, St. Petersburg, Russia, Sept. 13-18, 1993. [http://www.cern.ch/RD24/](http://www.cern.ch/RD24/)
+* [8][http://www.lacc.ufrj.br/~sennape/sennape.html](http://www.lacc.ufrj.br/~sennape/sennape.html)
+* [9] J. M. Seixas, B. Kastrup, L. P. Caloba and R. Weber. _Neural Feature Extraction for Calorimeters in a Distributed Processing Environment_. Second Workshop on Electronics For LHC. Balatonfured, Hungary, 1996. [http://sunrans.cern.ch/~kastrup/papers/](http://sunrans.cern.ch/~kastrup/papers/)
+
+## Appendix 1
+
+Follows the flow diagram for the data preparation algorithm.
+
+## References
+
+* [1] ATLAS DAQ Note 65

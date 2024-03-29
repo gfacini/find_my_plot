@@ -1,0 +1,249 @@
+# A SHARC based ROB Complex : design and measurement results
+
+H. Boterenbrood, P. Jansweijer, G.Kieft, R. Scholte1, R. Slopsema1, J. Vermeulen
+
+**NIKHEF, Amsterdam, the Netherlands**
+
+###### Abstract
+
+ROB hardware, based on and exploiting the properties of the SHARC DSP and of FPGAs, and the associated software are described. Results from performance measurements and an analysis of the results for a single ROBIn as well as for a ROB Complex with up to 4 ROBIns are presented.
+
+1
+Footnote 1: University of Twente, Enschede, the Netherlands
+
+A SHARC based ROB Complex : design and measurement results
+
+## 1 Introduction
+
+A ROB Complex based on two different modules, each with a SHARC DSP, is described in this document. The CRUSH ("Compact ROBIn Using a SHARC") module functions as ROBIn, the ShaSLINK module ("Sharc with S-Link output") functions as the interface between ROBIns and a PC : input of requests and of decisions and output of event fragments is done via PCI bus, using the PCI interface of the ShaSLINK module. Requests for data and decisions are fanned out by the ShaSLINK module to the ROBIns, while it also takes care of event fragment building.
+
+## 2 The CRUSH module
+
+The CRUSH module is a test implementation of the ATLAS ROBIn. It provides automatic hardware-controlled storage of the bulk of event fragments - entering from an ROL (Read-Out Link) - in a buffer while some relevant event information ("summary information") is copied (a few words per event fragment, e.g. Begin-Of-Fragment, Event-ID, End-Of-Fragment). This information together with the start position of the event fragment in the buffer is written to a so-called Paged FIFO, from where the on-board processor can read it. The event fragments are written one after the other into the buffer memory with roll over to the start of the buffer memory once the end is reached. The on-board processor is responsible for preventing overwriting of data by moving data out of the buffer memory if necessary. A block scheme of the CRUSH is presented in 1, the card itself is shown in Figure 2 on page 2.
+
+The on-board processor is an ADSP 21060L (SHARC) processor from Analog Devices with a clock frequency of 40 MHz. Its main features are its on-chip memory (512 kBytes), 6 independently operating communication links (40 MByte/s each) with hardware handshaking and 10 on-chip DMA controllers for transferring data via the links as well as between the external memory bus of the SHARC and its internal memory. Its DMA capabilities make the SHARC very well suited for handling the data and message streams present in a ROB, as multi-channel communication can take place in parallel with buffer management and data processing operations.
+
+A useful feature of the SHARC's DMA controllers is their ability to perform so-called chained DMA operations, whereby a block of data containing setup values for the DMA controller registers (the so-called Transmission Control Block (TCB) ) is loaded by the DMA controller - without intervention of the processor core - into its registers and the DMA operation is started (DMA controller "auto-initialization"); one of the DMA registers points to the next TCB which is automatically loaded at the end of the current DMA operation. The processor starts the chain by writing the address of the first TCB in the appropriate DMA controller register. It is possible to set up an endless loop of DMA operations when the last TCB of the chain of TCBs points to the first. The TCBs itself have to be set up only once by the processor. It is also possible to start just one DMA operation in this way. The software sets up all DMA parameters beforehand and at any time afterwards can start the DMA by a single write cycle, i.e. by writing the address of the TCB into the appropriate DMA controller register.
+
+The FPGA is an Altera 10k100A clocked with the same clock as the SHARC processor. The buffer memory is implemented with 1 MByte of ZBT RAM. This type of memory has the advantage that it can operate without wait cycles, also when a read cycle is immediately followed by a write cycle or vice versa. The buffer memory is clocked at 80 MHz, allowing an access from the SHARC and an access from the S-link FIFO every 25 ns. Interfacing to the buffer memory in the FPGA is strongly pipelined. This is not a problem for the S-link, from which up to 160 MByte/s can be transferred into the memory. However, the SHARC requires four system clock cycles to write or read data in or out of the buffer memory, so the transfer speed from buffer memory to SHARC is at maximum 40 MByte/s. This is equal to the bandwidth of one of the SHARC links.
+
+Several functions of the FPGA are controlled by the on-board processor. For example what a 'Begin-Of-Fragment'-word should look like and which words (specified by a word count after a 'Begin-Of-Fragment'-word) have to be copied from the event fragment to the Paged FIFO, can be set through software, using on-board registers.
+
+A SHARC based ROB Complex : design and measurement results
+
+Figure 1: Block scheme of the CRUSH module
+
+The CRUSH board has a PCI board form factor but the CRUSH only takes its power from the PCIbus. Most components are 3.3 V components, the power dissipation of the complete board (without S-link daughter board) is about 2 - 3 W. The on-board SHARC processor is booted via its Link Port 4; all 6 SHARC Link Ports are available on connectors on the board's edge.
+
+A detailed description of the design of the CRUSH module can be found in [1].
+
+## 3 Software for the CRUSH module
+
+All actions are triggered by I/O polling in one big loop, introducing potentially some latency in the actions, but avoiding any interrupt routine overhead. All input and output by the SHARC is done under DMA control. All input and output streams are buffered in SHARC on-chip memory.
+
+3 shows a schematical view of software for the CRUSH. The polling loop is indicated by the (blue) arrows connecting the various blocks. Arrows entering from the left or pointing to the left from the CRUSH indicate data flowing into or out of the SHARC. Blocks labelled with "... input " indicate places in the code where the status of DMA transfers for input of data from either the paged FIFO of the FPGA (normal operation for summary information (Event Info data) ) or from a SHARC link is looked at and where new DMA transfers for input of data are initiated. Event fragment data ("RoID" data for requested RoI data or "EBD" data for accepted event data to be sent to the Event Builder) is transferred with two DMA transfers : first the data is transferred from the buffer memory to a buffer in the internal memory of the SHARC (the bandwidth for these transfers is 40 MByte/s), in the second step the data is transferred via one of the SHARC links.
+
+Figure 2: The CRUSH module
+
+The following types of processing can be distinguished :
+
+1. "Event Info input" processing consists of copying event summary information to an ordered list according to event id, after checking whether the location in the list has not already been taken followed by checking whether the buffer memory is (almost) full,
+2. RoI request and LVL2 decision block input handling ("RoIR / T2DR input handling") consists of checking whether a RoI request or a decision record is arriving, starting a DMA for transfer of the remaining information into the "RoIR" buffer or the "T2DR" buffer, detection of the end of transfers and updating of the appropriate buffer pointers,
+3. RoI Request processing ("RoIR processing / RoID building") consists of finding the event summary information in the ordered list for the event id specified in the RoI request message, creation of a header (7 words) in the "RoID/EBD buffer" and of starting a DMA transfer from the
+
+Figure 3: Schematical view of the software for the CRUSH module
+
+event buffer memory to the "RoID/EBD buffer" in the SHARC internal memory. This is done only if there is an empty slot in the "RoID/EBD buffer" and if a DMA transfer is possible,
+4. LVL2 Decision Record processing ("T2DR processing / EBD building") consists for each decision in the decision record of finding the event summary information with the corresponding event id in the ordered list. For a reject the occupied event fragment buffer space and the entry in the event summary list for the event id is marked as being free. For an accept a header (7 words) is created in the "RoID/EBD buffer", a DMA transfer is started from the event buffer memory to the "RoID/EBD buffer" in the SHARC internal memory and the entry in the event summary list for the event id is marked as being free. This is done only if there is an empty slot in the "RoID/EBD buffer" and if a DMA transfer is possible. After handling up to 10 decisions "T2DR processing / EBD building" stops, unless all decisions in the record have been processed. In that case first a contiguous block of buffer memory - up to the first event fragment not marked as being free - is added to the free buffer memory space,
+5. "EBD' output handling" checks for the end of a DMA transfer of a fragment of an accepted event from the buffer memory to the "RoID/EBD buffer": if the transfer is finished the buffer space used is marked as being free,
+6. "RoID output handling" initiates DMA transfers for output across one of the SHARC links if there is data in the "RoID/EBD buffer" and the output SHARC link is free.
+
+Keeping track of which parts of the buffer memory are used for storing event fragment data is done as part of the "Event Info input" processing. This includes checking whether there is enough contiguous space left (including a safety margin) in the buffer memory for storing new event data arriving via the ROL. If there is not enough space left the oldest fragment(s) need to be moved from the buffer memory to the internal memory of the SHARC. The occupied space in the buffer can then be used for storing new event fragments. Checking whether there is enough space left is implemented, but the present software cannot yet move event fragments if necessary (but with a large enough buffer memory this should be necessary only for a small fraction of the events). For more details on buffer management see the appendix.
+
+The buffer memory is mapped twice in the memory map of the SHARC. This simplifies the handling of buffer wrap-around situations: it enables transfer of an event fragment by a single DMA operation even when it is "wrapped-around" the end of the buffer.
+
+Currently the software uses less than 10 k words for code (consists of 48-bit words) and about 17 k words for data (32-bit), leaving close to 100 k words (32-bit) available for additional dynamically allocated event-summary and data storage.The software is written in C using the Analog Devices Development Tools version 3.3 for the SHARC processor.
+
+## 4 Results with the CRUSH module
+
+### Measurement procedure
+
+Two different test set-ups with a single CRUSH module have been used as shown in 4 and 5. They contain a mix of CRUSH and PCISHARC modules. The PCISHARC module is a board developed at NIKHEF with a SHARC processor and an AMCC PCI interface chip. One PCISHARC provides a path for booting and interaction with the CRUSH module. Another PCISHARC module provides the source and destination of the data streams required to run the simulation.
+
+In the set-up of 4 an S-Link input stream is simulated by externally providing a stream of event summaries on one of the SHARC Link Ports ("virtual S-link"). The CRUSH reads the summaries from the Link Port in just the same way as if it reads them from its Paged FIFO. To the SHARC processor there is no difference in handling event summaries entering through the Paged FIFO or through a Link Port. There is no need to provide real S-Link input to test the software because the actual event data flow into the CRUSH's ring buffer is completely handled by hardware and does not affect the SHARC's processing performance in any way. The advantage of such a simulated or "virtual S-Link" input is that the "virtual S-Link" input rate automatically is limited by either the maximum performance of the ROBIn software (running on the SHARC) or the maximum transfer speed out of the buffer memory (in the tests "fake" event data is read out) or the maximum throughput of the SHARC links. This maximum performance is measured as a function of event fragment size; in different words: the maximum S-Link input rate for a particular event fragment size that can be handled, is measured.
+
+Nevertheless it was felt necessary to test at least the proper functioning of the CRUSH with real S-Link data input. To this end the set-up shown in 5 is used. It uses an S-Link input stream originating from either a MicroEnable module [2] or a SLIDAS module [3]. The MicroEnable's programmable hardware is programmed with the so-called MicroSlate application, turning it into an event fragment S-Link output source. Both MicroEnable and CRUSH are equipped with either a Fiber-Channel S-Link interface (measured throughput ca. 56 MByte/s) or a SCSI-cable S-Link interface (measured throughput ca. 80 MByte/s). The SLIDAS module is an S-Link output source mounted directly on the CRUSH providing an S-Link input data stream of 5, 10, 20, 40, 80 or 160 MByte/s.
+
+Since the event fragment data stream entering the CRUSH via the S-Link is in principle uncontrolled and continuous, the CRUSH itself has to trigger the PCISHARC, so that the PCISHARC can generate the RoI requests and LVL2 decisions according to the required RoI request rate (as a fraction of the event fragment input rate) and the actual event fragment stream arriving across the S-Link. To do this requires an extra communication channel between CRUSH and PCISHARC, which is labeled "RoI Request requests" in 5.
+
+Figure 4: Test set-up with a virtual S-link
+
+Measurements showed that the "virtual S-link" setup of 4 results in a roughly 10 % lower maximum event fragment rate due to necessary simulation-related overhead than equivalent measurements with the setup of figure 5. Hence measuring with the setup of 4 results in _lower_ values for the maximum event fragment rate than would be observed with real S-link input of event data.
+
+### Measurement results : maximum event rate
+
+Measurements were done for event sizes of 256, 512, 768,1024, 1280, 1536, 2048, 3072 and 4096 Bytes, RoI request fractions of 5, 10, 14, 20, 25, 33, 50 and 100 % and accept fractions of 0, 1, 3, 5 and 10 %. The size of the decision record was kept constant at 100 decisions. The fractions are with respect to the rate of events received via the (virtual) S-link.
+
+For each combination the maximum event fragment rate the CRUSH module can handle was determined. Table 1 and Table 2 contain an overview of the results. The maximum event rate as a function of the event size for the different accept fractions and for RoI request fractions of 10%, 25% and 100 % is shown in 6, 7 and 8 respectively.
+
+Figure 5: Test set-up with real S-link input
+
+A SHARC based ROB Complex : design and measurement results
+
+Figure 6: Maximum event rate as a function of fragment size for different accept fractions and a RoI request fraction of 10 %
+
+Figure 7: Maximum event rate as a function of fragment size for different accept fractions and a RoI request fraction of 25 %
+
+[MISSING_PAGE_FAIL:9]
+
+[MISSING_PAGE_FAIL:10]
+
+In 9 the inverse of the maximum event rate is shown as a function of the event size for the different accept fractions and a RoI request fraction of 50 %. For small event fragment sizes the maximum event rate is independent of the size, for larger event fragments the inverse rate is seen to be approximately linear dependent on the size. This leads to the conclusion that for small event fragments processing in the SHARC limits the maximum rate, while for larger fragment sizes the bandwidth of the output link (40 MByte/s) is the limiting factor.
+
+After some tries it was found that the following formulae represented the data best :
+
+(1/rate) = max {(1/rate)a,(1/rate)b }
+
+(1/rate)a = c1 + c2.R + c3.A
+
+(1/rate)b = c4 + c5.R + c6.A + c7.E:(R+A)
+
+with R : RoI request fraction, A: accept fraction and E : event fragment size.
+
+The results were fitted with a ROOT-macro, using TMinuit, a class interfacing to the FORTRAN minimizing program Minuit. Two fits were made, one with c7 fixed to 25 ns per byte (corresponding to the 40 MByte/s bandwidth of the output link) and one with c7 free. The latter fit resulted in a value of 24.9 ns for this parameter. The results for the parameters (all values are in microseconds, except for c7 which has the dimension microsecond per byte) are presented in Table 3. It was also attempted to make separate fits of the equations for (1/rate)a and (1/rate)b, for each fit using a different set of selected data points. The resulting parameters are also presented in Table 3. In 10 the distribution of the ratio of predicted and measured rate for all measurements (430 in total) for the overall fit with c7 free is shown. A similar distribution for the overall fit with c7 fixed looks almost the same. In 11 the distribution of the ratio of predicted and measured rates for all measurements using the parameters obtained with the two separate fits is shown. A somewhat narrower peak is observed. The distributions are asymmetrical with a tail for values lower than 1, i.e. the largest deviations between measured and predicted rates occur for predicted rates which are too low.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|c|} \hline Type of fit & c1 & c2 & c3 & c4 & c5 & c6 & c7 \\ \hline \hline
+1 fit, c7 free & 4.70 & 11.29 & 6.69 & 1.35 & 4.62 & 4.83 & 0.0249 \\ \hline
+1 fit, c7 fixed & 4.69 & 11.34 & 6.94 & 1.34 & 4.46 & 4.63 & 0.0250 \\ \hline
+2 fits, c7 free & 4.54 & 11.53 & 7.51 & 1.31 & 5.18 & 4.84 & 0.0249 \\ \hline \end{tabular}
+\end{table}
+Table 3: Fitted values of parametersA SHARC based ROB Complex : design and measurement results
+
+Figure 8: Maximum event rate as a function of fragment size for different accept fractions and a RoI request fraction of 50 %
+
+Figure 9: The inverse of the maximum event rate as function of the event size
+
+Figure 11: The ratio of predicted and measured maximum event rate for all measurement results if two separate fits are made.
+
+Figure 10: The ratio of predicted and measured maximum event rate for the overall fit with \(c_{7}\)free
+
+### Measurement results : latency
+
+For different event sizes, RoI request fractions and acceptance fractions the latency, i.e. the time between the arrival of a RoI request and the start of the output to the link of the event data requested, has been measured. For the time measurements the internal clock of the SHARC processor on the CRUSH (clock frequency : 40 MHz) has been used. For each RoI request two time-stamps were made (see 3). The first timestamp was made when the DMA transfer getting the RoI request from the input link finished, the second when a DMA transfer started to output the relevant event data via the output link. Both timestamps, together with the length, event id and ROB id, were copied into the header of the RoI data. In the PCISHARC module receiving the RoI data the timestamps were subtracted and put in a histogram. In the same way as described in the previous section the maximum event rate was also determined.
+
+The latency measurements hardly have an effect on the performance of the CRUSH module as the length of all messages with event data is not changed and the time to make the timestamps is negligible. Making the histogram in the PCISHARC module takes more time. However, it was found that the maximum event rates are the same as without latency measurement, showing that the CRUSH module is the limiting factor in the system.
+
+Measurements have been done for event sizes of 256, 512, 768, 1024, 1280, 1528, 2048, 3072 and 4096 bytes, for RoI Request fractions of 5, 10, 14.3, 20, 25, 33, 50 and 100 %, and for acceptance fractions of 0, 1, 2, 3, 5 and 10 %. Some of the results are shown in 12 and 13. The peaks are caused by the structure of the software and the size of the buffers (see 3).
+
+Figure 12: Latency for different RoI request fractions and an event size of 512 bytes and an accept fraction of 0 %
+
+## 5 The ShaSLINK module
+
+The ShaSLINK (Sharc + S-link source) module is a PCI card with a SHARC processor, a PCI interface (implemented with the PLX 9054) and an S-link source interface. A block scheme is presented in 14, the module itself is shown in 15. A detailed description of the module can be found in [4].
+
+A SHARC based ROB Complex : design and measurement results
+
+Figure 14: Block scheme of the SHaSLINK module
+
+Figure 13: Latency for different RoI request fractions and an event size of 1024 bytes and an accept fraction of 1 %
+
+## 6 Configuration of a ROB Complex with CRUSH and ShaSLINK modules
+
+A ROB Complex has been built from two CRUSH and a ShaSLINK module connected with SHARC links and a PC. Output can go either via PCI bus or S-link. In this document output via S-link is not considered. In 16 the lay-out of the ROB Complex test setup built with two CRUSH modules, two ShaSLINK modules, a PCISHARC module and two PCs is shown.
+
+The PCISHARC module is used for distributing RoI requests and LVL2 decisions to the "ROB-Ins". For the test measurements again "virtual S-link input" (see Section 4.1) has been used: the event summary information, during normal operation read from the Paged FIFO in the FPGA is sent to each CRUSH module via a SHARC link. One of the ShaSLINK modules (the EVT-GEN block in the figure) generates the event summary information, while the other functions as "ROB-MUX". Each CRUSH module functions as a single ROBIn, but data transferred via one of its links can also be transferred via a second link. In this way from the point of view of the ROB-MUX 2 ROBIns are sending their data in stead of a single ROBIn. The setup therefore allows to obtain information on the behavior of a ROB complex with up to 4 ROBIns.
+
+One of the PCs, a 200 MHz Pentium Pro machine, generates RoI requests and LVL2 accepts / rejects and waits for event fragments to arrive. The RoI request rate and the accept rate relative to the LVL1 rate can be specified. The number of requests handled by the ROB complex at any given time (i.e. passed to the ROB-MUX) is bound to a maximum. Again the maximum event fragment rate is measured.
+
+Figure 15: The ShaSLINK moduleThe ROB-MUX passes RoI requests and decision blocks to the ROB-DISTR and it receives event fragments from the CRUSH modules and combines these into larger fragments which are stored via DMA controlled block transfers via the PCI bus in the memory of the PC. The EVT-GEN generates independently summary information and sends this information to each CRUSH individually. The event generation process is throttled by the ROB-DISTR, which sends signals to the EVT-GEN indicating how far it can advance with the generation of new events. RoI requests and LVL2 accepts / rejects are passed by the ROB-DISTR to the CRUSH modules. The PCI interfaces of the cards implementing the ROB-DISTR and EVT-GEN functions are only used for monitoring purposes.
+
+As a single PC of the type used only has 3 empty slots it was necessary to use a second PC. Short flat cables are used for interconnecting the SHARCs.
+
+The test setup also offers the possibility to study the effect of servicing two FPGAs with a single SHARC : the event summary information can be sent twice via separate links to the CRUSH modules. In this way the transfer of summary information from the paged FIFO's of two FPGAs into a single SHARC can be emulated. Also the RoI requests and decisions can be sent via two links, so that, if the software running on the SHARC of the CRUSH module is adapted suitably, a realistic study, which has not been undertaken yet, is possible.
+
+## 7 ROB Complex measurement results
+
+Table 4 and Table 5 contain results for the maximum event fragment rate for different event sizes, RoI request fractions and accept fractions obtained with the setup described in Section 6 for four different configurations. The size of the decision record was kept constant at 100 decisions.
+
+Figure 16: Configuration of the ROB Complex test setup.
+
+The configurations are :
+
+* "1" : 1 CRUSH module used, data is transferred to the ROB-MUX via 1 SHARC link,
+* "1 + 1" : 2 CRUSH modules used, each transfers event data to the ROB-MUX via one SHARC link, the ROB-MUX builds events from the fragments from both input data streams,
+* "2 + 1" : 2 CRUSH modules used, one transfers event data via a SHARC link and in parallel the same event data via a second SHARC link to the ROB-MUX and one transfers event data to the ROB-MUX via one SHARC link, the ROB-MUX builds events from the fragments from the three input data streams,
+* "2 + 2" : 2 CRUSH modules used, both transfer event via a SHARC link and in parallel the same event data via a second SHARC link to the ROB-MUX, the ROB-MUX builds events from the fragments from the four input data streams.
+
+In 17 and 18 results for the inverse rate as function of the fragment size and for 1 % accept fraction are presented graphically. The same behavior as for a single CRUSH module is observed : for small fragments the rate is independent of the fragment size, for larger fragments the inverse rate increases linearly with the fragment size, indicating that there is a bandwidth limitation. For the "1" and "1 + 1" configurations the limitation comes from the SHARC link(s). The maximum internal bandwidth of the SHARC of the ShaSLINK for simultaneous input via its links and output via its external bus interface is 80 MByte/s. This limits the output bandwidth for the other configurations (and for the "1 + 1" configuration as well, but in this case the limit is the same as the maximum throughput via two SHARC links). The measurement results from Table 5 were fitted with almost the same formulae as used in Section 4.2 :
+
+(1/rate) = max {(1/rate)a,(1/rate)b,(1/rate)c}
+
+(1/rate)a=c_1+c_2.R+c_3.A
+
+(1/rate)b=c_4+c_5.R+c_6.A+c_7.E.(R+A)
+
+(1/rate)c=1/165("1" configuration)or1/120(other configurations)
+
+The maximum event rate for small RoI request and accept fractions and small event fragments is about 165 kHz for the "1" configuration and about 120 kHz for the "1 + 1", "2 + 1" and "2 + 2" configurations. These numbers are the same for different RoI request and accept fractions and fragment sizes. This shows that the measurement procedure rather than the performance of the CRUSH modules and ROB-MUX determines these maximum rates. The reduction of the maximum event rate for the "1 + 1", "2 + 1" and "2 + 2" configurations can be attributed to the EVT-GEN, which has to generate and send event summary information at twice the full event rate for these configurations. For higher RoI request fractions and still for small event fragments a maximum rate is found which depends on the RoI request and accept fractions, but not on the event fragment size. This is the behavior described by the equation for (1/rate)a. Only measured rates lower than 165 ("1" configuration) or 120 kHz ("1 + 1", "2 + 1" and "2 + 2" configurations) have been used in fitting it. For the larger event fragments the equation for (1/rate)b was fitted to the measured rates. In view of the limited number of accept fractions it was not attempted to do a combined fit. The measurement results used for each fit were selected with the help of plots like shown in 17 and 18.
+
+[MISSING_PAGE_FAIL:19]
+
+[MISSING_PAGE_FAIL:20]
+
+The parameters depend more strongly on the RoI request fraction than found for a single ROBIn. This results in a faster decrease of the maximum event rate for increasing RoI request fraction, which can be attributed to the action of the ROB-MUX and to the generation of event summary information and of RoI request and accept messages. The same measurements, but with output of event data to the ROB-MUX switched off could provide more insight in the limitations due to driving the ROBIns. However, these have not been done at the time of writing this note. The measured maximum rates hence provide lower bounds to the rates that could be obtained in the real application.
+
+A SHARC based ROB Complex : design and measurement results
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|c|} \hline Configuration & c\({}_{1}\) & c\({}_{2}\) & c\({}_{3}\) & c\({}_{4}\) & c\({}_{5}\) & c\({}_{6}\) & c\({}_{7}\) \\ \hline \hline
+1 & 0.68 & 27.4 & 23.8 & 0.78 & 13.7 & 9.57 & 0.0244 \\ \hline
+1 + 1 & – & 38.8 & 36.8 & – & 20.4 & 55.8 & 0.0250 \\ \hline
+2 + 1 & 0.38 & 46.1 & 51.2 & 0.69 & 17.7 & 5.49 & 0.0403 \\ \hline
+2 + 2 & 0.36 & 58.3 & 51.6 & 1.32 & 28.8 & – & 0.0512 \\ \hline \end{tabular}
+\end{table}
+Table 6: Parameters obtained from fitting the equations shown in the text to the measurement results.
+
+Figure 17: The inverse of the maximum event rate as function of the event size for different RoI request fractions (accept fraction is 1 %) in the “1” configuration.
+
+Figure 19: The ratio of predicted and measured maximum event rate for the “1”, “1+1”, “2+1” and “2+2” configurations
+
+Figure 18: The inverse of the maximum event rate as function of the event size for different RoI request fractions (accept fraction is 1 %) in the “2 +2 “ configuration.
+
+## 8 Conclusions and discussion
+
+The measurement results show good performance of the hardware and software, satisfying the requirements obtained from modelling [5, 6]. The measurement procedure may be limiting the maximum rates, in particular for the ROB Complex measurements. The maximum rates observed can be estimated with simple equations, based on parameters obtained from fitting the measurement results.
+
+The point-to-point SHARC links are well suited for the internal (probably on-board) connections inside a ROB Complex. The automatic handshaking per 32-bits word transferred across a link is very useful and makes it straightforward to avoid overflows of buffers for requests and decisions inside the ROB Complex. As the ROB-MUX takes care of fragment building and fanning out RoI requests and decisions the message rate across the PCI bus is smaller than for ROB Complexes using the PCI bus for connecting ROBIns to a CPU of a PC or Single Board Computer. Also the load of the CPU of the PC or Single Board Computer may be smaller.
+
+The compact design and the low power dissipation of the CRUSH would allow to build a ROB complex with about 6 ROBIns on a single 6U Eurocard, if a good way is found to connect 6 S-links to a 6U board.
+
+The ADSP-21160 processor is the successor of the ADSP-21060. It is 2.5 times as fast, has 6 100 MByte/s links, also 512 kByte of internal memory, a smaller footprint than the ADSP-21060 and also a low power dissipation. A new design based on it (possibly in combination with a new generation of FPGAs) would not suffer from the bandwidth limitation of 80 MByte/s in the ROB-MUX, whereas the performance of this processor could be high enough to allow servicing of two S-links. An even more compact design could be possible at a lower price due to a reduction in the number of processors needed.
+
+The S-link output of the ShaSLINK could be used as an alternative to output via PCI bus. This allows to study a scenario in which groups of ROBs are outputting event data via dedicated links (S-links in this case) connecting to processors of the LVL2 farm. These processors would then provide the required network interfacing together with processing capacity for the LVL2 trigger. RoI requests and decisions would reach the ROB complex either via PCI bus or via a SHARC link interfaced to a PC or Single Board Computer servicing many ROB Complexes. This and other scenarios are discussed in [6] and [7].
+
+## References
+
+1. "A Compact Robin Using the SHarc (CRUSH)", September, 1998, P. P. M. Jansweijer, G. N. M. Kieft, J. C. Vermeulen, [http://www.nikhef.nl/pub/experiments/atlas/daq/CRUSH-hw.pdf](http://www.nikhef.nl/pub/experiments/atlas/daq/CRUSH-hw.pdf)
+
+2. Manufactured by Silicon Software, [http://www.silicon-software.de](http://www.silicon-software.de)
+
+3. SLIDAS, "S-Link Infinite Data Source", [http://hsi.web.cern.ch/HSI/s-link/devices/slidas/](http://hsi.web.cern.ch/HSI/s-link/devices/slidas/), available from INCAA computers, [http://www.incaacomputers.com](http://www.incaacomputers.com)
+
+4. ShaSLINK description, P. Jansweijer, [http://www.nikhef.nl/pub/experiments/atlas/daq/ShaSLINK.pdf](http://www.nikhef.nl/pub/experiments/atlas/daq/ShaSLINK.pdf)
+
+5. "Paper modelling of the ATLAS LVL2 trigger system", J.Bystricky and J.C.Vermeulen, ATL-COM-DAQ-2000-022
+
+6. "ROB Complex Master Working Document", R. Cranfield and J. Vermeulen, ed., ATL-COM-DAQ-2000-033
+
+7. "Scenarios for a ROB system built with SHARC processors", Jos Vermeulen, October 1999, [http://www.nikhef.nl/pub/experiments/atlas/daq/Scenarios/Scenarios-NIKHEF.pdf](http://www.nikhef.nl/pub/experiments/atlas/daq/Scenarios/Scenarios-NIKHEF.pdf)
+
+## Appendix Buffer management schemes
+
+There are different ways for keeping track of free space in the event fragment buffer and detecting/ avoiding a buffer full condition. Two schemes have been tried in the tests. No significant difference in performance was found for the two buffer management schemes.
+
+The first scheme of buffer management of the Event Buffer and associated Event Info List (list of event summaries) is illustrated in 20.
+
+EvtInfo_list is the 'Event Info List', an array of event fragment summaries, each holding the 8 words of event fragment information that the SHARC reads from the paged FIFO for each event fragment (plus two extra words as explained below). The list is ordered according to the lower 10 bits of the event's Event-ID (so EvtInfo_list has space for 1024 event fragment summaries). Each event fragment summary holds - among other things - the index into EvtData_buffer where the actual event data is to be found, and its length, enabling the retrieval of an event fragment based on its event identifier.
+
+In principle there is no fixed maximum number of event fragments that can be present in EvtData_buffer at any one time; however, if at some point an event fragment arrives with an Event-ID with the 10 lower bits identical to an event fragment already present in buffers EvtData_buffer and EvtInfo_list, the information in EvtInfo_list would be overwritten and the reference to the other event fragment would be lost if this is not taken into account and appropriate action is not taken. In this case space is allocated from the heap for storing the event summary. A pointer in the summary in EvtInfo_list is set to point to the new summary. Any other summaries to be stored in the same EvtInfo_list entry list are added to the linked list thus created (as shown in 20). The current software checks for the presence of a linked list but does not yet create or scan a list (since it is assumed that this rarely occurs the presence of the check alone suffices to include the resulting impact on performance).

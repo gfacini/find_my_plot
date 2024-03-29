@@ -1,0 +1,259 @@
+**ATLAS Internal Note DAQ NO. 40**
+
+**12 January 1995**
+
+**Modelling of the ATLAS Data Acquisition and Trigger System with SCI**
+
+**Version 1.04**
+
+**Andre Bogaerts1, Hui Li2, Bernhard Skaali2, Bin Wu1,2**
+
+1) CERN, 1211 Geneva 23, Switzerland
+
+2) Department of Physics, University of Oslo, 0316 Oslo, Norway
+
+_Abstract_
+
+_The Second Level Trigger (T2) of the ATLAS Trigger and Data Acquisition System has been modelled and simulated by the ATLAS modelling group. Based on a generic MODSIM model, specific interconnect technologies such as SCI can also be included in the model to see their effect with realistic ATLAS data patterns. Simulation results for an SCI based T2 implementation are presented as well as some details of the modelling work. Several topologies for the T2 DAQ system are discussed and simulated._
+
+### 1.0 Introduction
+
+The generic ATLAS simulation (_"SIMDAQ"_) [1] uses point-to-point links between T2 Buffers and Local T2 Processors, as well as between Local and Global T2 Processors, as shown in Figure 1.
+
+The objective of the ATLAS DAQ simulation with SCI is to replace the point-to-point links by an SCI based switching network [2] as shown in Figure 2.
+
+### 2.0 General SCI System Setup
+
+The ATLAS Second Level Trigger System is largely determined by two requirements:
+
+1. provide sufficient CPU power as dictated by the T2 Trigger Algorithms
+
+2. provide a connection between CPUs and memories of sufficient I/O capacity
+
+Figure 1: Generic simulation model of the ATLAS T2 DAQ system
+
+Figure 2: SCI based simulation model of the ATLAS T2 DAQ systemIt is our goal to define the most cost effective SCI network which fulfills these requirements. The present assumptions for the execution time of T2 Trigger Algorithms result in a rather large system with many CPUs and hence connections of modest I/O bandwidth. The standard approach to match the I/O capacity with the required number of CPUs is multiplexing. For SCI a combination of two ways of multiplexing can be envisaged:
+
+1. use several memories or CPUs on one bus with an SCI Bridge to the network
+2. combine these into SCI rings which connect to switches
+
+The current version of SIMDAQ does not model buses. As an approximation, T2 Buffers have been defined as "super buffers" which in reality correspond to a crate of 16 Memory Modules. Assuming a memory mapped bus, e.g. the VMEbus with a VME to SCI Bridge this seems a reasonable approximation. Similarly, considering the modest I/O requirement of each CPU it would be natural to assume that a certain number of CPUs is connected to one bus, e.g. the PCI bus with 8 CPUs and one SCI to PCI interface. For technical reasons, this is not possible in the current version of SIMDAQ. Consequently, a large number of SCI to CPU interfaces has been used. It would be more realistic to divide this number by 8 as we shall investigate in the future.
+
+We have also exploited the fact that SCI is bi-directional. The Local T2 Processors require a connection to the T2 Buffers to receive their input data as well as a connection to the Global T2 Processors to send their results. In the model, we use the input and output port of a single SCI interface for this purpose. Most components of the Trigger System require several logical connections for different purposes: a control port for the synchronisation, a connection to the First or Third Level Trigger, a provision for monitoring and debugging. These parts are not yet simulated. We consider multiplexing of these different functions over the same SCI connection in the future. This should lead to a considerable simplification of both hardware and software.
+
+In the following sections we investigate the influence of different choices for the execution time of the Trigger Algorithms on the size of the system in terms of number of CPUs, depth of the memory buffers and the breakdown of the network in switches and rings.
+
+### 3.0 Starting Setup
+
+The first model we are going to build consists of two detectors, namely EMC and HAC. The EMC has thirty-two T2 Buffers (T2B), and the HAC has eight T2Bs [3]. From physics simulations we know that the amount of data passing from T2Bs to Local T2 Processors (LT2P) is roughly the same for EMC and HAC [4][5]. Therefore, we will use the same number of LT2Ps for both detectors. Based on the execution time of the Trigger Algorithms we use 64 LT2Ps for each EMC and HAC, as well as 64 GTPs.
+
+The data is independent for EMC and HAC resulting in a two identical, disconnected local switch networks (LT2S) for each. The Global T2 Switch (GT2S), on the other hand, requires a connection to all LT2Ps and GT2P farm.
+
+We assume high performance switches such as the 1 Gbyte/s GaAs switches being developed in the TOPSCI project is used[6]. The bandwidth of LT2Ss is supposed to be 1 Gbyte/s, which we think could be fulfilled by a single _4-switch_ (a switch connecting 4 SCI rings). Thus each LT2S is a single 4-switch with two input-rings of T2Bs and two output-rings of LT2Ps, as shown in Figure 3. The GT2S is a 4\({}_{\text{R}}\)x4\({}_{\text{R}}\) multistage network.
+
+To configure such a system, we wrote four separate files, as required by SIMDAQ.
+
+### atlas.conf
+
+The main file atlas.conf is produced by [7]
+
+Figure 3: The first ATLAS simulation with full SCI setup
+
+> Configure +globproc 64 +file atlas +switch Generic +addpartition atlasEMC +addpartition atlasHAC
+
+One has to make the file compatible with SCILab conventions, see section 4.0 "Integrating SCILAB to ATLAS Simulation Environment" on page 4.
+
+### atlasEMC.conf
+
+The configuration file for the LT2S of EMC is generated by
+
+> Partition +pname EMCALO +psubdet EMC calorimeter +pswitch Generic +pid EMC +pfile atlasEMC +plocproc 64 +segment -3 to -1.4 0 to 2PI 1 by 8 +segment -1.4 to 1.4 0 to 2PI 2 by 8 +segment 1.4 to 3 0 to 2PI 1 by 8 +fastrun
+
+### atlasHAC.conf
+
+The configuration file for LT2S of HAC is generated by
+
+> Partition +pname HACALO +psubdet HACalorimeter +pid HAC +pswitch Generic +pfile atlasHAC +plocproc 64 +segment -3 to -1.4 0 to 2PI 1 by 2 +segment -1.4 to 1.4 0 to 2PI 2 by 2 +segment 1.4 to 3 0 to 2PI 1 by 2 +fastrun
+
+### atlasSCL.conf
+
+The file is a combination of three files made by TopoEngine. Hand-editing is necessary as the configuration is not a standard one in our topology library.
+
+### Routing table
+
+Making the routing table is difficult. The SCI simulator _SCILab_[8] uses two different routing algorithms. For irregular topologies, this is based on an exhaustive search of the shortest path between any pair of nodes. The result is not necessarily unique nor dead-lock free. For many known regular topologies we use standard, optimal, dead-lock free routing algoritms. All ATLAS configurations that we have considered are irregular but contain standard Banyan type multi-stage switches. The current version of SCILab cannot yet isolate regular sub-networks. Routing tables are obtained by hand editing and merging tables produced for each of the regular sub-networks.
+
+### Simulation results and analysis
+
+The output from the SCI simulation is an ASCII file which can be processed by Paw [9]. We will show more examples later. The plot of the simulation-run with the configuration in Figure 3. NodeId from 1-68 are T2 Buffers, except there are four switch ports in-between (1, 18, 36 and 54). NodeId from 69 to 204 are Local T2 Processor with some switch port in-between. Node205 to Node212 are the 4-ring-by-4-ring switches. And nodes with nodeId beyond 212 are Global T2 Processors.
+
+### 4.0 Integrating SCILAB to ATLAS Simulation Environment
+
+### How does it work, an overview
+
+Both a generic and SCI based ATLAS DAQ simulation environment exist (Figure 5). The generic and SCI domains are linked through interfaces called SCI \(Ports\). Generic messages are disassembled into SCI packets, transmitted through the network according to SCI protocols, and reassembled upon arrival.
+
+Figure 4: **Fisrt plot of the ATLAS-SCI simulation shown in Figure 3**
+
+Figure 5: **Integrating two simulation environments**
+
+### Description of SCI specific objects
+
+#### 4.2.1 Object SCIPort
+
+The SCIPort is a composite object with a pointer field to a DAQSCINode object. An SCIPort object can either be an IN port or an OUT port, which is unidirectional. SCIPorts have to send or receive messages through its DAQSCINode. For example, if an LT2 Buffer will send a message to an LT2 Processor, and it has an SCIPort as the OUT port, the LT2 Buffer will invoke the WAITFOR METHOD SendMessage of the SCIPort. In turn, the METHOD SendMessage of SCIPort will invoke the WAITFOR METHOD of its DAQSCINode.
+
+SCI supports at most 256-byte long packets. The size of a message is normally 1024-byte. So SCIPort must calculate the number of packets it delivers to a DAQSCINode. In our implementation, we use 64 bytes as the default data size for each packet passed to DAQSCINode. The incoming message is cut into SCI packets in SCIPort and send over SCI networks.
+
+The output queues may be more than one-packet-deep in a DAQSCINode, SCIPort keeps all of them busy. It is fully described in the MODSIM II code (in the WAITFOR METHOD SendAllPacket of SCIPort).
+
+#### 4.2.2 Object DAQSCINode
+
+SCINodes are bidirectional, therefore they can be linked to one IN port or one OUT port, or both, depending on the application. DAQSCINode can send and receive packets at the same time. It is derived from Object SCInode in Module SCItrans. ASK METHOD SetPorts is new. It takes care of the threads of its IN and OUT ports. In Figure 6, the links between DAQSCINode and SCIPort are shown.
+
+#### 4.2.3 Object SCIDAQSwitch
+
+This object is new, it is derived from DAQSwitch. But for the time being, it almost a dummy object. It substitutes DAQSwitch Object when a SCI partition is included is the ATLAS simulation.
+
+Figure 6: A LT2 Processor hooked to an SCI node
+
+### How to use/configure the system
+
+#### 4.3.1 Changes in configuration file
+
+In the atlas.conf, following changes must be made to adapt with SCI, the left column is the old file while the right should be in the new one.
+
+**Original atlas.conf** _New Atlas.conf_
+
+#define SCIPARTITION 3
+#define SCIDAQSWITCH 202
+
+#define EMCLT2Switch DAQSwitch
+#define EMCLT2SToLT2PPort BasicDAQPort
+#define EMCLT2SToLT2SPort BasicDAQPort
+#define EMCLT2BToLT2SPort SCIDAQPort
+#define EMCT2BToLT2SPort SCIDAQPort
+#define EMCLT2SToT2BPort BasicDAQPort
+#define EMCLT2SToT2BPort SCIDAQPort
+#define HACLT2Switch DAQSwitch
+#define HACLT2SToLT2PPort BasicDAQPort
+#define HACLT2PToLT2SPort BasicDAQPort
+#define HACLT2BToLT2SPort SCIDAQPort
+#define HACLT2BToLT2SPort SCIDAQPort
+#define HACLT2SToT2BPort BasicDAQPort
+#define HACLT2SToT2BPort SCIDAQPort
+#define GT2Switch DAQSwitch
+#define EMCLT2PToGT2SPort SCIDAQPort
+#define GT2SToEMCLT2PPort SCIDAQPort
+#define HACLT2PToGT2SPort SCIDAQPort
+#define HACLT2PToGT2SPort SCIDAQPort
+#define GT2SToHACLT2PPort SCIDAQPort
+#define GT2SToGT2PPort BasicDAQPort
+#define GT2SToGT2PPort SCIDAQPort
+#define GT2PToGT2SPort SCIDAQPort
+#define GT2PToGT2SPort SCIDAQPort
+#ifdef SCIPART
+#include "atlasSCI.conf"
+#endif
+
+The configuration and partition file for simulation with SCI must be partly made by hands now. A generator for SCI configuration and partition is expecting to come.
+
+### 5.0 Complex SCI Switch Based Systems
+
+### The number of local T2 processors needed
+
+The number of local T2 processors (LT2P) needed to process events in real time is determined by the execution time of the feature extraction algorithm. It is agreed by the simulation group that the number of LT2Ps should be 64 if each LT2P could process an event in 150 us, and 128 for the 300 us case, 256 for the 600 us case. This is the number needed for
+
+[MISSING_PAGE_EMPTY:9]
+
+Figure 8: SCI \(\mathbf{4_{R}x4_{R}}\) switching network
+
+Figure 9: SCI \(\mathbf{8_{R}x8_{R}}\) switching network
+
+[MISSING_PAGE_EMPTY:11]
+
+Figure 12: Plot of bandwidth of local T2 switches (node 49-64)
+
+Figure 13: Plot of bandwidth of local T2 processors and related switches (node 65-100)
+
+Figure 14: Plot of bandwidth of global T2 switches (node 209-240)
+
+Figure 15: Plot of bandwidth of global T2 processors and related switches (node 241-258)
+
+### Towards a More Cost-effective System
+
+The traffic flow through the global T2 switching network is of the order of hundreds of Megabytes per second for which an \(8_{\text{R}}\)x\(8_{\text{R}}\) switch is clearly overdimensioned. Further more, a real system will have to accomodate more detector types, such as the Transition Radiation Tracker (TRT), which implies the use of a larger switch to avoid putting too many nodes on the same ring. We will present to alternative models which are more cost-effective. These will also allow further expansion of the size of the system. We have a third DAQ partition (TRT) built in.
+
+### Single ring solution
+
+In Figure 16, the left side of the local T2 processor rings is a \(4_{\text{R}}\)x\(4_{\text{R}}\) switch for each of the partitions, as before. The global T2 switch is replaced by a single SCI ring. This system is simple, but may not be able to provide the necessary bandwidth that is needed, due to the fact that once we add more detectors and thus more input rings, the global T2 ring becomes a bottleneck
+
+Figure 16: Proposal one: single ring solution
+
+### Multiple rings with a smaller switch solution
+
+This proposal (Figure 17) will let you add more nodes on each ring. Adding another partition will simply add one node (switch port) to each ring.
+
+### **Seperating large rings with SCI 2-switches**
+
+It is required to run a cofiguration with
+
+1) 32 EMC T2 Buffers, 128 LT2 Processors which corresponds to 300 us event process time for each processor;
+
+2) 8 HAC T2 Buffers, 128 LT2 Processors (corresponds to 300 us);
+
+3) 32 TRT T2 Buffers, 256 LT2 Processors (corresponds to 700 us);
+
+4) 128 GT2 Processors (corresponds to 500 us)
+
+Due to the large numbers of nodes per LT2 Processor ring, we split them with SCI 2-switches as shown in Figure 18.
+
+Figure 17: Proposal two: multiple ring with a smaller switch solution
+
+[MISSING_PAGE_EMPTY:17]
+
+### Feature extraction 300 \(\upmu\)s
+
+Figure 21 shows the SCI link traffic and processor/memory bandwidth. Figure 22 shows the average buffer occupancy and T2 decision latency.
+
+Figure 21: Link Traffic and Bandwidth of T2 Buffers, Local and Global T2 Processors
+
+Figure 22: Buffer Occupancy and T2 Decision Latency
+
+[MISSING_PAGE_EMPTY:19]
+
+### Depth of FIFO in the SCI switches
+
+The depth of FIFOs in SCI switches is a very important issue to be investigated. If we use too large a FIFO, we are wasting resources and money. On the other hand, if the FIFO is too small, we may queue the packets somewhere and cause lost of packets, as we can see clearly from Figure 25.
+
+Figure 25: Size of FIFOs versus raw and retry throughput (150 us case)
+
+[MISSING_PAGE_EMPTY:21]
+
+### FIFO size depends heavily on the network topology
+
+The solution provided in section 6.3 "Soperating large rings with SCI 2-switches" on page 14 gives us a much better scenario than the one shown in Figure 25. From Figure 28 we can see that the network could handle the traffic even with one-packet-deep FIFOs in switches.
+
+### 8.0 Future Work
+
+Future work is needed to include more detectors, to complete Trigger and DAQ architectures and to improve the accururacy.
+
+### 9.0 Acknowledgement
+
+We are grateful for the support of the ATLAS Trigger and Data Acquisition group.
+
+Figure 28: Size of FIFOs versus raw and retry throughput (the system in Figure 18)
+
+## References
+
+* [1] "Modelling of the ATLAS Data Acquisition and Trigger System", A. Bogaerts et al., Atlas DAQ Note 18, November 1994.
+* A Simulation Environment for the Scalable Coherent Interface", A. Bogaerts & B. Wu, RD24 Note, October 1994.
+* [3] "Readout data specifications for modelling a level-2 trigger using regions of interest", R. Bock and P. LeDu, Atlas DAQ note xxx, September 1994.
+* [4] "ATLAS Trigger Simulation User Guide", J. Carter, Atlas DAQ note xxx, September 1994.
+* [5] "ATLAS Data for Trigger Studies in a Portable Text Format", J. Carter, EAST 94-33, October 1994.
+* [6] "SCI Switches", B. Wu, Int. DAQ Conf. on Event Building and Data Readout, Fermilab, Batavia, Oct. 26-28 1994
+* [7] "Internal Structure of the Processors in SIMDAQ", S. Hunt, Atlas DAQ note xxx, November 1994.
+* [8] "SCI Simulations with SCILab", B. Wu, A. Bogaerts, European SCI Workshop, Oslo, Sept. 1994
+* [9] "PAW, Physics Amnalysiss Workstation", CERN Program Library Long Writeup Q121, CN Division, CERN, Oct. 1993
+* [10] "MODSIM II Histogramming Package for use with ATLAS Trigger/DAQ-Simulations", C. Hortnagl, Internal Note, July 1994.
+* [11] "Modelling Results of the Atlas Data Acquisition and Trigger System", Atlas Modelling Group, Atlas DAQ note xxx, November 1994.

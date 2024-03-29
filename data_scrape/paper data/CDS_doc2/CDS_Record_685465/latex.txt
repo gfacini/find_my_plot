@@ -1,0 +1,118 @@
+ATLAS-COM-DAQ-2003-005
+
+ATLAS-COM-SOFT-2003-002
+
+24 March 2003
+
+**Region-of-Interest Selection for ATLAS High Level Trigger and Offline Software Environments**
+
+A.G. Mello\({}^{\dagger}\), S. Armstrong, S. Brandt\({}^{\ddagger}\)
+
+_European Organization for Nuclear Research (CERN) - EP Division Geneva, SWITZERLAND_
+
+\({}^{\dagger}\)also at _Universidade Federal do Rio de Janeiro_
+
+_Rio de Janeiro, BRAZIL_
+
+\({}^{\ddagger}\)now at _Freie Universitat Berlin_
+
+_Berlin, GERMANY_Introduction
+
+Among the many challenges presented by the future ATLAS detector and LHC accelerator are the high data taking rate and volume and the derivation of a rapid trigger decision within limited computing and networking resources. To address this challenge, within the High Level Trigger (HLT) system, a novel Region-of-Interest (RoI) mechanism is used which dramatically reduces the relevant fiducial volume necessary to be readout and processed to small regions guided by the hardware-based first level trigger.
+
+Within the ATLAS Offline Software framework, a package, referred to as the Region Selector, has been developed which rapidly translates physical regions within any subdetector system into Identifiers which label groups of event data within appropriate granularity which are cached Transient Event Store (TES). Although intended for use by HLT Algorithms running in the Level-2 (LVL2) environment, the same use cases are mirrored within both the Event Filter and Offline Software environments. Hence, the Region Selector has been developed and is intended to be used as a general purpose tool.
+
+Section 2 discussed the motivating strategy and general principles for the Region Selector. Section 3 discusses the design and implementation of the Region Selector. System performance studies are reviewed in Section 4.
+
+## 2 Motivating Strategy and General Principles
+
+The concept of using a geometrical region defined by the Level-1 (LVL1) Trigger system to define a Region-of-Interest (RoI) which contains the signature of a physics object upon which to base the physics and event selection strategy has been a core component of the HLT system [1]. Recently, the Region Selector has formed the first step in a new data access paradigm within the High Level Trigger referred to as the _London Scheme_. This is shown in Figure 1 and discussed in detail elsewhere [2].
+
+The Region Selector takes a geometrical region (_e.g._, a region directly derived from a primary RoI from LVL1) and translates it into a list of Offline Identifiers. Examples of regions are illustrated in Figure 2. Usually these Identifiers are DetectorElement Identifiers. Using a list of these Identifiers, an Algorithm obtains event data within collections labelled with the same Identifiers within TES through StoreGate. At LVL2, if these collections are not already held within the TES, StoreGate requests the data from the Read-Out-Buffer (ROB) Data Collector via subsequent calls during which the Offline Identifiers are translated into Online ROB Identifiers for the actual data request.
+
+In some contexts, it may seem counter-intuitive to use such a scheme: A LVL1 trigger decision is derived from event data with Online or hardware identifiers. These Identifiers could in principle be used to request event data instead of inserting the layer of abstraction involving the Region Selector (_i.e._, conversion into a geometrical region which requires translation into Offline Identifiers which then require translation into Online Identifiers).
+
+There are a variety of motivations for the layer of abstraction involving the Region Selector. The prime motivation is to gain access in a uniform and rapid way to event data from subdetectors which do not participate in the LVL1 trigger decision (_e.g._, event data from the Inner Detector given an EMTAUROI triggered by an energy deposit in the Calorimeters). An additional motivation includes allowing for secondary RoIs as needed by an Algorithm which may lie outside the primary RoI provided from LVL1.
+
+Although the Online ROB Identifiers are used to request the data, the event data are organized and held in collections labelled by the Offline Identifier. Event data (_e.g._, Raw Data Objects (RDOs) and Reconstruction Input Objects (RIOs)) are aggregated into collections corresponding to adjacent readout channels within the physical detector. These collections reside in an IdentifiableContainer (IDC) [3] with Identifier labels corresponding to the unit of aggregation. For most sub-detectors, the organizing principle is that of the DetectorElement.
+
+In the Pixel detector a DetectorElement is a module, equivalent to a single Silicon wafer; hence there are 1 744 Pixel DetectorElements. For the SCT, a DetectorElement is one side of a module, equivalent to a bonded pair of wafers whose strips are oriented in a single direction (_i.e._, axial or stereo); there are 8 176 SCT DetectorElements. For the TRT, a DetectorElement is a planar set of straw tubes representing one row at a given radius of straws in a barrel module (_i.e._, a plane corresponding to the tangential direction
+
+Figure 1: The PESA Data Access paradigm, referred to as the London scheme, by which HLT Algorithms request event data. A call from a given HLT Algorithm to the Region Selector forms the first step in the sequence. This is discussed in detail elsewhere [2].
+
+Figure 2: Examples of regions. (a) shows a simple extent in \(\eta\) and \(\phi\) which does not account for the substantial uncertainty in the \(z\) position of the primary vertex due to the LHC beam spread. (b) shows an extend in \(\eta\) and \(\phi\) accounting for the \(z\) vertex spread; as such, \(\Delta\eta\) acquires a radial dependence. (c) shows a helical path, where both \(\Delta\eta\) and \(\Delta\phi\) acquire a radial dependence. In the current implementation, (a) is implemented for the outermost detectors; (b) is implemented for SCT and Pixels by modifications to the extents of the detector elements.
+
+in the barrel) and 1/32 in \(r\phi\) at a given \(z\) of straws in an end-cap wheel [4]; there are 19 008 TRT DetectorElements.
+
+For the calorimeters, the concept of DetectorElement does not exist. Instead, the organizing principle for event data is that of the Trigger Tower.
+
+Within the muon spectrometer, for the MDTs, a DetectorElement is a single MDT chamber, where there is at most a single MDT chamber per station, and typically, an MDT chamber has two multilayers. An RPC DetectorElement is the RPC components associated to exactly one barrel muon station; there may be 0, 1 or 2 RPC doublet sets per station and a doublet set may comprise 1, 2 or 4 RPC doublets. A TGC DetectorElement is one TGC eta division, or chamber, in a TGC station; there are 24 forward stations in a ring and 48 endcap stations in a ring and there are four rings at each end of the ATLAS detector. Finally, for a CSC DetectorElement is a single CSC chamber, where there is at most a single CSC chamber per station. And typically, a CSC chamber has two multilayers.
+
+## 3 Design and Implementation of the Region Selector
+
+The design of the Region Selector can be separated out into two parts: an Initialization phase and an Execution Phase. A conceptual sequence diagram is provided in Figure 3 illustrating.
+
+The Region Selector uses ATLAS Detector Description information during its initialization phase. In the current implementation, an ASCII data file exists for each subdetector1 that provides information needed to build an internal map of Identifier lists, referred to as the EtaPhiMap. An illustrative example of an ASCII data file containing DetectorDescription information is shown in Table 1.
+
+Footnote 1: In future implementations this will be replaced by dynamically generated tables drawing directly from the ATLAS DetectorDescription services.
+
+An EtaPhiMap exists for each layer (or disk) of a subdetector and is essentially a set of vectors in \(\eta\) and \(\phi\). The ExtendedIdentifier, shown in Table 1, specify the position of the HashIdentifier and is the key to mount Region Selectors EtaPhiMaps. Thus, in order to retrieve a list of HashIdentifiers based on \(\Delta\eta\) and \(\Delta\phi\) input information is like, for example, finding a name in an address book, due to the fact that each EtaPhiMap has a label, that means positive or negative \(\eta\) information.
+
+The \(\Delta\eta\) input specifies which EtaPhiMap, or which disks and/or layers, should be the relevant information. The next step, is to search within the EtaPhiMap chosen, the \(\eta\) vector in order to verify the indices inside \(\Delta\eta\) input region. Knowing \(\eta\) indices, its necessary to validate \(\Delta\phi\) range within these indices. This step is done by a verification in EtaPhiMap \(\phi\) vector. The validation step creates an output list of HashIdentifiers for each EtaPhiMap searched.
+
+Figure 3: A conceptual sequence diagram illustrating the distinct initialization and execution phases of the Region Selector.
+
+Different methods for constructing EtaPhiMap were tested aiming to find the best execution performance, i.e., minimum time to retrieve a region. The chosen one divides the detector with the minimum possible granularity, i.e., makes independent data cells for each layer and disk of the detector. Some of the ATLAS subdetectors have overlapping Detector Elements in \(\eta\) and/or \(\phi\). Hence the EtaPhiMap treats each subdetector in a completely generic way. Figure 4 illustrates the manner in which elements of the EtaPhiMap may share the same Identifiers as other elements.
+
+The input to Region Selector API is the sub-detector under consideration (_i.e._, Pixel, SCT, TRT, LAr, Tile, MDT, RPC, CSC, or TGC)2 and the extent of the geometrical region. Given the vastly different designs of each subdetector, a subdetector-dependent procedure is used. In fact, a separate class exists for each subdetector system as shown in Figure 5. The Region Selector immediately considers if the positive, negative, or both \(\eta\) regions are being considered and uses only the relevant maps.
+
+Footnote 2: Presently, the CSC and TGC subdetector systems are not implemented but could be upon request.
+
+With knowledge of the layers and/or disks in the region, the algorithm searches the \(\phi\rightarrow\)IdentifierHash map which will give a set of IdentifierHash is relevant in \(\phi\) region. The last step of the algorithm is to validate each IdentifierHash inside the IdentifierHash\(\rightarrow(\eta_{\min},\eta_{\max})\) map to ensure a list of unique identifiers is returned.
+
+The Region Selector package can be found in the ATLAS Offline CVS repository under Trigger/TrigDataAccess/TrigRegionSelector.
+
+## 4 System Performance Studies
+
+Optimal system performance is vital. The entire purpose of the Region-of-Interest mechanism is to reduce the time required to obtain event data across the network by dramatically
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|c|} \hline Extended Identifier & IdentifierHash & \(\phi_{\min}\) & \(\phi_{\max}\) & \(\eta_{\min}\) & \(\eta_{\max}\) \\ \hline
+2/2/-2/0/0/0/0 & 0 & 0.141628 & 0.265983 & -1.47148 & -1.11859 \\ \hline
+2/2/-2/0/0/0/1 & 1 & 0.136356 & 0.270412 & -1.47293 & -1.11583 \\ \hline
+2/2/-2/0/0/1/0 & 2 & 0.077387 & 0.236772 & -1.73596 & -1.31688 \\ \hline
+2/2/-2/0/0/1/1 & 3 & 0.070819 & 0.242117 & -1.73833 & -1.31350 \\ \hline
+2/2/-2/0/1/0/0 & 4 & 0.262459 & 0.386813 & -1.46680 & -1.11363 \\ \hline... &... &... &... &... &... \\ \hline \end{tabular}
+\end{table}
+Table 1: An illustrative example of an Region Selector ASCII file containing DetectorDescription data. For subdetectors with multiple layers, there would also be radius information of each element. Within the internal EtaPhiMap, only the IdentifierHash is used. The ExtendedIdentifier[5] is used by the developers for cross-checking purposes.
+
+Figure 4: A illustration of the EtaPhiMap. Each element may contain non-unique Identifiers with respect to other elements due to overlapping subdetector components.
+
+Figure 5: A class diagram of the components of the Region Selector package.
+
+restricting the relevant fiducial volume to be requested. However, if the Region Selector itself were to take too long in terms of system performance, it would defeat the entire purpose for having it. It is difficult to quantify exactly what adequate system performance would mean, but certainly the total execution time for the Region Selector must be much less than \(1\,\mathrm{ms}\) extrapolated to a \(4\,\mathrm{GHz}\) Pentium machine.
+
+The mean execution time to retrieve a region on each subdetector in a \(\Delta\eta\times\Delta\phi\) regions of various sizes is specified in Table 2 on a 1 GHz Pentium 3 LXPLUS Linux machine. There is an active effort to minimze these times, especially for the sub-detectors with large numbers of Identifiers (_i.e._, SCT and TRT). The system performance were measured varying \(\eta\) and \(\phi\) in all detector extension. Throughout this we could identify two relevant aspects, time execution depending on \(\Delta\eta\) and \(\Delta\phi\) position and the validation of the outputs. Figure 6 shows a three dimensional graph, represented as an image, that indicates the execution time in milliseconds within Pixel subdetector for all possible \(\Delta\eta\) and \(\Delta\phi\).
+
+\begin{table}
+\begin{tabular}{|c|l|c|c|c|} \hline  & & **0.1** & **0.2** & **0.5** \\ \hline \multirow{8}{*}{**0.1**} & Pixel (\(\sigma\)=0.062ms) & 0.20 & 0.22 & 0.23 \\  & SCT (\(\sigma\)=0.114ms) & 0.56 & 0.59 & 0.62 \\  & TRT (\(\sigma\)=0.231ms) & 1.05 & 1.12 & 1.21 \\  & LAr (\(\sigma\)=0.061ms) & 0.33 & 0.33 & 0.35 \\  & Tile (\(\sigma\)=0.008ms) & 0.03 & 0.03 & 0.03 \\ \(\Delta\phi\) & MDT (\(\sigma\)=0.090ms) & 0.40 & 0.42 & 0.44 \\  & RPC (\(\sigma\)=0.009ms) & 0.05 & 0.05 & 0.06 \\ \hline \multirow{8}{*}{**0.5**} & Pixel & 0.22 & 0.22 & 0.23 \\  & SCT & 0.60 & 0.61 & 0.63 \\ \cline{1-1}  & TRT & 1.13 & 1.15 & 1.23 \\ \cline{1-1}  & LAr & 0.33 & 0.34 & 0.35 \\ \cline{1-1}  & Tile & 0.03 & 0.03 & 0.03 \\ \cline{1-1}  & MDT & 0.40 & 0.42 & 0.44 \\ \cline{1-1}  & RPC & 0.05 & 0.05 & 0.06 \\ \hline \end{tabular}
+\end{table}
+Table 2: Preliminary execution time of Region Selector in milliseconds on a \(1\,\mathrm{GHz}\) Pentium 3 Linux machine. Work is in progress to improve the performance for SCT and TRT.
+
+Figure 6: Timing measurement for Pixel subdetector in milliseconds.
+
+Conclusions
+
+The Region Selector described in this note realizes the Region-of-Interest mechanism and strategy of the High Level Trigger. Furthermore, it can be of use within Event Filter and Offline Software packages which have similar use cases, namely, restrictive data access or consideration which may be guided or expressed in terms of a geometrical region.
+
+## Acknowledgements
+
+The authors would like to acknowledge invaluable assistance in obtaining the necessary mappings from the ATLAS Detector Description from K. Assamagan, S. Goldfarb, G. Gorfine, F. Luehring, H. Ma, S. Sivoklokov, A. Solodkov. P. Casado and J. Baines kindly tested and provided feedback on prototype version of the Region Selector. V. Perez Reale and W. Wiedenmann provided assistance in using the TAU package for system performance studies. C. Padilla assisted with the integration of Region Selector into the PESA Core Software framework and into Athena. We had many useful discussiong with A. Schaffer about the new ATLAS Identifier scheme. W. Li provided an invaluable baseline with his SiROBMapper program. We also thank the PESA Core Software group.
+
+## References
+
+* [1] ATLAS HLT/DAQ/DCS Groups, _ATLAS High-Level Triggers, DAQ, and DCS: Technical Proposal_, CERN/LHCC/2000-17 (March 2000).
+* [2] ATLAS PESA Core Algorithms Group (ed. S. Armstrong), _Algorithms for the ATLAS High Level Trigger_, ATLAS-TDAQ-COM-2003-013.
+* [3] See Event/EventContainers/doc/IdentifiableContainer.txt within the ATLAS CVS repository.
+* [4] S. Armstrong _et al._, _"Requirements for an Inner Detector Event Data Model"_, ATLAS-TDAQ-2002-011.
+* [5] S. Goldfarb and A. Schaffer (editors), _Definition of Offline Readout Identifiers for the ATLAS Detector_, ATLAS-SOFT-2001-004.

@@ -1,0 +1,129 @@
+**ATLAS Internal Note**
+
+**SOFT-NO-002**
+
+**13 July 1993**
+
+**Oh-Oh-Ah-Ah-Rh....!**
+
+**Object Oriented Approach for Atlas Reconstruction**
+
+Pavel Nevski, CERN, PPE division
+
+**Abstract**
+
+A reconstruction program in HEP is usually a set of algorithms operating on a large number of physics objects presented by corresponding data banks. A mechanism of accessing various reconstruction banks maintained by ZEBRA is proposed. It allows a user-friendly interface to be used in the reconstruction program to manipulate elements of objects.
+
+## 1 Introduction
+
+During event reconstruction one usually creates and manipulates a number of objects (E.M. clusters, track or track segments, electron or muon candidates etc). These objects consist of other simpler objects (measured energy depositions, set of track coordinates, track segments or roads etc) and are logically organised in a tree structure.
+
+The number of such objects may be large, implying a need for dynamic memory management. It is even more crucial as users usually have to define different variant (instances) of the same object (i.e. shower parameters calculated over various matrices, longitudinal slices of a shower, etc) as well as multiple objects of the same kind, thus making element addressing complex.
+
+We suggested to address these objects stored in a ZEBRA [1] structure by defining a path to the object in a 'Unix-like' way using directories, bank name and extension. A few routines realising this mechanism are described.
+
+## 2 Bank addressing scheme
+
+We suggest that the information on a reconstructed event be stored in a set of ZEBRA banks, organised in a tree structure with a main RECB bank on the top level. The next lower level consists of different sections (SECT banks) which may be different reconstruction phases or different analysis chains.
+
+A section itself consists of detector specific banks (Calorimeter, Inner tracker) or of analysis specific banks (electron candidates, B-decay candidate etc), which in turn consist of different banks such as particular type of cluster, associated tracks etc. The total length (depth) of the tree is not limited.
+
+Each bank in this tree :
+
+* a) may be a set of similar banks which is called a linear structure, within which banks are distinguished by their sequential identification numbers;
+* b) may contain a user defined information, which often is a copy of a common block or of an array;
+* c) may be considered as a directory list, containing all its dependent banks.
+
+[MISSING_PAGE_EMPTY:2]
+
+A logical address of a single bank in this tree consists of a PATH and of a corresponding list of Identification Numbers (IDN). The actual bank address in a ZEBRA memory (LINK) can be obtained by a call to
+
+**REBANK (Path, IDN, Npar, Link*)**
+
+The general form of a PATH is
+
+'/Nam1/Nam2/..../Name'
+
+where each bank been a member of a linear structure is selected using its number in the corresponding element of the IDN list.
+
+NPAR\(>\)0 defines a write access, when a target bank may be created or extended. This call is always successful unless a fatal ZEBRA error arises. If NPAR\(<\)0 the call is a read access in which case the bank should already exist. A successful call returns a positive value of LINK, a failing call returns LINK=0.
+
+Any bank in a PATH may be declared to be a default directory by a call to
+
+**RBCDIR (Path,IDN)**
+
+After such a call a short path form starting without slash
+
+'Nam1/Nam2/..../Name'
+
+can be used to refer only directory's descendant banks.
+
+Finally, each bank may be considered as a table containing a set of similar elements (ROWs). A single ROW can be addressed using **Name.Extension** form with a ROW number in the correspondent element of the IDN array.
+
+Note that a bank access using the LINK value can not be recommended for a general usage due to a possible ZEBRA memory violation, unless for some specific usage (like bank erasing). Instead, two simple and safe user access methods are described in the following section.
+
+## 3 User access methods
+
+The simplest access method is provided by the two following subroutines:
+
+**RBSTORE (Path,IDN,ZFormat,Npar,Array)**
+
+and
+
+**RBCOPY (Path,IDN, Ndim, Npar*,Array*)**
+
+where:
+
+ZFORMAT - is a bank variables description (floating, integer etc), as defined in the ZEBRA manual [1] (p.40).
+
+NPAR - is the actual number of the words transferred from or to theARRAY;
+
+NDIM - is the Fortran dimension of theARRAY.
+
+While storing the information no error arises: if any bank in the PATH does not exist it is created with the default characteristics (2 data words, all floating). The target bank is created with Npar words described by ZFORMAT. If the target bank exists but is too small, it is extended. The last IDN element may be defined as 0, which means to add 
+
+[MISSING_PAGE_EMPTY:4]
+
+a new bank at the end of the linear structure. In this case this IDN element will be overwritten by the actual bank number.
+
+While copying the data bank back to a user array if the bank does not exist the returned NPAR value is negative. Otherwise the number of words copied is a minimum of the existing bank length and of the array length. If the last IDN value is 0, which means again the "last bank", the data are not returned (Npar \(<\) 0), but zero in the IDN will be overwritten by the number of the already existing banks in the linear structure.
+
+Another mechanism to access banks is to use a set of special definition calls to
+
+**RBDEF ('Name',Start,End,ZFormat,Comment)**
+
+where:
+
+NAME - is the bank name;
+
+START and END are the first and the last variables in a window common associated with the bank;
+
+ZFORMAT - is the same as described above;
+
+COMMENT - any useful user comment.
+
+All banks defined with such a call may be referred to by a call
+
+**Npar=RBPUT (Path,IDN)**
+
+and
+
+**Npar=RBGET (Path,IDN)**
+
+Their action is the same as action of the RBSTORE/RBCOPY besides the fact that the information is always copied from/to a predefined window common. Also the IDN is never overwritten, instead the counting request (with the last IDN=0) returns its result in NPAR.
+
+## 4 Conclusion
+
+Suggested mechanism has been implemented and tested for the calorimeter reconstruction. An example of the created data structure as well as an example of a code using these data are shown in the Appendix.
+
+The mechanism seems to be very simple for usage and good enough to provide a safe dynamic memory access for any reconstruction code.
+
+## Acknowledgments
+
+The full ATLAS software group has strongly influenced the appearance of this paper. I want to thank first Traudl Hansl-Kozanecka who initiated this activity. I am very grateful to Andrea Dell'Acqua for his useful comments and remarks. I appreciate the brilliant idea of Gilbert Poulard to present the path in a 'Unix-like' form. I would like especially to thank Marzio Nessi who infinitely tolerated all exercises on his calorimeter reconstruction code used to test the described software and was very constructive in the following discussions.
+
+## References
+
+* Memory management, version 3.67
+
+[MISSING_PAGE_EMPTY:6]

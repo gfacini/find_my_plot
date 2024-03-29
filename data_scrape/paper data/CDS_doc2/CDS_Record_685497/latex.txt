@@ -1,0 +1,223 @@
+# Performance and Validation of TrigT1Calo, the ATLAS Offline Level-1 Calorimeter Trigger Simulation
+
+Alan Watson (University of Birmingham), Edward Moyse (CERN)
+
+25th August 2003
+
+###### Abstract
+
+The Level-1 calorimeter trigger simulation is an object oriented program designed to work within the Athena offline framework. In this report, a brief description of the trigger algorithms used by the Level-1 Calorimeter trigger are given. The layout of TrigT1Calo is explained as are the procedures used to validate it. TrigT1Calo is confirmed produce results consistent with the trigger hardware, and the previous trigger simualtion. Some updated details of the trigger performance are given, including some preliminary rates.
+
+## 1 Introduction
+
+This report briefly describes TrigT1Calo, the Level-1 calorimeter trigger simulation written by Edward Moyse, and validation studies of this simulation performed by Alan Watson, and Edward Moyse.
+
+The studies in this document concentrate on the e/\(\gamma\) algorithms, since these were the focus of DC1 and the High Level Trigger Technical Design Report (not yet published) [4]. There are some preliminary analyses of the Jet and Energy triggers, but more work is needed in this area.
+
+Chapter 2 describes the current algorithms that will be used in the hardware, chapter 3 describes the design of the simulation, chapter 4 describes the validation and performance studies and chapter 5 contains a summary and some final points.
+
+## 2 Trigger Algorithms
+
+### Overview
+
+The calorimeter trigger takes data from analogue trigger towers, split into separate electromagnetic and hadronic layers and typically 0.1\(\times\)0.1 in \(\eta\) and \(\phi\). The trigger towers (reduced granularity information from the calorimeters) are examined to find high energy electrons and photons, isolated hadrons and jets, as well as to calculate missing \(E_{\mathrm{T}}\) and sum \(E_{\mathrm{T}}\).
+
+This next sections will explain the algorithms used to process the data and to perform the triggers.
+
+### Electromagnetic and Tau Algorithms
+
+The electromagnetic and \(\tau\) trigger algorithms are applied to 0.1\(\times\)0.1 trigger towers in the region where \(|\eta|<2.5\). These towers are processed in 4\(\times\)4'sliding' windows, in other words windows that overlap maximally -- they are offset from their neighbours by just one tower, so each trigger tower will typically be
+
+Figure 1: The electromagnetic and \(\tau\)/hadron algorithmsused in 16 windows. To prevent over-counting, only windows whose 2 \(\times\) 2 core (with both layers summed together1) is a 'local \(E_{\mathrm{T}}\) maximum' are examined to see if they pass the trigger. What is meant by this is that the core is more energetic than, or of equal energy to, the eight other cores the window contains.
+
+Footnote 1: That the electromagnetic trigger makes use of the hadronic layer when forming these cores is perhaps unexpected, and is indeed a change from the TDR. In fact, the veto insures that only real electromagnetic objects are selected, and these tend to have little energy in the hadronic layer. This has been tested by simulation [3].
+
+Assuming the window is a local \(E_{\mathrm{T}}\) maximum, its towers are then summed together into four two-tower clusters and two isolation regions of twelve towers, and one of four towers. For instance, looking at figure 1 we can see a window undergoing the e/\(\gamma\) algorithm. From the electromagnetic layers of the towers the ring of the larger isolation region is formed, and the central 2\(\times\)2 core is summed into four clusters. Since true electromagnetic particles are extremely unlikely to reach the hadronic calorimeter, the hadronic layers are summed into the two isolation regions. So for a window to generate an electromagnetic RoI, the most energetic two-tower cluster must have enough energy to pass the cluster threshold and the three isolation regions must contain less energy than their respective thresholds. In other words, the energy must be constrained to a small region of the electromagnetic layer.
+
+The \(\tau\)/hadron algorithm is very similar to the e/\(\gamma\) algorithm, except that, since \(\tau\) decays will probably penetrate to the hadronic layer, the central 2\(\times\)2 core of the hadronic layer is now also a cluster, and this cluster's energy is added to that of the most energetic electromagnetic layer cluster. To form a \(\tau\)/hadron RoI, the combined cluster must pass the \(\tau\) cluster threshold, and the remaining two isolation rings must (again) have less energy than their thresholds.
+
+### Jet Algorithm
+
+The jet algorithm again uses a sliding window, constructed from 'jet elements' (\(\Delta\phi\times\Delta\eta=0.2\times 0.2\) where \(|\eta|<3.2\)) which are summed over both the electromagnetic and hadronic layers. The algorithm is also similar, producing a RoI if a window is a local \(E_{\mathrm{T}}\) maximum, and if it has a cluster more energetic than one of eight definable thresholds. However, there is no isolation requirement for jets, and each threshold defines the size of the cluster: either 0.4 \(\times\) 0.4, 0.6 \(\times\) 0.6 or 0.8 \(\times\) 0.8 (see figure 2). Larger cluster sizes are useful for single jet triggers, whereas the smaller cluster sizes help improve the effectiveness of multi-jet triggers.
+
+There is also provision for implementing triggers on forward jets, using the forward calorimeters. The exact details of this are not finalised but they will probably involve four additional, dedicated thresholds, and use \(\Delta\phi\times\Delta\eta\approx 0.2\times 1.7\) FCAL jet elements. Since the FCAL trigger towers are in fact larger than this in \(\phi\)having dimensions of \(\Delta\phi\times\Delta\eta\approx\) 0.4 \(\times\) 0.4, the first four FCAL trigger towers at the same \(\phi\) position would be summed together, and then the summed energy would be split between two neighbouring jet elements. The advantage of this approach is that the same jet algorithm can be used, except that if the core contains a FCAL jet element then the four forward thresholds are applied. instead of the usual eight.
+
+Finally, there is a 'jet energy estimator' trigger (\(E_{\rm TI}\)). This works on the principle that a RoI passing a threshold represents a jet with at least that energy, and that a RoI that passes a threshold of, say 10 GeV and not 20 GeV must have an energy between the two, and probably closer to the lower due to the \(E_{\rm T}\) distribution. One equation that could be used is:
+
+\[\sum E_{\rm T}^{\rm jet}=N(j_{max})E_{\rm T}^{\rm thresh}(j_{max})+\sum_{j=2}^ {j_{\rm max}}(N(j-1)-N(j))\frac{E_{\rm T}^{\rm thresh}(j-1)+E_{\rm T}^{\rm thresh }(j)}{2}\]
+
+where \(E_{\rm T}^{\rm thresh}(j)\) is the value of the threshold \(j\) and \(N(j)\) is its multiplicity [2, Section 15.2.3.1].
+
+Figure 2: The jet algorithms
+
+Figure 3: TrigT1Calo dataflow
+
+Design of TrigT1Calo
+
+Figure 3 shows the main TrigT1Calo algorithms and how they link together. The top row shows the 'Maker' algorithms, responsible for preparing data objects to be passed to row two, the trigger algorithms.
+
+The first Maker algorithm, TriggerTowerMaker, reads in calorimeter cells and sums them to form TriggerTower objects. An \(\eta\) dependant calibration is performed on the electromagnetic layers of the towers, whilst simulated noise is added to both layers. Towers that pass the EM and hadronic layer thresholds are sent to the EmTauTrigger and JetElementMaker. JetElementMaker forms these TriggerTowers into coarser granularity JetElements. Each FCAL TriggerTower, which cover \(\sim\)0.4 in \(\phi\), is split into two \(\sim\)0.2 in \(\phi\) JetElements, both receiving half of the energy. The JetElements are passed to the JetTrigger and EnergyTrigger algorithms.
+
+The EmTauTrigger uses the TriggerTowers to perform the EM/\(\tau\) triggers. The towers are looped over to produce many overlapping windows. The core energies of the windows are compared, and only those which are local \(E_{\mathrm{T}}\) maxima are used in the trigger. The trigger is performed, and EmTauRoI objects are produced and sent to the ROD.
+
+The JetTrigger and EnergyTrigger algorithms both receive JetElements from JetElementMaker. The JetTrigger, like EmTauTrigger, again produces overlapping windows, and subjects them to the local \(E_{\mathrm{T}}\) maximum condition. The trigger is performed and JetRoIs are sent to the ROD. The EnergyTrigger is a bit different: it first adds each JetElement to a JetEnergyModule, and then adds the JetEnergyModules to one of two EnergyCrates. The JetEnergyModules sum the energies of the JetElements they contain, and the EnergyTrigger performs an overall sum which is compared to the energy thresholds. RoIs are again produced, but the EnergyTrigger also produces CTP words which are sent to TrigT1CTP.
+
+The ROD simulation counts the various RoIs and sends TrigT1CTP multiplicity counts for each threshold. Slink words are produced, and sent to the TrigT1RoIB, the 'Region of Interest Builder' simulation.
+
+For more details on the design of the code, refer to [1].
+
+## 4 Validation and Performance
+
+### Overview
+
+Several measures have been taken to ensure that the simulation is accurate. First, the 'test vectors' used by the hardware engineers were fed to TrigT1Calo, and the results compared. This method had the advantage of using the expertise of years of hardware development, and is the best test of low-level functionality.
+
+Next, the "key classes" must be checked to show they work correctly: these classes are vital to the correct functioning of the trigger simulation, since it is the key classes that are used to form TriggerTowers, JetElements, and JetEnergyModules and it is the key classes which contain most of the geometrical knowledge. A dedicated program was developed to test them, and it is described in section 4.3.
+
+Finally, the physics performance can be compared to ATRIG, the old FORTRAN-based simulation. The results of this are shown in section 4.4.
+
+Throughout this chapter particular importance has been placed on testing the EM trigger and on ensuring that the rates it produces are as expected: ATLAS is using 'Data Challenges' to validate its computer models, to provide large event samples for the HLT and physics groups, and to test some of the new GRID distributed computing tools [4, 6, 5]. The most recent of these challenges, DC1, concentrates on the e/\(\gamma\) trigger slice. It is therefore vital that the EM trigger works perfectly.
+
+### Test Vectors
+
+The Level-1 calorimeter physicists, in collaboration with the electronic engineers designing the Cluster Processor FPGAs, developed 'test vectors' for the \(7\times 5\) inputs to the CP algorithm chips, and the results to be expected. TriggerTowerMaker can read these data files, and uses them to fill the trigger towers in the \(0.7\times 0.5\) region of \(\phi\times\eta\) covered by one chip. EmTauTrigger processes these towers as usual, and outputs a RoI word, which can then be compared to the expected result. A separate Athena algorithm called Tester is responsible for this final step. When TrigT1Calo was tested with 807 test vectors, the RoIs it produced exactly matched those predicted [2].
+
+This is a good test of the core CP trigger logic, but it does not fully exercise TrigT1Calo since only TriggerTowers in a very limited region are created. A further challenge is to see how well TrigT1Calo handles the more complicated geometry at larger \(\eta\), and this is the subject of the next section.
+
+The JEP triggers were not tested in the same way for several reasons. The most important is that it seemed less necessary: the jet trigger and the CP triggers share common logic, and the energy trigger itself is relatively simple. It was also harder to find useful datasets, and by the time they had been found the triggers had been tested using alternative methods (see section 4.4).
+
+### TriggerSpace
+
+In order to test the geometrical ("key") classes more completely it was decided to create a graphical tool which showed the geometrical layout of the various key-based objects. This has turned out to be a very good decision as TriggerSpace has proved extremely useful, finding many bugs which would have been difficult to track down otherwise.
+
+The algorithm it uses (suggested by Murrough Landon of Queen Mary) is as follows: it steps through \(\eta\) space first, calculating the keys at a position above (\(+\phi\)) and below (\(-\phi\)). If the keys are different then a line is drawn. Then it steps through \(\phi\) space, comparing keys at coordinates to the left (\(-\eta\)) and to the right (\(+\eta\)), again drawing a line if they are different. It effectively draws a line whereever there is a key boundary, whatever key class is used.
+
+The main program window is shown in figure 4, drawing the JetElement map. Clicking the buttons in the top right-hand corner would switch to TriggerTowerKey or JetEnergyModuleKey, drawing TriggerTowers or JetEnergyModules respectively.
+
+TriggerSpace was extended to test the'shift' methods of the key classes, and to draw (for instance) the various windows formed from a particular JetElement. This was invaluable in debugging small rounding errors and glitches at the various \(\eta\) boundaries.
+
+Figure 4: The main TriggerSpace window. The MapType buttons in the top right corner allow different key types to be used, and the sliding button in the bottom view zooms the display in and out
+
+### Comparison with ATRIG
+
+#### 4.4.1 Overview
+
+The obvious and most complete test of TrigT1Calo is to compare its performance on 'physics' with the old simulation and the TDR results i.e. to use carefully chosen datasets which exercise the trigger fully, and to analyse the results. For most of this section the comparison is with the "First Level Trigger Technical Design Report" [2], but for the EM Trigger section ATRIG was re-run, since there have been changes to the EM/\(\tau\) algorithm since then [3].
+
+The detailed EM Trigger analysis and comparison is the subject of the first section. The jet and energy analyses are described in sections 4.4.3 and 4.4.4.
+
+The datasets used are coded to distinguish between them, and the code will be mentioned in the text. For example, 2046 indicates a sample of \(Z\to ee\) decays. Full details for each dataset, including their size and the filters used, can be found on the ATLAS Metadata Interface (AMI) webpage [7].
+
+The noise suppression thresholds were set to 0.75 GeV (EM) and 0.5 GeV (hadronic) i.e. trigger towers with energies lower than both of these values were discarded.
+
+#### 4.4.2 EM Trigger
+
+The detector arrangement has changed since ATRIG's time, and ATRIG would not work correctly with the new (DC1) datasets. Therefore both TrigT1Calo and ATRIG were run using TDR data, with noise turned off to ensure as similar conditions as possible. Figure 5 shows the energy results, and the excellent agreement between the two simulations. There are a few instances where the energies are shifted by 1 GeV, but these are well within acceptable bounds (especially since the minimum energy step in the simulation is 1 GeV).
+
+EfficiencyFigure 6 shows the trigger efficiency with no noise, and at both low and high luminosity. The data were taken from files of \(Z\to ee\) decays (dataset 2046), and the electrons used were required to be well separated (i.e. not close to any other energetic particle). This separation requirement is designed to ensure that a low-energy electron does not pass the trigger as the result of a nearby energetic particle or shower. A fixed cluster threshold of 17 GeV was used, and (loose) isolation thresholds of 4, 2, 2 (EM isolation, hadronic outer isolation, hadronic core isolation respectively, all in GeV).
+
+The figure shows plots for a simulation (no noise) sample, and low and high luminosity samples. The lower efficiency at high luminosity is a result of the isolation, but it is necessary to keep the rate manageable.
+
+Figure 5: Comparison plots showing the similarities between ATRIG and TrigT1Calo. The trigger algorithm has changed since the days of ATRIG, and so only the hadronic core isolation is relevant (c).
+
+Figure 6: Efficiencies for a 17 GeV cluster threshold, with 4 2 2 isolation. Lumi02 corresponds to low luminosity, while Lumi10 represents high luminosity
+
+Figure 7: Threshold curves. (a) shows 20 GeV electrons at low luminosity, whilst (b) shows 30 GeV electrons at high luminosity
+
+Threshold CurvesFigure 7 shows some threshold curves, for 20 and 30 GeV single electrons. In both cases the isolation was set to 4,2,2 (EM layer isolation, hadronic layer outer isolation, and hadronic layer core isolation), while the threshold was varied from 16-36GeV. To do this, the simulation was run with a low cluster threshold of \(\sim\)10GeV, and no isolation. Then the ntuple produced was examined, and only RoIs passing their respective thresholds were used.
+
+Rejection FactorsIt is easy to increase efficiency, but the trick is to maintain as high an efficiency as possible while controlling the rate. In the case of the electron trigger, this means using isolation thresholds to reject hadronic jets. Figures 8 and 9 in the show how effective isolation thresholds can be.
+
+Rejection factors give an idea of the degree of rate suppression, and are useful for tuning the thresholds of the trigger. Here they are defined as \(R=\frac{N_{rel}}{N_{acc}}\), where \(N_{acc}\) is the number of events passing the EM/\(\tau\) trigger, \(N_{rej}=N_{total}-N_{acc}\), and \(N_{total}\) is defined as the number of jets with \(E_{\rm T}\) greater than the cluster threshold.
+
+Table 1 shows rejection factors and efficiencies for a series of isolation and cluster thresholds. The datasets used were 2091 (for jets) and 2026 (for 25GeV electrons).
+
+The threshold values were selected by first calculating efficiency for the isolation thresholds only, varying each isolation threshold from 0 to 6 GeV. Those with an efficiency of at least 95% were selected, and the lowest cluster threshold to still give \(>95\%\) efficiency was selected. So for example, isolation cuts of 5,3,1 (EM layer isolation, hadronic layer outer isolation, and hadronic layer core isolation) have an efficiency of \(\sim\)98% for 25GeV single electrons. The highest cluster threshold to give at least 95% efficiency (again for 25GeV single electrons) was then found to be 18GeV. Using these values on jets, the rejection factor was calculated to be 26.1.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|} \hline \multicolumn{4}{|c|}{**Thresholds (GeV)**} \\ \hline
+**Cluster** & **EM ring** & **Had ring** & **Had core** & **Rejection factor** & **Efficiency (\%)** \\ \hline \hline
+19 & \multicolumn{3}{|c|}{unisolated} & 28.1 & 95.9 \\ \hline
+18 & 5 & 3 & 1 & 26.1 & 95.8 \\ \hline
+19 & 5 & 2 & 2 & 28.1 & 95.8 \\ \hline
+18 & 5 & 2 & 1 & 26.1 & 95.8 \\ \hline
+19 & 4 & 4 & 2 & 28.1 & 95.8 \\ \hline
+19 & 4 & 3 & 2 & 28.1 & 95.8 \\ \hline
+18 & 4 & 3 & 1 & 26.1 & 95.8 \\ \hline
+19 & 4 & 2 & 2 & 28.1 & 95.8 \\ \hline
+18 & 4 & 2 & 1 & 26.1 & 95.8 \\ \hline
+19 & 3 & 3 & 2 & 33.3 & 95.4 \\ \hline \end{tabular}
+\end{table}
+Table 1: Rejection vs efficiency for some sample thresholds.
+
+RatesFigure 8 shows single electron Level-1 rates. These were calculated using a special Level-1 di-jet dataset (2091) which has looser cluster cuts than normal, to test the trigger fully. It has a cross-section of 1.37 mb, and the generator level filter removes 1 in 14 events.
+
+Therefore the rate normalisation for the low luminosity plot is calculated as \(k=\sigma L/F\), where the cross section \(\sigma=1.37\)mb, the luminosity \(L=2\times 10^{33}\,\mathrm{cm}^{-2}\mathrm{s}^{-1}\), and generator-level rejection of \(F=14\). Equation 1 then gives the total rate, where \(N_{total}\) is the total number of events, and \(N_{accepted}\) is the number of events that pass the trigger simulation.
+
+\[R=k\frac{N_{accepted}}{N_{total}} \tag{1}\]
+
+The rates are very similar to those of the TDR, a result that is actually surprising, given that since the TDR was written in 1998 the estimated cross-section has increased by about 37% [8] and the initial LHC luminosity is now expected to be \(2\times 10^{33}\,\mathrm{cm}^{-2}\mathrm{s}^{-1}\) instead of \(1\times 10^{33}\,\mathrm{cm}^{-2}\mathrm{s}^{-1}\). Careful studies will be needed to understand fully the reasons, but preliminary work suggests that the discrepancy can be explained by several factors:
+
+* the fact that thresholds can only be changed in 1 GeV increments means that the rate is very sensitive to small changes in the trigger menus. For example, table 1 shows how much the efficiency for selecting 25 GeV electrons depends on cluster threshold (and these are the best choices available). The rate plots are arranged to show the particle energy for which the trigger is 95% efficient, by
+
+Figure 8: Level-1 trigger single electron rates. In both plots the top line represents no isolation, and the bottom plot represents an isolation of 3, 2, 2 for low luminosity and 5, 2, 2 for high luminosity (EM ring, hadronic ring, hadronic core). The x-axis is the energy of a particle for which the trigger is 95% efficient
+
+calculating the offset from particle energy to the 95% efficiency set of thresholds. However, this offset can only be altered in 1 GeV increments, due to hardware limitations of the trigger, and because of the shape of the rate plot, it is easy to see that a 1 GeV change in offset can have dramatic effects on the rate;
+* the detector layout has changed since the TDR was done, for the worse, and rate is likely to be slightly reduced as a result;
+* there are fairly large statistical errors on the new rate calculations;
+* the trigger tower summation is currently an approximation in several regions, especially the gaps;
+* finally, and most importantly, the TDR rates were designed to be pessimistic. Taking a similar approach now would raise the rate by several kHz.
+
+There are many possible contributing effects, and more work is needed to understand all the subtleties. Nevertheless, the rate is believed to be accurate, allowing for the large theoretical uncertainties in both physics and background.
+
+#### 4.4.3 Jet Trigger
+
+It is more difficult to study the jet trigger than the EM trigger, largely because there is no monte-carlo 'truth' to compare with. Instead, an ATLAS standard jetfinder must be used, and the trigger RoIs compared with
+
+Figure 9: Rates for electron pairs. The upper line represents no isolation, and the lower line shows the rate with isolations of 3, 2, 2 for low luminosity and 5, 3, 2 for high luminosity (EM ring, hadronic ring, hadronic core).
+
+these'reference' ('true') jets. The jetfinder used for these studies was the cone jetfinder (although the kt jetfinder gives similar results), with the cone radius \(\Delta R=\sqrt{\eta^{2}+\phi^{2}}=0.7\). The reference jets were required to have \(10<p_{\rm T}<400\) and \(|\eta|<2.8\) (in order to avoid edge effects which would distort efficiency -- in practice this requirement tends to exclude lower energy jets only, which are less interesting for testing the simulation).
+
+In all these studies, RoI and a jet are said to match if both \(\Delta\phi<0.3\) and \(\Delta\eta<0.3\). The sample used is 240 GeV dijets (dataset 2043). Unfortunately statistics are a problem with jets, as the samples are very time-consuming to generate. Further studies will have the benefit of more data.
+
+Figure 10 shows the efficiency for the three window sizes, with a threshold of 100 GeV. As expected, the \(0.4\times 0.4\) window gives a softer curve than the \(0.6\times 0.6\) and \(0.8\times 0.8\) windows, but all show that the trigger is underestimating energy with respect to reference jets by about 20 GeV. This is not surprising -- TrigT1Calo has been calibrated for optimal EM performance, which implies that hadronic energy will be under-counted, and the trigger has threshold cuts of around 1 GeV on trigger towers, so small energy deposits to the edge of showers will not be counted.
+
+Figure 11a shows the RoI energy (using a \(0.8\times 0.8\) window) compared to that of the reference jets. The problem with plots like this is that the jet-finding algorithm used to produce reference jets is itself not perfect, and in particular seems to find many low energy jets. Therefore the plot is comparable to those
+
+Figure 10: Efficiency vs \(p_{\rm T}\) for the three jet window sizes, with a threshold of 100 GeV. The \(p_{\rm T}\) is that produced by the ATLAS default jetfinder (cone algorithm), and the efficiency is defined as the fraction of jet RoIs which match ‘true’ jets
+
+Figure 11: Comparison of jet RoIs with jets found by the ATLAS cone jetfinder
+
+of the TDR but with slightly poorer performance for a few events [2, Chapter 4]. Most contain these low energy 'true' jets, and the poor trigger performance is likely to be caused by its limited energy resolution (there are \(\sim\)1 GeV summation thresholds for example, as described in section 4.4.1). However, a few are at higher energy and are more puzzling: these anomalous RoIs have been examined in some detail, and are not coordinate-dependent (and are therefore not caused by calorimeter gaps). It is possible that the TDR plots under-estimated the problems caused by material effects in the detector, or that the jet-finding algorithm is different. The TrigT1Calo performance seems convincing, but this anomaly should be investigated and properly understood.
+
+Figures (b)b and (c)c show the resolutions obtained when compared with reference jets, as found by the ATLAS jetfinder (default cone algorithm). In both cases, the performance of the jet trigger simulation appears comparable to that predicted in the Level-1 TDR [2, Chapter 4].
+
+Figure 12 shows a more detailed view of one event, showing the good match between coordinates of RoIs and jets found by the cone jetfinder. The energy is slightly lower for the RoIs, which is likely to be a combination of the poor energy resolution of the jet algorithm and of differences of calibration between the jetfinder and the trigger. As mentioned above, the trigger is currently calibrated to ensure optimal EM trigger performance, which will lower the measured hadronic energy.
+
+Figure 12: A sample event, showing the good match of both energy and coordinate between the ‘true’ jets and the RoIs. The event is number 2221
+
+#### 4.4.4 Energy Trigger
+
+The energy trigger consists of a sum-\(E_{\mathrm{T}}\) trigger and a missing-\(E_{\mathrm{T}}\) trigger. By far the most important for physics is the missing energy trigger and so it is the focus of this section. The samples used are \(W\to e\nu\) decays, where the 'true' missing energy is calculated by summing the tranverse energies of all neutrinos and muons.
+
+Figure 13 shows the trigger \(E_{\mathrm{T}}^{\it MISS}\), with a peak visible at \(\sim\)40 GeV as expected (though it is partly obscured by the large low energy tail).
+
+Figure 14 compares trigger \(E_{\mathrm{T}}^{\it MISS}\) with the 'true' missing energy. There is quite a large variation in performance, but the trigger tends to produce a lower energy, compared to reference jets. The performance of the trigger appears satisfactory, correctly reconstructing the missing energy for most events. Due to the limited number of bits available during energy summing, the resolution would be expected to be crude, and the simulation correctly models this.
+
+## 5 Conclusion
+
+There is still work to be done in understanding and testing the trigger simulation: in particular, the jet and energy triggers warrant further study. Unfortunately there are many factors affecting these triggers' performance which are not easy to disentangle. In particular, the effects of noise and detector changes are complicated, and cannot be properly investigated until there is a working BCID simulation. Nevertheless,
+
+Figure 13: The trigger missing energythe preliminary studies presented here do not suggest any major problems.
+
+The EM trigger is much better validated, and has been used successfully in the DC1 production. It is being used by the HLT trigger and there are no known bugs.
+
+## References
+
+* [1] Edward Moyse, _Design and Development of a Simulation of the ATLAS Level-1 Calorimeter Trigger_, (not yet submitted)
+* [2] ATLAS Level-1 Trigger Group, _ATLAS First-Level Trigger Technical Design Report_, **ATLAS TDR-12**, 24 June 1998
+* [3] Alan Watson, _Updates to the Level-1 \(e/\gamma\) & \(\tau/h\) Algorithms_, **ATL-DAQ-2000-046**, June 2000
+* [4] ATLAS Data Challenges website, [http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/DC/](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/DC/)
+* [5] The DataGrid project, [http://eu-datagrid.web.cern.ch/eu-datagrid/](http://eu-datagrid.web.cern.ch/eu-datagrid/)
+* [6] GridPP, [http://www.gridpp.ac.uk/](http://www.gridpp.ac.uk/)
+* [7] ATLAS bookkeeping webpage, [http://larbookkeeping.in2p3.fr/](http://larbookkeeping.in2p3.fr/)

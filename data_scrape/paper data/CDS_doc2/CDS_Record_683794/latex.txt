@@ -1,0 +1,159 @@
+###### Abstract
+
+MDT tracking uses a straight-line to circles fit very frequently. Three methods have been tested for speed, and one, circline, is recommended. The method, formulae, and a brief user-guide are presented.
+
+**ATLAS Internal Note.**
+
+**March 3, 1999**
+
+Circline: a least squares line-to-circles fitting routine.
+
+N.P. Hessey, LMU-Munich
+
+Introduction
+
+The ATLAS drift tubes measure the radial distance from the wire to the track. Finding the best-track fit to hits in several tubes can be done by least-squares minimisation of the distances of the hit-circles to the straight track. Such fits can be made over and over again during the process of pattern recognition, so it is worth using a reliable and fast method. This note compares three routines for such fits. Two are much faster than the other; the simpler and more accurate of these two is recommended.
+
+All three routines carry out a Newton-Raphson chi-square minimisation to find the slope \(m\) and offset \(c\) of the track, with
+
+\[\chi^{2}\equiv\sum_{i}\frac{\Delta_{i}^{2}}{\sigma_{i}^{2}} \tag{1}\]
+
+where \(\Delta_{i}\) is the shortest distance from the track to the \(i^{\mbox{th}}\) hit-circle, and \(\sigma_{i}\) is its error. From simple geometry,
+
+\[\Delta_{i}=\frac{\mid mz_{i}+c-y_{i}\mid}{\sqrt{1+m^{2}}}-r_{i} \tag{2}\]
+
+where \(y_{i},z_{i}\) and \(r_{i}\) are the wire position and hit radius of the \(i^{\mbox{th}}\) hit. The track is in the form \(y=mz+c\), with \(y\) the precision coordinate direction and \(z\) travelling through the chamber layers (i.e. test-beam coordinate system). All routines calculate \(m\), \(c\), the error matrix, and the \(\chi^{2}\) of the fit.
+
+The first routine ("nagfit") is the simplest to code. It uses a general-purpose function-minimisation routine E04FDF from NAGLIB. Nagfit simply returns an array containing the \(\Delta_{i}\) to E04FDF when required; E04FDF does the rest.
+
+The other two routines do the minimisation by linearising the problem, and finding better estimates of \(m\) and \(c\) by iteration until stable. They do not call any external routines or general purpose minimisation routines. The code has been written reasonably carefully for fast execution time.
+
+One of these two, "circlined", is based on the method developed by Frank Linde for DATCHA analysis [1]. It simplifies the algebra by transforming into the reference frame in which \(m=c=0\) at each iteration (note that the formula for the track to hit distance is wrong in original versions of ref. 1, but has now been corrected in the FORTRAN code. Also the error matrix in the code is not transformed back to the original reference frame). The other, "circline", avoids this transformation, at the expense of more complicated algebra.
+
+## 2 Circlined
+
+Starting from a good initial guess of the minimum \((m_{0},c_{0})\), we translate and rotate to the reference frame in which \((m_{0}^{\prime},c_{0}^{\prime})=(0,0)\):
+
+\[\left(\begin{array}{c}z_{i}^{\prime}\\ y_{i}^{\prime}\end{array}\right)=\left(\begin{array}{cc}\cos\theta&\sin \theta\\ -\sin\theta&\cos\theta\end{array}\right)\left(\begin{array}{c}z_{i}\\ y_{i}-c_{0}\end{array}\right) \tag{3}\]
+
+with \(\cos\theta=1/\sqrt{1+m_{0}^{2}}\) and \(\sin\theta=m\cos\theta\).
+
+In this frame, the true minimum is at \((\delta m,\delta c)\) which are small quantities. The residuals are
+
+\[\Delta_{i}=\frac{|\delta mz_{i}^{\prime}+\delta c-y_{i}^{\prime}|}{\sqrt{1+ \delta m^{2}}}-r_{i} \tag{4}\]
+
+We linearise the problem by expanding the square root, keeping only terms upto second order in \(\delta m\) and \(\delta c\) (which gives linear equations when \(\chi^{2}\) is differentiated with respect to \(\delta m\) and \(\delta c\)). This linear problem can be solved for \((\delta m,\delta c)\). The procedure is iterated, giving a succession of estimates for the true minimum:
+
+\[m_{n+1}=\frac{m_{n}+\delta m}{1-m_{n}\delta m} \tag{5}\]
+
+\[c_{n+1}=c_{n}+\delta c \tag{6}\]
+
+The convergence criterion is that neither \(m\) nor \(c\) change significantly (e.g. in tests for this work \(\delta m<10^{-7}\) and \(\delta c<0.1\) micron). Equation (5) comes from the expansion for \(\tan\left(A+B\right)\); equation (6) ignores higher order corrections.
+
+For the minimum, \(\partial\chi^{2}/\partial\delta m=\partial\chi^{2}/\partial\delta c=0\) giving the matrix form
+
+\[\left(\begin{array}{cc}a_{11}&a_{21}\\ a_{12}&a_{22}\end{array}\right)\left(\begin{array}{c}\delta m\\ \delta c\end{array}\right)=\left(\begin{array}{c}b_{1}\\ b_{2}\end{array}\right) \tag{7}\]
+
+with the following results from tedious algebra:
+
+\[a_{11} = \sum_{i}\frac{z_{i}^{\prime 2}-y_{i}^{\prime}(s_{i}r_{i}+y_{i}^{ \prime})}{\sigma_{i}^{2}} \tag{8}\]\[a_{12} = a_{21}=\sum_{i}\frac{z_{i}^{\prime}}{\sigma_{i}^{2}} \tag{9}\] \[a_{22} = \sum_{i}\frac{1}{\sigma_{i}^{2}}\] (10) \[b_{1} = \sum_{i}\frac{(s_{i}r_{i}+y_{i}^{\prime})z_{i}^{\prime}}{\sigma_{i }^{2}}\] (11) \[b_{2} = \sum_{i}\frac{s_{i}r_{i}+y_{i}^{\prime}}{\sigma_{i}^{2}} \tag{12}\]
+
+\(s_{i}\) arises from the absolute-value function in the definition of \(\Delta_{i}\). Its value is \(+1\) if \(\delta mz_{i}^{\prime}+\delta c-y_{i}^{\prime}\geq 0\), otherwise it is \(-1\).
+
+The matrix can be inverted to obtain \(\delta m\) and \(\delta c\):
+
+\[\left(\begin{array}{c}\delta m\\ \delta c\end{array}\right)=\frac{1}{\det a}\left(\begin{array}{cc}a_{22}&- a_{21}\\ -a_{12}&a_{11}\end{array}\right)\left(\begin{array}{c}b_{1}\\ b_{2}\end{array}\right) \tag{13}\]
+
+with \(\det a=a_{11}a_{22}-a_{12}^{2}\). The variance-covariance matrix is
+
+\[\frac{1}{\det a}\left(\begin{array}{cc}a_{22}&-a_{12}\\ -a_{21}&a_{11}\end{array}\right) \tag{14}\]
+
+This has to be transformed to the correct reference frame. At the minimum, the variance-covariance matrix is \(2G^{-1}\) where \(G\) is the Hessian matrix with elements
+
+\[g_{ij}=\frac{\partial\chi^{2}}{\partial x_{i}\partial x_{j}} \tag{15}\]
+
+with \(x_{1}=m\) and \(x_{2}=c\). Direct calculation of \(G\) is CPU intensive. It can also be approximated by \(2JJ^{T}\) with the Jacobian matrix
+
+\[J_{ij}=\frac{\partial}{\partial x_{i}}\left(\frac{\Delta_{i}}{\sigma_{i}}\right) \tag{16}\]
+
+but this too is slow and not very accurate. Instead the following form can be derived:
+
+\[2G^{-1}=\frac{1}{\det a}\left(\begin{array}{cc}(1+m^{2})^{2}a_{22}&-(1+m^{2 })^{3/2}a_{21}\\ -(1+m^{2})^{3/2}a_{21}&(1+m^{2})a_{11}\end{array}\right) \tag{17}\]
+
+The algebra was carried out by M. Deile (LMU Munich) by writing down the definition of the variance-covariance matrix in the lab frame, transforming all variables to the \(m=c=0\) frame, and rearranging to obtain the form above. The algebra was checked with another approach, in which the Hessian in the lab frame had the differentiation variables changed to those of the transformed frame. The resulting simple form is very fast to evaluate.
+
+## 3 Cirline
+
+The method is very similar to circlined, but the transformation to a frame with \(m=c=0\) is omitted. This gives an explosion of terms and the algebra becomes very tedious. One might expect the method to be quicker for two reasons: firstly the cpu in the transformation is avoided; secondly the various sums involved need only be calculated once (in circlined, since \(y_{i}^{\prime}\) and \(z_{i}^{\prime}\) change at each iteration, the sums have to be recalculated each time). However, it turns out that typically only 1 or 2 iterations are needed and anyway sums involving \(r_{i}\) have to be recalculated each iteration because of the acompanying factor \(s_{i}\) so the savings are small.
+
+We define
+
+\[\epsilon_{i}\equiv m_{n}z_{i}+c_{n}-y_{i} \tag{18}\]
+
+where \((m_{n},c_{n})\) is the current estimate of the minimum, which differs from the true estimate by small quantities \((\delta m,\delta c)\). The expression (1) for \(\chi^{2}\) is expanded upto second order in \(\delta m\) and \(\delta c\), and, as for circlined, the conditions for a minimum allow us to estimate \((\delta m,\delta c)\) from (13) but with the following expressions for the matrix elements:
+
+\[f \equiv 1/\sqrt{1+m_{n}^{2}} \tag{19}\] \[a_{11} = (1-2m^{2})f^{5}\sum_{i}\epsilon_{i}s_{i}r_{i}/\sigma_{i}^{2}+2m_ {n}f^{3}\sum_{i}s_{i}r_{i}z_{i}/\sigma_{i}^{2}\] (21) \[+(3m_{n}^{2}-1)f^{6}\sum_{i}\epsilon_{i}^{2}/\sigma_{i}^{2}-4m_{ n}f^{4}\sum_{i}\epsilon_{i}z_{i}/\sigma_{i}^{2}\] \[+f^{2}\sum_{i}z_{i}^{2}/\sigma_{i}^{2}\] \[a_{12} = a_{21}=m_{n}f^{3}\sum_{i}s_{i}r_{i}/\sigma_{i}^{2}-2m_{n}f^{4} \sum\epsilon_{i}/\sigma_{i}^{2}+f^{2}\sum_{i}z_{i}/\sigma_{i}^{2}\] (23) \[a_{22} = f^{2}\sum_{i}1/\sigma_{i}^{2} \tag{24}\]\[b_{1} = m_{n}f^{4}\sum_{i}\epsilon_{i}^{2}/\sigma_{i}^{2}-f^{2}\sum_{i} \epsilon_{i}z_{i}/\sigma_{i}^{2} \tag{25}\] \[-m_{n}f^{3}\sum_{i}\epsilon_{i}s_{i}r_{i}/\sigma_{i}^{2}+f\sum_{i }s_{i}r_{i}z_{i}/\sigma_{i}^{2}\] (26) \[b_{2} = -f^{2}\sum_{i}\epsilon_{i}/\sigma_{i}^{2}+f\sum s_{i}r_{i}/\sigma _{i}^{2} \tag{27}\]
+
+\(s_{i}\) has the same meaning as in circlined. The process is iterated with
+
+\[m_{n+1} = m_{n}+\delta m \tag{28}\] \[c_{n+1} = c_{n}+\delta c \tag{29}\]
+
+(note \(\delta m\) is now simply additive because we calculate the correction to it; for circlined we calculated the tangent of the correction angle, which had to be added to the reference-frame rotation angle).
+
+## 4 Testing and Speed Comparison
+
+The tests have been made using mutant [2] with a "toy" Monte Carlo event generator added. This allows a variety of slopes, offsets, background rates etc. to be tested. Tracks can be generated with \(m\) and \(c\) fixed, Gaussian-smeared, or evenly spread between limits. Hits in tubes crossed by the track are generated with Gaussian resolution using the \(r(t)\) relationship. Tubes can also have background hits and delta-ray hits. The former are distributed uniformly in drift-time. Delta-rays only occur in tubes crossed by the track, and are distributed uniformly in drift-time between 0 and the track-hit drift time. Track hits can be missed by inefficiency, or obscured by background hits or delta-rays. The hits are placed directly in the mutant hit2277 array for use by usevnt. The background rate, delta-ray rate and hit-inefficiency can all be varied with a mutant command MC/PARAMS.
+
+Four sets of tracks have been tested. Two have slopes close to 0 with a narrow Gaussian spread; they differ in having either no background or a very high background. The other two have tracks at a large angle, again with a narrow Gaussian spread, and again one has no background and one has a very high background. Table 1 gives details of the four sets. The \(r(t)\) relationship was a straight line, with constant (100 \(\mu\)m) Gaussian resolution.
+
+Tracking was carried out with code which is under development. It is reasonably succesful at finding tracks, even in a large background. The speed comparison should be independant of the tracking method, so no details are given here. Suffice to say, it makes fits to many sets of hits, including background, to determine which hits to include in the best-track fit.
+
+More important than execution speed, is that the fit routine gives the correct answer. Nagfit should be the most reliable since it is trivial to code and NAGLIB routines are very reliable. Cirline and circlined output have each been compared to nagfit results, for various sets of Monte Carlo tracks. Figure 1 gives a typical comparison for \(m\), \(c\), \(\chi^{2}\) and the error matrix. Note that E04FDF and the associated routine E04YCF return the error matrix scaled by \((\chi^{2}/{\rm dof})^{-1}\), which has been undone before the comparison. The small differences visible are presumably due to rounding errors and different convergence criteria. (Note the differences are indeed rare - they are exagerated by the logarithmic scale - and small - the abscissas have very small ranges). The main difference is in the accuracy of circlined for finding the offset, which seems to be related to the transformation back to the lab frame. The difference is rarely greater than a thousandth of a micron, i.e. still negligible. Figure 2 compares slopes and offsets found by nagfit to the Monte Carlo generated ones. The error in \(c\) of 47 \(\mu\)m is close to the 41 \(\mu\)m expected (\(100/\sqrt{6}\) for 6 hits). The small tails are due to tracking problems, not nagfit. They disappear for Set 1 and 3 data, where tracking is easier.
+
+The cpu-time per call was estimated using a routine which fills an hbook profile histogram (figure 3) with the change in cpu-time since the last call. This routine was called just before (to set the time) and just after all calls to the three routines. It was also called twice in succession, to find the overhead in the histogramming; this has been subtracted in table 2 which details the
+
+\begin{table}
+\begin{tabular}{c c c c c c} Data & Slope & Offset & Background & \(\delta\)-prob & Ineff- \\ set & & & (Hz) & & iciency \\
+1 & \(0.0\pm 0.01\) Gauss & \(33.0\pm 25.0\) flat & \(0.0\) & \(0.0\) & \(0.0\) \\
+2 & \(0.1\pm 0.01\) Gauss & \(33.0\pm 25.0\) flat & \(3.0\times 10^{5}\) & \(0.05\) & \(0.01\) \\
+3 & \(0.0\pm 0.01\) Gauss & \(33.0\pm 25.0\) flat & \(0.0\) & \(0.0\) & \(0.0\) \\
+4 & \(0.1\pm 0.01\) Gauss & \(33.0\pm 25.0\) flat & \(3.0\times 10^{5}\) & \(0.05\) & \(0.01\) \\ \end{tabular}
+\end{table}
+Table 1: Definitions of the four sets of Monte Carlo tracks used for the tests.
+
+Figure 1: Accuracy of circline and circlined. Note the log scale accentuates rare occurences, and note the large negative exponents on the abscissas. The plots are for Set 4; other sets have smaller tails. Length scales are in mm.
+
+cpu time taken on an HP9000 model 831 with 250 MHz clock. Clearly the general-purpose NAGLIB method is very much slower than the other two. Circline is slightly faster than circlined, but not by a very significant amount.
+
+## 5 User Guide to Circline
+
+The source code can be found in ~hessey/public/mutant/mdttrack/circline.c on the atlas machines. It needs header files tracking.h from the same di
+
+\begin{table}
+\begin{tabular}{l c c c c} Routine & Set 1 & Set 2 & Set 3 & Set 4 \\ nagfit & 530 & 509 & 567 & 519 \\ circline & 17 & 15 & 23 & 23 \\ circlined & 26 & 15 & 29 & 22 \\ \end{tabular}
+\end{table}
+Table 2: Average cpu-time per call in micro-seconds for the three routines, on an HP9000 model 831 with 250 MHz clock
+
+Figure 2: Success of tracking and nagfit routine at recovering the original slope and offset. The plots are for Set 4; the tails are due to inclusion of noise hits. Offsets are in mm.
+
+Figure 3: Comparison of cpu times of the different routines. The right-hand point of each pair shows the time taken, including the time to fill the histogram, which is shown in the bin labelled ’zero’.
+
+rectory and mutant.h from \(\tilde{\ }\)hessey/public/mutant/new. From tracking.h it only needs the TubeHit typedef; from mutant.h it needs various things needed by tracking.h, but not actually used in circline.
+
+The definition is:
+
+int circline(int nhits, TubeHit hit[], double *m, double *c, double toldm, double toldc, double errmat[4], double *chisq)
+
+Before the call, nhits must contain the number of hits in the array hit. This array must have the wire-positions (y, z), hit-radii r, and errors sigma_r filled in for all nhits hits. Units of length should be consistent, e.g. all mm. (m, c) must contain a reasonable estimate of the track slope and offset; toldm and toldc must contain tolerances on the minimum: suitable values are toldm = 10\({}^{-6}\) and toldc = 10\({}^{-3}\) mm.
+
+On return, m and c contain the best-fit slope and offset; errmat the variance-covariance matrix (zeroth (third) element is slope (offset) variance), and chisq the chisq of the fit. A chisq of -1.0 indicates a problem (det \(a\) was 0) in which case other values are meaningless. The routine returns the number of iterations taken; if this is greater than 100, the routine had not converged.
+
+You are recommended to fit tracks in a local reference frame: the machine precision becomes a problem for hits far out (e.g. one-micron precision on tracks 10 m radially and 20 m along the beam as for the ATLAS end-cap MDTs).
+
+## 6 Conclusion
+
+The methods used in circline and circlined are much faster than using a general purpose routine such as E04FDF from NAGLIB. They are also more portable since they do not need external software (the unavailability of NAGLIB on LINUX was one of the original reasons for looking for an improvement; since then NAGLIB has been ported to LINUX). Of the two, circline is more accurate, slightly faster, and simpler in that it avoids coordinate transformations, although the expressions for the matrix elements have more terms. I recommend it to anyone looking for a routine to fit lines to circles.
+
+References
+
+1. H. Dietl et al. Muon Track Reconstruction in DATCHA. ATLAS Muon note 220. 2. N. Hessey. Mutant User Guide. Available in \(\tilde{\ }\)hessey/public/reports on the ATLAS machines.

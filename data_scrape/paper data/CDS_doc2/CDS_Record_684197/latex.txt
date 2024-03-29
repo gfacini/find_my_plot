@@ -1,0 +1,267 @@
+# Model of the SCT detectors and electronics for the ATLAS simulation using Geant4
+
+Szymon Gadomski,
+
+CERN and INPCACow
+
+18.06.2001
+
+###### Abstract
+
+This note presents a model that describes how the SCT detectors and electronics respond to ionization deposited by particles. The model is intended for the digitization of the SCT hits in the future ATLAS simulation using Geant4 and written in C++. The current implementation is limited to barrel modules. A comparison with test-beam data is presented. The tuned model is able to reproduce the data with sufficient accuracy. We can also verify that the calibration circuit of the SCT front-end electronics is accurate within about 5% at the tested modules.
+
+## 1 From Hits to Digits
+
+### 2 Model for the SCT digitization
+
+[1]2.1 Simulation of the DETECTORS
+
+[2]2.2 Simulation of the ELECTRONICS
+
+[3]2.3 Existing and PLANNED SOFTWARE PACKAGES
+
+[4]3. COMPARISON WITH TEST-BEAM DATA
+
+[5]4. CONCLUSIONS
+
+[6]4. ACKNOWLEDGEMENTS
+
+[7]4.20
+
+## 1 From Hits to Digits
+
+It has been decided that the full simulation of the ATLAS experiment will be based on Geant4 [1]. Geant4 is a toolkit that enables simulation of interaction of particles with detector material. In the simulation the passage of particles is divided into steps. In the parts of the detectors that are declared as sensitive Geant4 can provide a user with "hits". Each hit corresponds to one step of a simulated particle through the active volume. The user can be given the particle position (both before and after the step) as well as the amount of energy deposited by the particle during the step in the detector material.
+
+It is up to the user to define the response of the detector for the simulation program. A model of the response, usually called "digitization" needs to be implemented. Hits are an input to such a model. The output is called "digits". In the case of a silicon micro-strip detector like the SCT a "digit" means a simulated signal on one or more strips. This note describes the model of SCT detectors and electronics intended for the future ATLAS simulation.
+
+The model is at the moment limited to non-irradiated barrel modules. An extension to forward modules should be relatively straightforward (see section 2.3). It will be necessary to add a simulation of radiation damage to detectors and to electronics in the future.
+
+The model is described in section 2 and the comparison with SCT test-beam data is discussed in section 3. We offer our conclusions in section 4.
+
+## 2 Model for the SCT Digitization
+
+There exist several software packages capable of simulating silicon strip detectors and/or the associated readout electronics. The simulations attack the problem at different levels and are used for different purposes. Frequently the models are very refined, particularly on the detector simulation side, and can take from minutes to hours of real time to simulate a particle crossing a silicon detector.
+
+It can be estimated that a single minimum-bias (most common and uninteresting) event produces on average around 440 crossings of silicon detectors by tracks in the SCT. The ATLAS simulation is expected to produce \(10^{7}\) events in the course of Data Challenge 1 in about one year from now. One can therefore calculate that a good size Monte-Carlo production in ATLAS will require of the order of \(10^{9}\) to \(10^{10}\) crossings of detectors by tracks in the SCT alone.
+
+The digitization can not be a CPU-time consuming task. It should describe the detector and electronics effects in an approximate parameterized way. The simulation will be validated with test-beam data. The aim is to provide the
+
+[MISSING_PAGE_FAIL:3]
+
+\({}^{\rm e}\) threshold with time dependence (TDC cut in test-beam analysis)
+
+\({}^{\rm e}\) correction factor for calibration scale
+
+\({}^{\rm e}\) Lorentz angle
+
+The implementation of the effects in the model is presented in sections 2.1 and 2.2. A brief discussion of software packages, existing and planned, is presented in section 2.3.
+
+### Simulation of the detectors
+
+For each hit the energy deposit given by Geant 4 is converted to charge using the mean electron-hole pair creation energy of 3.63 eV/pair [2]. The charge is deposited along the track section given by Geant 4 in intervals that are not larger than a chosen digitization step (L\({}_{\rm d}\) = 80 \(\upmu\)m). This gives the digitization some independence of the Geant 4 step, which will not be controlled by the digitization package. It is nevertheless recommended that the simulation step is not higher than the SCT strip pitch. Larger steps would result in an artificial correlation of charges deposited on neighbouring strips for tracks at large incidence angles.
+
+While producing the hits we have selected the Geant 4 distance cut to be 10 microns. This cut is transformed internally by Geant 4 into an energy cut such that secondary particles produced in the detector material with kinetic energy above the cut are tracked as individual particles. The low value of the cut (the default Geant 4 value is two orders of magnitude higher) assures that the energy lost to delta electrons can be deposited away from the primary track, as we observe in silicon detectors.
+
+Signals are produced by the movement of charges. A charge moving inside silicon induces currents on strips. There is a contribution from electrons as well as from holes. The induced currents can be calculated using a concept known as a weighting potential, or Ramo's theorem [3]. An assumption that signals are produced only if and when charges (in the SCT only holes) reach strips is strictly speaking not correct. However, for a single charge \(Q\) drifting to a particular strip and producing a current _i(t)_ the following must be true from charge conservation:
+
+\[\int_{t=\infty}^{t=\infty}\!\!\!i(t)dt=Q\]
+
+For all strips other than the one to which the charge is drifting the integrated currents are equal to 0.
+Calculations using the weighting potential have been done several times for strip detectors, one example is in [4]. It turns out that the drifting charges produce most of the signal when they are very close to the strips. This is because the weighting field is the strongest close to the strips and the drift velocity also has a maximum there. For our charge \(Q\) drifting towards a strip one can approximate the induced current with a very short pulse, which integrates to \(Q\), and which is produced when the charge actually reaches the strip. We use this approximation in our model. For a charge arriving at time \(t_{0}\) the approximation can be written as
+
+\[i(t)\approx Q\delta(t-t_{0})\] \[\text{where :}\] \[\delta(t)=0\;\text{ for }\;t\neq 0\] \[\text{and}\int_{t=\infty}^{t=\infty}\!\!\!\delta(t)dt=1\]
+
+One can expect that once the electronics response is taken into account, together with its cross talk and time characteristics (see section 2.2) the difference between the approximate model as proposed and a more accurate calculation using weighting fields is small. It would be hard if not impossible to identify any related effects in a test beam, which makes the approximation sufficient for our purpose. A calculation with weighting fields would also not be affordable as a part of the digitization from the CPU time point of view.
+
+The simulation of the detector as implemented consists of:
+
+* calculation of charge drift time,
+* simulation of charge spread given by diffusion,
+* calculation of the destination point for each charge, including Lorentz angle in magnetic field
+
+The drift time of the charges is calculated as a sum of two components: drift time perpendicular to the detector surface and drift time along the surface, perpendicular to strips. This is an approximation of the way charges are believed to drift in a strip detector. The approximate drift time can be calculated analytically.
+
+The drift time perpendicular to the surface is calculated assuming an electric field distribution as in a uniform flat diode. Calculations of electric field in strip detectors consistently show that the field is close to what one would expect for a flat diode in most of the volume, with the region close to the strips being the exception. Let us call the detector thickness \(d\) and let us introduce coordinate \(z\), such that \(0<z<d\). Let us label the bias voltage \(V_{B}\) and the depletion voltage \(V_{D}\). It can be calculated that the electric field is:
+
+\[E_{z}=\frac{V_{B}+V_{D}}{d}-2\frac{V_{D}}{d^{2}}\,z\]For a partially depleted detector (\(V_{B}<V_{D}\)) the above formula is correct for \(z<d(V_{B}+V_{D})/(2V_{D})\) and the field is 0 in the undepleted region at \(z>d(V_{B}+V_{D})/(2V_{D})\). Let us now consider the drift of holes. The charge drift velocity is
+
+\[\bar{V}=\mu\bar{E}\]
+
+where hole mobility \(\mu\) is given by the formula [5]:
+
+\[\mu=450\frac{\mbox{cm}^{2}}{\mbox{Vs}}\bigg{(}\frac{T}{300\mbox{K}}\bigg{)}^{ \!\!-2.2}\]
+
+We assume constant mobility, ignoring in our approximation the saturation effects at large electric field. The drift time for a hole starting at \(z\) and drifting towards 0 (the strip side) can now be calculated analytically:
+
+\[t_{P}(z)=\frac{d^{\,2}}{2\mu V_{D}}\ln\left(\frac{V_{B}+V_{D}}{V_{B}+V_{D}-2V_ {D}\ z/d}\right)\]
+
+Charges deposited in an undepleted region of a partially depleted detector are considered lost for readout in the model. An example result of this drift time calculation is shown in Fig.1.
+
+Figure 1: Drift time (\(t_{p}\)) and diffusion sigma.
+
+We label this drift time \(t_{p}\) to signal that we mean the drift of charges perpendicular to the detector surface. We also introduce another component of the drift time to represent in some way the strip structure of our detector. This addition to the model is motivated by comparisons with test-beam data and in particular the need to reproduce the cluster sizes that are measured in SCT test beams for tracks at an angle (see section 3). The additional "surface" drift time \(t_{s}\) corresponds to the region of weak electric field between the strips and close to the surface.
+
+The total drift time is then \(t_{d}=t_{p}+t_{s}\). The surface drift time is given by a continous combination of quadratic functions that gives \(t_{s}\)(strip center) = 0, \(t_{s}\)(mid-strip) = 10 ns and \(t_{s}\)(half way to mid-strip) = 5 ns.
+
+The diffusion is simulated by dividing each charge into smaller charges and by scattering the charges randomly with a Gaussian distribution. The sigma of this distribution is given by
+
+\[\sigma = \sqrt{Dt}\] \[D = \frac{kT\mu}{q}\]
+
+The latter of the equations is called the Einstein equation [5]. The calculated width of charge diffusion is shown in Figure 1.
+
+The drift direction of charges in the SCT detectors will be modified by magnetic field. In the barrel SCT (as well as in the SCT test beam in the H8 "Morpurgo" magnet) the magnetic field vector is parallel to the strips and perpendicular to the average direction of the electric field inside detectors. The influence of such a field on the drifting charges can be parameterised with one angle (the Lorentz angle) acting in the plane that is perpendicular to the strips.
+
+In the end-caps the field is to first order perpendicular to the detector plane and parallel to the electric field in detectors. Such a field has no effect on the charge drift direction. When one takes into account the non-uniformity of the magnetic field, which grows towards the ends of the solenoid, the field acquires a component parallel to the strips. This effect can be parameterised with the same Lorentz angle as in the barrel, but with a smaller magnitude. We therefore deem it sufficient that the effect of magnetic field is parameterised using just one angle, acting in the plane perpendicular to the strips, in barrel as well as in the end-cap SCT. The value of the angle will be dependent on module position. There is no need to introduce the magnetic field vector (and the vector algebra necessary to compute the charge drift direction) into the digitization code.
+
+Lorentz angle will vary with electric field and therefore with bias voltage [6]. This effect will be dealt with when the values of the angle are specified for the digitization. Assuming that the angle is constant inside a given module at a given bias voltage is accurate enough for SCT purposes (see example in section 3).
+
+The effects created by capacitances on the detector are closely related to the electronics and will be discussed in the next section.
+
+### Simulation of the electronics
+
+The SCT electronics has a peaking time of the order of 20 ns, which is comparable to the charge collection time at lower values of detector bias. When charge is collected more slowly, the amplifiers respond with pulses of lower amplitude. This effect, called the ballistic deficit, is clearly observable in the SCT test-beam data [7, 8]. It is therefore necessary to model the charge collection time, as described in the previous section. It is also necessary to calculate the response of the electronics while taking charge collection time into account. The response of the SCT amplifiers is not simply proportional to the amount of charge collected on a strip.
+
+The digitization calculates the amplifier response _A(t)_ as a convolution of signals from charges \(Q_{i}\) arriving near the strip at different times \(t_{i}\):
+
+\[A(t)=\sum_{i}Q_{i}a(t-t_{i})\]
+
+The function _a(t-t\({}_{i}\))_ describes the response of the amplifier to a unit of charge arriving at time \(t_{i}\). The form of a is taken from reference [9]
+
+\[a(t)=\left[\begin{array}{cc}C\left(\frac{t}{\tau}\right)^{3}e^{-\frac{t}{\tau }}&\mbox{for $t>0$}\\ \\ 0&\mbox{for $t\leq 0$}\end{array}\right.\]
+
+where we have set \(t_{i}=0\), for convenience. The normalization constant \(C\) is set to _(e/3)\({}^{3}\)_ such that the function reaches 1.0 at its maximum point (\(t=3\)). Some examples of simulated amplifier input and output pulses are shown in Fig.2. Normalization of _a(t)_ without units effectively gives the amplifier output in units of charge.
+
+The normalization requires some further discussion. In the SCT electronics the amplifiers are charge sensitive, producing an output voltage proportional to an input charge. The output voltage of each channel is then compared with a threshold voltage. Output of the front-end electronics is binary, i.e. for each event we can only know if the output voltage of a given channel was above the threshold or not.
+
+A capacitor connected to a calibration circuit enables to inject a controlled amount of charge into the input of every amplifier. A calibration procedure, which we will not discuss here in detail, enables to determine the response curve - the dependence of amplifier output voltage on the input charge. The response curve can then be used to convert threshold voltages into the corresponding amounts of input charge.
+
+In the software we follow the SCT practice, also used in test beam, and we will use thresholds in units of charge (this is why we have chosen to have the amplifier output in units of charge). While doing so, we must not forget about the uncertainty of the calibration circuit. The value of the calibration capacitor is guaranteed by the manufacturer of the electronics to be within 20% of the nominal value [9]. This uncertainty, as well as some other manufacturing
+
+Figure 2: Examples of simulated amplifier pulses calculated for a 320 \(\upmu\)m thick detector, two bias voltages and two amplifier peaking times (18 and 24 ns).
+
+tolerances, affects the calibration procedure and the values of threshold given in fC. One may wish to comment here that, although we do not know the statistical interpretation of the manufacturer's guarantee, the number given by the company likely corresponds to more than one sigma (if the distribution is Gaussian).
+
+The uncertainty is correlated - all values of threshold might be off by roughly the same factor. We introduce a calibration correction factor that is applied to the simulated values of all amplifier outputs. The factor is determined by tuning the predictions of our model to data. A shift of average parameters of the circuit, compared to their nominal values, will manifest itself with a correction factor different from 1.0.
+
+The response curve is approximately linear in the region close to 1 fC input charge, where the SCT expects to set threshold while taking data in ATLAS. The curve can be parameterized using two obvious parameters named gain and offset. The two parameters vary from channel to channel and these variations are included in our model. The gain variation is assumed to be 3.1% (2 mV/fC for a 64 mV/fC gain) and the offset variation is set to 0.11 fC (7 mV with a 64 mV/fC gain). Gain and offset variations are generated in a correlated way. Calibration measurements done during SCT beam tests have served as a guideline. Figure 3 shows one example of the measured gain-offset correlation and the model implementation of it. The correlation is set to \(-0.60\).
+
+There are two effects caused by detector capacitances that need to be implemented. Capacitance to back plane creates effective charge loss that is of the order of 2%. It is a parameter of the digitization code. The inter-strip capacitance creates cross-talk between channels. If we consider a signal deposited on one strip, then for the SCT detectors and electronics up to 10% of
+
+Figure 3: Correlation between noise and offset variations (channel to channel) as measured during test-beam calibration (left) and as implemented in the model (right).
+
+such signal is lost from the strip and appears on its immediate neighbours (to first order) [9, 10]. Let us label the digitization parameter describing the cross-talk as \(K\). The parameter is set to 10%. The signal induced on _each_ neighbour channel _B(t)_ is again calculated as a convolution
+
+\[B(t)=\frac{1}{2}\,K\sum_{i}Q_{i}b(t-t_{i})\]
+
+where the induced signal created by the delta pulse on the neighbour strip is
+
+\[b(t)=\left[C_{2}\left(\frac{t}{\tau}\right)^{2}e^{-\frac{t}{\tau}}\left(3- \frac{t}{\tau}\right)\right.\text{ for }t>0\]
+
+The function _b(t)_ is the derivative of _a(t)_, the amplifier pulse.
+
+Figure 4: An average pulse on a strip (top) and a pulse induced on the neighbour strip (bottom).
+
+The normalization constant \(C_{2}\) is again chosen such that the function \(b(t)\) has the maximum of 1.0. The maximum is at \(t\)=(3-\(\sqrt{3}\))\(\tau\), which is lower than the peaking time _3\(\tau\)_. The signal on the neighbour strip is a faster pulse, more influenced by the ballistic deficit. The pulse is also bipolar. An example is shown in Fig.4.
+
+Every charge creates a signal on the strip to which it drifts as well as on its neighbours. All the contributions are added using the convolution formulas given above. The signals on strips are calculated for a specific time at which the threshold will be applied. How that time is chosen will obviously be important for the functioning of the model. This reflects the real SCT performance issue related to the synchronization of the electronics clock with the passage of particles. We will come back to that point in section 3, while discussing the test-beam data.
+
+Last but not least, the total noise of the electronics is simulated by adding a random contribution to all channels. Gaussian distribution is assumed and the sigma is set to 1450 electrons ENC (equivalent noise charge).
+
+### Existing and planned software packages
+
+For development and testing of the digitization the following arrangement of software packages was put in place and now exists:
+
+* A program named ModuleSim, written by Christopher Lester [11], is able to build a geometry description of a single SCT module starting from an XML file. The program instantiates the geometry in Geant4 classes and allows one to simulate the passage of particles through a single SCT module using Geant4. The primary particles are 180 GeV muons, as in the H8 test beam. The simulation produces delta electrons and other secondary particles in silicon as well as in the surrounding volume of air. Information about the hits (start and end positions for each step, deposited energy, particle number) is written to a file. Hits are produced for different track angles and detector thickness.
+* The prototype of the simulation of the detectors and electronics is mostly contained in a package named SCT_Digitization. The prototype is running in a separate stand-alone program. The program reads the file with hit information, produces digits for each event, and does the analysis. Efficiency and average cluster sizes are recorded and can be compared with the measurements done in H8.
+
+The SCT_Digitization prototype is based on classes made by David Calvet [12]. His Sibigitization will provide a common framework for the digitizationof Pixels and SCT. The derived classes for the SCT were created by Christopher Lester. Further development, aimed in particular at the simulation of detectors and electronics response, is the work documented in this note.
+
+The SCT_Digitization package is now compatible with the latest version of the Sibigitization and runs in the Athena framework. It still needs to read the hit information from a file. Ultimately the hits, which will be produced by the simulation of the SCT using Geant4, will be retrieved from a data base.
+
+A description of strip positions and dimensions is needed to produce the digits, as well as for reconstruction of space points from real data in the future. Geometry of barrel detectors was first described in C++ by Christopher Lester [11]. It was subsequently developed in the framework of this project and is now contained in the software package named SCT_ModuleSideDesign (the basic unit of the SCT geometry, as well as a unit of readout, is one side of a module). The same work needs to be done for the end-cap modules and it has recently been undertaken. When the end-cap part is advanced the digitization will be extended to forward modules.
+
+It is not expected that any major changes of the model of detector and electronics response will needed for the forward modules. One possible addition may have to do with the propagation time of signals along the strips. Because the forward modules are of end-tap kind (electronics bonded at strip ends) the effect is more important than in the barrel, where modules are center-tap. Measurements in test beam or using a laser pulse are needed to establish if an extension of the model is necessary and, in case it is necessary, to provide the related parameters.
+
+## 3 Comparison with test-beam data
+
+The model implemented for the SCT digitization needs to be validated with test-beam data. The calibration correction factor is also tuned with test-beam data. All the parameters that can be set in the model are given in table 1 together with their current values.
+
+We expect that some of the values may be different for the final SCT modules. Technically speaking the two parameters listed at the top of the table are an internal matter of the Geant4 simulation that produces hits. They were under our direct control and set as shown for the tests presented in this section, but they will not be under the control of the SCT digitization package in the ATLAS software.
+
+[MISSING_PAGE_FAIL:14]
+
+unsynchronized with the clock. The time of the particle arrival is measured using a TDC unit. All events are recorded together with their TDC values, or time stamps, that can vary from 0 to 25 ns. In the off-line analysis the time value that corresponds to the maximum efficiency is found for each tested module separately. Only the events that come within \(\pm\)6 ns off the optimum time are used in the plots [7].
+
+In simulation the time of particle arrival can obviously be set to an arbitrary value. The time is set to random values with a flat distribution and a width of \(\pm\)6 ns. The time at which the threshold is applied is scanned and we find a maximum of efficiency. This procedure reproduces test-beam analysis and enables a comparison with test-beam data.
+
+The test-beam data taken in August 2000 was used to test the simulation. The data was analyzed by Marcel Vos, some results are presented at his page [7]. Marcel has also made his results available as a summary ntuple, thus making the comparison plots possible.
+
+The digitization now focuses on non-irradiated barrel modules. Two such modules, equipped with detectors of different thickness, were present in the test beam:
+
+\begin{tabular}{c c c}
+**Module name** & **Module index** & **Detector thickness** \\ K3112 & 0 & 285 \(\upmu\)m \\ RLT5 & 3 & 325 \(\upmu\)m \\ \end{tabular}
+
+The comparison of digitization to data uses two measured module parameters: efficiency and cluster size. The parameters can be studied as a function of threshold, detector bias voltage and track angle. The data is available with and without magnetic field. The field is believed to be 1.56 T [7].
+
+Figure 5 shows examples of efficiency vs. threshold curves (usually called S-curves). Solid points are data, plotted separately for each module side. Open points connected with lines show the prediction of our model under test. Different colours correspond to different bias voltages, both for the data points and for the model.
+
+By interpolating the S-curves it is possible to obtain a value of threshold for which the efficiency is 50%. This value is called median charge and is plotted in Figures 6, 7 and 11 for different modules or conditions. The data points are in pairs because the median is also plotted separately for each side of a module.
+
+Figure 5: Efficiency vs. threshold curves for two non-irradiated barrel modules. The model predictions are compared to test-beam data from August 2000.
+
+Figure 6: Median charge vs. bias voltage at normal incidence, no magnetic field.
+
+Figure 7: Median charge vs. bias voltage at 16\({}^{\circ}\) track angle, no magnetic field.
+
+An example of a distribution of cluster sizes is shown in figure 8 (left). The clusters in test beam usually are either one or two strips wide. Even at the largest available track angle with respect to normal incidence (16\({}^{\circ}\)) the clusters with >2 strips can only be produced by delta electrons and other rare phenomena. In these conditions a useful relationship between an average cluster size \(a\) and a fraction of two strip clusters \(f\) holds: \(a\approx 1+f\). In other words an average cluster size of 1.2 means around 20% of the clusters have two strips.
+
+The plot in Fig.8 (right) shows how cluster size varies with threshold. The dashed line shows an analytical prediction for the average cluster size that can be obtained using the geometrical projection of the track, the average charge deposited in silicon and the value of threshold. A calculation like this overestimates the cluster sizes, demonstrating why the electronics response needs to be simulated in the digitization
+
+Figure 8: An example distribution of cluster sizes (left) and an example of the cluster size dependence on threshold for different bias voltages (right). The dashed line shows an analytically calculated cluster size.
+
+Figure 9: Average cluster size as a function of bias voltage for two different modules without magnetic field.
+
+The average cluster size is plotted in Fig.10 as a function of track angle with and without magnetic field. Without magnetic field the U-shaped curve should be symmetric and have a minimum at 0\({}^{\circ}\). It was found in the test-beam data analysis that on average the curve is slightly asymmetric. An average minimum returned by a parabola fit is not at 0\({}^{\circ}\)[7]. This can be interpreted as an alignment effect. In order to correct for it the data points in Fig.10 are shifted by 0.5\({}^{\circ}\) with respect to the nominal track angle values.
+
+With magnetic field turned on, the track angle at which the average cluster size is minimal is the measured Lorentz angle. The model reproduces the data points reasonably well with the Lorentz angle set to 0 for magnet off and set to 2.0\({}^{\circ}\) when magnet is on. Dependence of the median charge on track angle is shown in Fig.11.
+
+Figure 11: Median charge vs. track angle with magnetic field off (left) and on (right).
+
+Figure 10: Average cluster size vs. track angle with magnetic field off (left) and on (right).
+
+## 4 Conclusions
+
+A model that can simulate how the SCT detectors and electronics respond to ionization left by particles has been developed. The simulation is intended for the digitization of the SCT in the future ATLAS simulation using Geant4 and written in C++. The choice of approximations was motivated by execution speed, driven by the number of hits that will need to be processed by the full ATLAS simulation. The objective is to have the simplest possible model of the SCT response that is capable of reproducing the efficiency and the cluster size observed in test-beam data.
+
+The extrapolation from test beam to the SCT conditions is considerable. Variety of particle energies, particle types and track incidence angles will be much larger in the SCT than in the test beams. It is therefore necessary to build a model that is based on understanding of silicon detectors and of the readout electronics. A simple parameterization of efficiency and cluster size measured in test beam could not be extrapolated to different conditions in a justified way without referring to a model of that kind. The proposed model is intended to be a compromise between the requirements of speed and the need to reproduce detector physics and electronics.
+
+It is expected that the model will be sufficiently fast because it avoids CPU-time consuming numerical calculations. The drift times of charges and the amplifier response are both calculated analytically. It is possible to use a relatively large particle step through silicon, as long as the projection of the step on detector surface is not larger than the strip pitch.
+
+The model predictions have been extensively compared to the SCT test-beam data. Features were added to the model in several iterations in order to reach a satisfactory agreement. This approach ensures that the current number of effects that are included is motivated by agreement with data.
+
+We think the current level of agreement with SCT test-beam data is sufficient for the SCT simulation inside the tracker. The model will need to be extended to forward modules and in the future to irradiated modules as well. Parameters of the model will likely be modified for the final SCT modules with final front-end chips. However the principles of the simulation seem to be proven by the tests that were carried out.
+
+## Acknowledgements
+
+I would like to thank Marcel Vos for his complete analysis of the test-beam data. An understanding of disagreements between model and data was quickly made possible thanks to the efficient collaboration of Marcel.
+
+Many thanks to Christopher Lester for his geometry description code as well as for the ModuleSim package. This work has provided an excellent starting point for the development and testing of the response model.
+
+Thanks also to David Calvet for the SiDigitization framework and related code, as well as for his help with the integration of the model presented in this note into the framework.
+
+## References
+
+* [1] Geant4 collaboration home page, [http://wwwinfo.cern.ch/asd/geant4/](http://wwwinfo.cern.ch/asd/geant4/).
+* [2] R. D. Ryan, 'Precision Measurements of the Ionization Energy and its Temperature Variation in High Purity Silicon Radiation Detectors', IEEE Trans. Nucl. Sci. NS-20, 473-480 (1973).
+* [3] V. Radeka, Ann. Rev. Nucl. Part. Sci. 38 (1988) 217.
+* [4] W. Dabrowski, S. Gadomski, Z. Natkaniec, M. Turala, D. Dorfan, Litke and H. Sadrozinski, 'Analysis Of Fast Bipolar Preamplifiers For Silicon Strip Detectors Using Spice', proceedings of ECFA Study Week on Instrumentation Technology for High Luminosity Hadron Colliders, Barcelona, Spain, 14-21 Sep 1989.
+* [5] S. M. Sze, 'Physics of Semiconductor Devices', John Wiley & Sons, ISBN: 0471056618.
+* [6] T.Lari, 'Lorentz angle variation with electric field for ATLAS silicon detectors', ATLAS note, ATL-INDET-2001-004, 11.04.2001.
+* [7] M. Vos, Results from the August 2000 test beam in H8, [http://ffic.uv.es/~vos/tb2000/aug2000/aug2000.html](http://ffic.uv.es/~vos/tb2000/aug2000/aug2000.html).
+* [8] A. Barr et. al., 'Beamtest of Prototype ATLAS SCT Modules at CERN H8 in June and August 2000', submitted as ATLAS internal note.
+* [9] W. Dabrowski, private communication.
+
+* [10] J. Kaplon, private communication.
+* [11] C. Lester, AGDD page, [http://www.hep.phy.cam.ac.uk/~lester/agdd/mainAGDD.html](http://www.hep.phy.cam.ac.uk/~lester/agdd/mainAGDD.html)
+* [12] D. Calvet, framework for digitization for SCT and Pixels, [http://www.nikhef.nl/~dcalvet/ATLAS/](http://www.nikhef.nl/~dcalvet/ATLAS/)
+* [13] S. Bentvelsen, G4Builder, [http://atlas.web.cern.ch/Atlas/GROUPS/DATABASE/detector_description/#](http://atlas.web.cern.ch/Atlas/GROUPS/DATABASE/detector_description/#) G4Builder

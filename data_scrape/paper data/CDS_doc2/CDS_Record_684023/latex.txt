@@ -1,0 +1,280 @@
+[MISSING_PAGE_EMPTY:1]
+
+## 1 Introduction
+
+A dataflow component of ATLAS DAQ/EF prototype-1 is responsible for moving the event data from the detector read-out links to the final mass storage, interacting with the three ATLAS trigger levels, LVL1, LVL2 and Event Filter[1]. Figure 1:
+
+shows the dataflow system. The event builder is one of the components. It merges the event fragments in the Read Out Crates into a complete event. To fulfil the objective of testing different commercial technologies for the event builder switching network (e.g. ATM, FCS and Switched Ethernet), the event builder itself is partitioned into two layers, namely, a technology-independent layer and a technology-dependent layer.
+
+The Gigabit Ethernet is one of the technologies which enables a high speed transfer for the event builder, but few studies of the Gigabit Ethernet technology have been made. It is preferable to use industrial standard equipment for the event builder if possible, in order to reduce the cost of development and ease maintenance. Gigabit Ethernet is fully compatible with existing Ethernet installation, which is not only an international standard but also de facto standard. TCP/IP as candidate software for the data path also has the same advantages
+
+In order to improve the data transfer performance, it is possible to make a special device driver for the network equipment. However, this approach requires software changes including the network device driver. To avoid changing the software, one can use a larger Maximum Transfer Unit (MTU), the so called Jumbo frame. It is useful to adopt the Jumbo frame. PC/Linux is also an open standard and de facto standard. Thus, we considered not a real-time OS called LynxOS with VME board computer in the current dataflow system, but PC/Linux for the event builder.
+
+We studied the following points:
+
+* whether Gigabit Ethernet is useful,
+* whether TCP/IP is problematic,
+* whether Jumbo frame is necessary and
+* whether a system with Gigabit Ethernet is scalable for an event builder application.
+
+Thus, we made the following studies:
+
+* porting the event builder software on the DAQ-1 on LynxOS to Linux,
+* performance evaluation of Gigabit Ethernet on PC/Linux and
+
+Figure 1: The data flow system* performance evaluation of the event builder rate on PC/Linux.
+
+We provided the Gigabit Ethernet testbed, which consists of 16 PCs running Linux and 2 Gigabit Ethernet switches. We used the ACEnic which is one of the Gigabit Ethernet network inter face cards and a driver developed at CERN. We tuned the values of some parameters to achieve the best performance. We measured and evaluated the basic performance of Gigabit Ethernet on the PC/Linux system. We also have measured and evaluated the event builder rates on the PC/Linux system. TCP/IP was used for these evaluations. We evaluated if we could use the protocol for the event builder despite its complexity. The results of socket size and message size dependencies are shown. We also discuss the Nagle algorithm, a traffic control method. We measured the performance not only with normal MTU (1500bytes) but also large MTU (9000bytes). We also scaled up the system from a 1x1 system to 7x7 system to investigate the scalability.
+
+## 2 Measurement of Basic Performance
+
+### Setup
+
+The event builder testbed with the Gigabit Ethernet consists of 16 PCs and 2 Alteon switches. Each PC has 450MHz Pentium III CPU and 128 MBytes memory. Linux OS, version 2.2.5-22, is running on each PC. All PCs have ACEnic, which is the Gigabit Ethernet networking interface card produced by Alteon, and they are connected to each other with Gigabit Ethernet ports via two Alteon switches, which are Alteon 180 with 9 Gigabit Ethernet ports. As shown in Figure 2:, each switch has connections to 8 PCs and two switches are connected to each other.
+
+### Gigabit Ethernet Driver
+
+The Gigabit Ethernet driver on Linux was used, which was developed by Jes Sorensen at CERN. We used the driver of version 0.32 and the parameters in the driver code are tuned to get the best performance. We have modified and tested the parameters with regard to coalescing, maximum descriptor, and transmission buffer size ratio.
+
+Figure 2: Setup of 16 PCs and 2 switches
+
+#### 2.2.1 Coalescing Parameter
+
+The coalescing affects the times of interrupts from the NIC. We can modify the following two parameters, DEF_TX_COAL on the transmitting side and DEF_RX_COAL on the receiving side. When the value of the parameter is small, the interrupt time increases. These parameters are defined in the driver source code file as the following; TICKS_PER_SEC/500 for DEF_TX_COAL and TICKS_PER_SEC/1000 for DEF_RX_COAL, where TICKS_PER_SEC is defined as 1000000 in the include file, acenic.h.
+
+We changed and tested these default values for small values (TICKS_PER_SEC/50000 for DEF_TX_COAL and TICKS_PER_SEC/50000 for DEF_RX_COAL), big values (TICKS_PER_SEC/50 for DEF_TX_COAL and TICKS_PER_SEC/1000 for DEF_RX_COAL), and zero. The value zero is the special value and it means the interrupt occurred every time when the NIC receives or transmits the data.
+
+The measurements were performed in case of 131070 Byte message transfer with 131070 Byte TCP socket size and 9000 Byte MTU (Maximum Transmission Unit) size. The results are 674.59 Mbps, 414.65 Mbps, and 372.15 Mbps for small values, big values and zeros of DEF_TX_COAL and DEF_RX_COAL, respectively. The result with the default value is 497.19 Mbps. From these results, one concludes that small values of these parameters give the best performance.
+
+#### 2.2.2 Maximum Descriptor Parameter
+
+The two parameters, DEF_TX_MAX_DESC and DEF_RX_MAX_DESC, were changed. These parameters indicate the maximum number of transmit descriptors transmitted before interrupting the host for DEF_TX_MAX_DESC and that of receive descriptors for DEF_RX_MAX_DESC. The default values are 7 for DEF_TX_MAX_DESC and 2 for DEF_RX_MAX_DESC.
+
+We changed and tested the values of these parameters for small values (1 for DEF_TX_MAX_DESC and 1 for DEF_RX_MAX_DESC) and big values (10 for DEF_TX_MAX_DESC and 10 for DEF_RX_MAX_DESC).
+
+The results are 671.95 Mbps and 627.57 Mbps for small and big values, respectively. Since they are almost identical, one concludes there are no effective differences between them.
+
+#### 2.2.3 Transmission Buffer Size Ratio Parameter
+
+The parameter TX_RATIO was changed. The value of this parameter is 7 bit value, 0 to 63. It is the parameter of the ratio of transmit buffers to receive buffers. The default value is 31, which means a 50/50 split.
+
+We have measured the performances with four values, 10, 20, 50, and default value, 31. The results are shown in Table 1:, using the normal coalescing parameter values and smaller one.
+
+As shown in the table, a value of 20 for the transmission buffer size ratio gave the best performance.
+
+Shown in Table 2: are the final values of the parameters determined on the basis of the above measurements.
+
+Shown in Table 2: are the final values of the parameters determined on the basis of the above measurements.
+
+We have measured the performances and CPU utilization with the tuned driver, which are described the previous section. The measurements were performed with a the network performance measuring tool, Netperf, produced by HP.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline Value of TX\_RATIO & Throughput [Mbps] & CPU Utilization & CPU Utilization \\  & & Rx [\%] & Tx[\%] \\ \hline \hline \multicolumn{4}{|c|}{In case of using the normal coalescing parameter} \\ \hline
+10 & 461.78 & 28.86 & 52.34 \\ \hline
+20 & 461.78 & 30.73 & 56.91 \\ \hline
+50 & 486.94 & 30.67 & 55.45 \\ \hline
+31 & 487.04 & 30.99 & 55.47 \\ \hline \multicolumn{4}{|c|}{In case of using small coalescing parameter} \\ \hline
+10 & 684.85 & 44.81 & 93.16 \\ \hline
+20 & 688.00 & 43.08 & 94.04 \\ \hline
+50 & 658.36 & 41.49 & 91.58 \\ \hline
+31 & 683.56 & 43.24 & 93.16 \\ \hline \end{tabular}
+\end{table}
+Table 1: Results of the performance with the modified transmission buffer size ratio parameter
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline Parameter & Value \\ \hline \hline DEF\_TX\_COAL & TICKS\_PER\_SEC / 50000 \\ \hline DEF\_RX\_COAL & TOCKS\_PER\_SEC / 500000 \\ \hline DEF\_TX\_MAX\_DESC & 7 \\ \hline DEF\_RX\_MAX\_DESC & 2 \\ \hline DEF\_TX\_RATIO & 20 \\ \hline \end{tabular}
+\end{table}
+Table 2: Final values of parameters of the Gigabit Ethernet driver The TCP socket size affects the throughput of the system. The following measurements were performed with both MTU size of 1500 Byte and 9000 Byte, since the MTU size also affects the throughput significantly. The MTU size of normal Ethernet is 1500 Byte, but the Alteon NICs and switches allow up to 9000 Byte. It is useful to improve performance with the longer message. The measured throughputs as a function of socket size is shown in Figure 3:.
+
+The results for socket sizes of 4 Kybte for MTU1500 and 16 Kybte for MTU 9000 are almost zero values. The reason may be the driver of Gigabit Ethernet on Linux. This should be investigated.
+
+As shown in the figure, the maximum throughput of MTU 9000 is about 700 Mbps, and that of MTU 1500 is about 350 Mbps, in case of 128 Kybte of TCP socket size. The maximum throughput of MTU 9000 is greater than that of MTU 1500. But the throughputs of MTU 9000 from 16 Kybte to 64 Kybte are slower than that of MTU 1500.
+
+#### 2.2.7 Message size Dependencies of Throughput and CPU utilization
+
+The throughput and CPU utilization were measured with the tuned parameters of the drivers, in case of transferring the message of several data size with 131070 Byte TCP socket size. The result as a function of message size is shown in Figure 4:.
+
+The CPU utilization of Rx is always higher than that of Tx. The best performance is achieved at 64 Kybte message transfer. The throughput is about 700 Mbps and CPU utilization of Rx is about 91% and that of Tx is about 33%.
+
+### 2.3 Throughput with and without the Nagle Algorithm
+
+#### 2.3.1 Nagle Algorithm
+
+When short messages are transmitted with TCP/IP on Linux, the messages are packed to avoid congestion. One possible method is the Nagle algorithm, which delays transmission of short messages in the hope that more messages will become available soon. This algorithm is nor
+
+Figure 4: Throughput and CPU utilization
+
+Figure 3: Socket size dependencies
+
+mally used for transmitting data with TCP/IP on Linux. Such delay, however, causes poor performance in some situations.
+
+We can use a TCP_NODELAY option when we want to turn off the Nagle algorithm. The latency for transmitting short messages becomes much shorter when TCP_NODELAY option is set. Performance depends on the type of applications, such as transmitting frequencies and sizes of short messages.
+
+#### 2.3.2 Results with ebio np
+
+The DAQ/EF-1 event builder system uses the API, called ebio, which is used for transmitting or receiving data via the network. The measurements were performed with the ebio_np tool, which is the network performance measuring tool implemented on the ebio API. It is almost the same tool as NetPIPE, expect for the use of the ebio API.
+
+The latencies in case of MTU 1500 and 9000 were also measured and the results are shown in Figure 6:.
+
+These results show that the Nagle algorithm is effective for MTU 9000 transfer, especially for transfer of message shorter than about 4 Kbyte. On the other hand, for MTU 1500, the results with and without the Nagle algorithm are almost the same.
+
+The Nagle algorithm is effective for continuous message transfer. The traffic created with network performance measuring tools is suitable for the Nagle algorithm. But the traffic of the DAQ system is not known well. We should analyze the traffic and determine if the Nagle algorithm is effective.
+
+Figure 5: Throughput of MTU1500 and 9000
+
+Figure 6: Latencies of MTU 1500 and 9000
+
+The latencies were measured with ebio_np and NetPIPE to determine the overhead of ebio_np. We have measured both cases, with and without using the ebio API. The latencies using MTU 9000 are shown in Figure 7:.
+
+As described in the previous section, the Nagle algorithm is effective for MTU 9000 transfer with messages shorter than 4Kbyte. But, as can be seen from the results with and without the Nagle algorithm, the latency of short messages without the Nagle algorithm is longer than that with the algorithm. In this case, the network performance tool is used and the better performance is achieved using the algorithm. One reason why the Nagle algorithm is effective for such short messages, is that short messages are transmitted continuously in this tool.
+
+Josip Loncaric provided the Linux kernel patch in order to increase the performance for short messages with TCP_NODELAY option.
+
+#### 2.4.2 Results with the patched kernel
+
+We have measured the performance with the kernel 2.2.5-22 patched, which is described above.
+
+The patch provided by Josip Loncaric for TCP/IP short messages is effective for some parts of the whole transmitting message size range. The latency with patched kernel is shorter than that without patched kernel for message size under about 50 Byte, for 1500 Byte MTU. The latency
+
+Figure 8: Latencies with patched kernel
+
+Figure 7: Latencies of MTU 9000
+
+with the patched kernel is not efficient for message length above 50 Byte. On the other hand, the latency for 9000 Byte MTU with patched kernel is efficient for messages shorter than about 1 Kbyte.
+
+These measurements were performed without the Nagle algorithm. We can compare the result with the measurements with the Nagle algorithm. As shown, the latency is much shorter than that without the Nagle algorithm.
+
+As described above, the performance depends very much on the application. These are the results with the NetPIPE tool with Gigabit Ethernet NIC and switch. We should make additional measurements to evaluate whether the patch is effective or not for our event builder application.
+
+## 3 Measurement of Event Builder Performance
+
+### Configuration
+
+#### 3.1.1 Configuration of Hardware
+
+The testbed setup for the measurement of the event builder performance is the same as that used for the basic test described in section 2.1. The testbed consists of 16 PCs and two ALTEON180 Gigabit Ethernet switches as shown in Figure 2:. PCs and switches were connected by optical links and there was a cascade connection between two switches.
+
+We did not use the system of external triggers generated by, for example, a clock generator on a VME crate. The trigger for the event builder was emulated by the data flow manager (DFM) process, which is described below, running on a PC in which triggers are generated by its internal clock.
+
+#### 3.1.2 Configuration of Event Builder in DAQ/EF prototype -1
+
+The event builder application in DAQ/EF prototype -1 is described in detail elsewhere [2][3]. The application consists of the DFM, sources and destinations whose processes are simultaneously running on different CPUs. The source code has been developed on LynxOS system and ported to PC/Linux for this performance measurement. The detailed porting procedure is described in [4].
+
+According to the basic performance measurements of Gigabit Ethernet shown in the preceding sections, several parameters which affect the performance of the event builder are briefly described in the following.
+
+The performance depends on the number of nodes of sources and destinations, since the traffic of data can increase according to the increase in number of nodes. We changed the number of nodes of source and destination in order to evaluate the performance, for example, with respect to bottleneck and scalability of the event builder system.
+
+There are two kinds of event builder scheme, centralized and distributed. In the distributed scheme, the functionality of counting End of Transfer (EoT) is taken over by the destinations instead of the DFM. This results in the reduction of control traffic from destinations to the DFM and better performance of event building. Therefore, we used the distributed scheme to get better performance.
+
+There are parameters to control data flow in the event builder, number of the DFM resources, Busy and \(\overline{\text{Busy}}\) (not busy). The number of the DFM resources specifies the number of events is handled by the DFM concurrently. In the case that the number of events handled by a destination exceeds the number specified by Busy, a destination sends a Busy signal to the DFM to request not to send more data to the destination. On the other hand, the number of events in a destination is reduced to the number specified by \(\overline{\text{Busy}}\), the DFM sends a \(\overline{\text{Busy}}\) signal to the DFM to request more data. Busy and \(\overline{\text{Busy}}\) were set to the number of DFM resources times 1.2 and 0.2, respectively, of which 0.2 corresponds to a safety factor.
+
+#### 3.1.3 Configuration of ebio
+
+Ebio [5] is one of the TCP/IP wrappers to hide the TCP/IP layer from the application layer which, in this case, is the event builder. There are several parameters to control TCP/IP via ebio. In this study, we tuned the parameters to get better performance as follows:
+
+The Nagle algorithm buffers data until the size of data to be sent reaches some threshold or a time-out occurs. Because of the relative decrease of the TCP/IP overhead, data transmission with the Nagle algorithm could have better performance than that without when data is continuously sent. This means that the Nagle algorithm provides optimal transmission. Therefore, we set the Nagle algorithm on in this study.
+
+When the data transmission occurs via ebio, ebio always sends a 4Byte control message first, then the message body. This means that the minimum message size handled by ebio is 4 Byte. There is an option to change this minimum message size, in order to be able to send a larger message (up to 249Byte) with the 4Byte control message. The minimum message size is likely to affect the event builder performance. In this study, we used the default setting of small message handling by ebio.
+
+In addition, ebio sets the TCP/IP buffer size (TCP/IP socket size) whose default value is 64KByte. However, in order to extract better performance from the "Jumbo frame" feature, he buffer size should be set to, for example, 128KByte. In this study, we set the buffer size to the default value, i.e., 64KByte.
+
+#### 3.1.4 Configuration of Gigabit Ethernet
+
+An ALTEON 180 switch supports the change of the MTU up to 9000Byte continuously, the so called "Jumbo frame" support. The size of fragments from each subdetector is expected to be about 10KByte, therefore the jumbo frame may be appropriate for the event builder. However, we could not make the parameters optimal for the jumbo frame, therefore we set MTU to 1500 in this study.
+
+\begin{table}
+\begin{tabular}{l l} \hline \hline \multicolumn{1}{c}{} & \multicolumn{1}{c}{} \\ \hline \hline \multicolumn{1}{c}{} & \multicolumn{1}{c}{} \\ \hline \hline \multicolumn{1}{c}{} & \multicolumn{1}{c}{} \\ \hline \hline \multicolumn{1}{c}{} & \multicolumn{1}{c}{} \\ \hline \hline \multicolumn{1}{c}{} & \multicolumn{1}{c}{} \\ \hline \hline \multicolumn{1}{c}{} & \multicolumn{1}{c}{} \\ \hline \hline \multicolumn{1}{c}{} & \multicolumn{1}{c}{} \\ \hline \hline \end{tabular}
+\end{table}
+Table 3: summarizes the settings of parameters which are relevant to this performance measurement.
+
+We measured event builder rate and bandwidth per destination node for various settings to evaluate the event builder performance with Gigabit Ethernet.
+
+### Measurement with 1xN Configuration
+
+In this measurement, the number of sources was fixed to one and that of destinations was varied from 1 to 7.
+
+In this measurement, the number of sources was fixed to one and that of destinations was varied from 1 to 7.
+
+The event builder rate of 1xN configuration increases in proportion to a concurrence of event building up to 40. The number of DFM resources limits event builder rates in this region and event builder rate does not depend on the number of destinations.
+
+On the other hand, in a region with concurrency beyond 40, the maximum event builder rates are proportional to the number of destinations and do not depend on the number of the DFM resources. The proportional coefficient is about 2kHz which is the maximum processing rate of the destination.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline  & \# of Sources & 1 - 7 \\ \cline{2-3}  & \# of Destinations & 1 - 7 \\ \cline{2-3} Event Builder Parameters & Event Builder Scheme & distributed \\ \cline{2-3}  & \# of DFM resources & 1 - 50 \\ \cline{2-3}  & Busy & (\# of DFM resources) x 1.2 \\ \cline{2-3}  & Busy & (\# of DFM resources) x 0.2 \\ \hline  & Nagle algorithm & on \\ \cline{2-3} ebio Parameters & Small message handling & 4Byte control message and message body (up to 249Byte) sent separately \\ \cline{2-3}  & TCP buffer size & 64kB \\ \hline Gigabit Ethernet Parameters & MTU & 1500 \\ \hline \end{tabular}
+\end{table}
+Table 3: DFM parameters used for this measurement The following measurements were performed with concurrency of event building of 50. This number guarantees that the measurements for any source and destination configuration were made in the plateau region, except in the case of fragment size of 100Byte. TCP buffer size and MTU size were fixed to 64KByte and 1500, respectively.
+
+The performance of the event builder rate and the bandwidth is categorized into two classes: one is the region in which the performance is dictated by a software overhead of the event builder application and/or TCP/IP (simply called "software overhead") and the other is the region in which the performance is limited by the Gigabit Ethernet throughput.
+
+For the case of smaller fragment size (less than 20000, 10000, 2000 and 1000Byte for 1x1, 1x2, 1x4 and 1x7 configurations respectively), the event builder rate is independent of fragment size and proportional to the number of destinations. The proportional coefficient of the rate is about 2kHz which is determined by the software overhead. This limitation means that the bandwidth per destination depends on fragment size and is roughly independent of the number of destinations.
+
+However, in the case that fragment size is greater than this, the rate decreases as fragment size increases. In addition, the rates for all configurations in the region have the same slope. The reason for this behaviour is that the rate is limited by the maximum throughput per Gigabit Ethernet link on the source. This is confirmed by the behaviour of the bandwidth with respect to fragment size. The bandwidth reaches a plateau in a region larger than 20KByte and the total bandwidth does not depend on the number of destinations except for the case of 1x1 configuration. This is due to the limitation of bandwidth of Gigabit Ethernet on source, i.e., the maximum bandwidth of about 50MByte/sec corresponding to 400Mbps per link at MTU 1500. This is expected by the basic performance measurement shown in section 2.
+
+In the plateau region, the bandwidth of 1x1 configuration is limited to about 35MByte/sec, even if the throughput per link does not reach the limit of 400Mbps. This suggests that the maximum performance of data transfer of the destination process may be limited to 35MByte/sec, i.e., this is another limitation due to the software overhead.
+
+Figure 11: Bandwidth per destination vs. fragment size in 1xN configurations
+
+Figure 10: Event builder rate vs. fragment size in 1xN configurations
+
+### Measurement with Nx1 System
+
+In this measurement, the number of destinations was fixed to one and that of sources was varied from 1 to 7. Concurrency of event building, TCP buffer size and MTU size were fixed to 50, 64kbyte and 1500, respectively.
+
+In these configurations, the event builder performance is categorized into two classes as seen in 1xN configurations: the region dictated by the software overhead and that limited by the Gigabit Ethernet link speed.
+
+The event builder rate of Nx1 configuration is about 2kHz and independent of the number of sources in a region of smaller fragment size (16000, 8000 and 3500Byte1 for 1x1, 2x1, 5x1 configurations, respectively). The rate is limited by a destination which processes events in 2kHz in the plateau region at most as seen in Nx1 configurations. The bandwidth is roughly proportional to the number of sources in this fragment size, since the bandwidth is determined by the maximum event processing rate on a destination which is about 2kHz.
+
+Footnote 1: It is difficult to identify where the transition point for 5x1 configuration is, because these results are almost the same as that of 1x1 and 2x1 for the small fragment sizes.
+
+In a region of fragment size of larger than those values, the rate of every configuration decreases as fragment size increases. The slope of decrease depends on the number of sources. This is due to the limitation of bandwidth handled by the destination process as seen in Figure 13:. The bandwidth of different source configurations degenerates to 35MByte/sec in the case of fragment size of larger than the transition points. This result supports that the destination process can at most handle events at the bandwidth.
+
+### Measurement with NxN Configuration
+
+In this measurement, the number of sources and destinations were equal and varied from 1 to 7. Concurrency of event building, TCP buffer size and MTU size were fixed to 50, 64kbyte and 1500, respectively.
+
+Figure 12: Event builder rate vs. fragment size in Nx1 configurations
+
+Figure 13: Bandwidth per destination vs. fragment size in Nx1 configurationsThe behaviour of the rate resembles that for 1xN configurations and the bandwidth per destination is similar to that for Nx1 configurations. However, the event builder performance is dictated only by the software overhead.
+
+The rate of 2kHz x (# of destinations) in a smaller fragment size region indicates that the rate is dictated by the software overhead as seen in the 1xN configuration. For the 7x7 configuration, the situation seems to be more complicated. The rate of 7x7 configuration reaches only 5kHz instead of 2kHz x 7 = 14kHz. This can't be explained by the limitation of the software overhead, i.e., 2kHz and 35MByte/sec. This also means that the event builder system loses scalability for configurations of 3x3 and larger number of sources and destinations.
+
+The event builder rate decreases as fragment size increases in a larger fragment size region, since the bandwidth per destination is limited to \(\sim\)35MByte/sec by the maximum processing power of the destination as seen in Nx1 configurations.
+
+The limitation on maximum bandwidth per destination of \(\sim\)35MByte/sec allows total bandwidth of the 1x1, 2x2 and 7x7 configurations to be about 35, 70 and 230MByte/sec, respectively.
+
+In this measurement, the Gigabit Ethernet throughput per link of 400Mbps did not limit the performance of the event builder for the NxN configurations.
+
+## 4 Conclusion
+
+We have tuned the values of some parameters of the Gigabit Ethernet driver on Linux. Basic performance tests with the tuned Gigabit Ethernet driver with TCP/IP were performed. The maximum throughput of Gigabit Ethernet TCP/IP is about 700 Mbps for the transfer of a long message with 9000 Byte of MTU size.
+
+It was shown that the Nagle algorithm is effective for continuous transfer of the short message continuously.
+
+We should also perform additional tests with NetPIPE and ebio_np to understand the results of DAQ/EF-1 event builder system.
+
+Figure 14: Event builder rate vs. fragment size in NxN configurations.
+
+Figure 15: Bandwidth per destination vs. fragment size in NxN configurations
+
+The event builder performance with Gigabit Ethernet TCP/IP on Linux has been measured. The following limitations are found for the event builder with the MTU 1500 Gigabit Ethernet configuration:
+
+* the destination can process events at most at 2kHz,
+* the maximum bandwidth per destination is about 35MByte/sec and
+* the maximum bandwidth per link is about 50MByte/sec.
+
+The software overhead of the application and/or TCP/IP is one of the reasons for the first and second limitations. The third one is due to the link speed of the Gigabit Ethernet. For 1xN and Nx1 configurations, the performance is determined by one of these limitations according to fragment size. On the other hand, the performance of NxN configuration is limited by the software overhead only. The event builder rate of 7x7 configuration was about 5kHz up to 4KByte fragment size at MTU 1500 and the system is not scalable.
+
+As LVL2 accept rate is 1-2 kHz, the event builder with Gigabit Ethernet on PC/Linux can achieve the requirement at least on the small scale system even if the measurement of NxN configuration has shown that the event builder rate does not scale linearly.
+
+The measurements of the event builder performance were done with MTU1500 and the results indicated that the performance was limited by the physical link speed of the Gigabit Ethernet. The evaluation of the basic Gigabit Ethernet performance showed that the jumbo frame was effective in some situations. It is, therefore, necessary to evaluate the event builder performance with MTU9000.
+
+## 5 Acknowledgement
+
+We would like to thank many people of DAQ group for supporting the porting the DAQ/EF-1 event builder software and the measurements with the event builder system on Linux. We would like to thank S.Robins for proof-reading this note too.
+
+## References
+
+* [1]The ATLAS Collaboration, "ATLAS DAQ, EF, LVL2 and DCS Technical Progress Report", CERN/LHCC/98-16
+* [2]H. P. Beck et al., The Event Builder Sources and Destinations in the ATLAS DAQ Prototype -1, ATLAS DAQ Technical Note 72. [http://atddoc.cern.ch/Atlas/Notes/072/Notes072-1.html](http://atddoc.cern.ch/Atlas/Notes/072/Notes072-1.html) and references therein.
+* [3]G. Ambrosini et al., The Data Flow Manager for Event Building in the ATLAS DAQ/EF Prototype -1, ATLAS DAQ Technical Note 73. [http://atddoc.cern.ch/Atlas/Notes/073/Notes073-1.html](http://atddoc.cern.ch/Atlas/Notes/073/Notes073-1.html) and references therein.
+* [4]Y. Yasu et al., Status report of event builder software porting to Linux and preliminary test result., [http://home.cern.ch/~yasu/eb-status-report.html](http://home.cern.ch/~yasu/eb-status-report.html), August 1999.

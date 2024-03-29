@@ -1,0 +1,871 @@
+**ATLAS Internal Note**
+
+**SOFT-NO-017**
+
+**02 December 1994**
+
+**ATLAS Trigger Simulation User Guide**
+
+**Revision 0.00**
+
+J. Baines, J. Carter, P. Eerola, F. Gianotti, T. Hansl, R. Hawkings,
+
+D. Hubbard, O. Palamara, S. Petrera, S. Sivoklokov, M. Smizanska, A. Watson
+
+December 2, 1994
+
+###### Contents
+
+* 1 Introduction
+	* 1.1 The aim of this guide
+	* 1.2 How to get this manual
+	* 1.3 Contacts
+* 2 Overview
+	* 2.1 General
+	* 2.2 Status
+* 3 How to use the trigger simulation
+	* 3.1 T1 Steering Cards
+	* 3.2 T2 Steering Cards
+* 4 Naming Convention
+* 5 Trigger Data Structure
+	* 5.1 T1
+		* 5.1.1 T1 Calorimeter
+		* 5.1.2 T1 Muon
+		* 5.1.3 T1 Global
+	* 5.2 T2
+* 6 The ATRIG Library
+* 7 ATRECON/ATRIG Interface
+* 8 T1 Implementation
+	* 8.1 T1 Calorimeter (T1CA)
+	* 8.2 T1 Muon
+	* 8.3 T1 Global
+* 9 T2 Implementation
+	* 9.1 T2 Supervisor (T2SU)
+	* 9.2 T2 Calorimeter (T2CA)
+	* 9.3 T2 SiT (T2SI)
+	* 9.4 T2 TRT (T2TR)
+	* 9.5 T2 MSGC (T2MS)
+	* 9.6 T2 PreShower (T2PS)
+	* 9.7 T2 Muon (T2MU)
+
+[MISSING_PAGE_EMPTY:3]
+
+List of Figures
+	* 5.1 Root of the trigger data structure.
+	* 5.2 T1 data structure.
+	* 5.3 General view of the T2 data structure.
+	* 5.4 Detail of the bank structure for the T2 local RoI definitions.
+	* 5.5 Detail of the bank structure for the T2 calorimeter.
+	* 5.6 Detail of the bank structure for the T2 silicon tracker.
+	* 5.7 Detail of the bank structure for the T2 TRT.
+	* 5.8 Detail of the bank structure for the T2 MSGC.
+	* 5.9 Detail of the bank structure for the T2 preshower.
+* 5.10 Detail of the bank structure for the T2 muon system.
+	* 9.1 The T2 TRT coordinate system.
+List of Tables
+* 2.1 Status of the trigger simulation code.
+* 4.1 Recommended T1 module naming convention.
+* 4.2 T2 module naming convention.
+* 5.1 Banks containing the output of the T1 calorimeter trigger.
+* 5.2 Banks containing the output of the T1 fake muon trigger.
+* 5.3 Banks containing the output of the T1 global trigger.
+* 5.4 Banks containing the output of the second level trigger.
+* 6.1 Location of the trigger simulation code in the CMZ subdirectories of ATRIG.
+
+## Chapter 1 Introduction
+
+### 1.1 The aim of this guide
+
+This manual describes the ATRIG trigger simulation environment and its use. In the body of the manual we present the overall structure of the trigger simulation, how to control a job using steering cards, and details of the implementation of trigger modules.
+
+### 1.2 How to get this manual
+
+The lastest version of the manual is best found using WWW [9]. A copy is maintained below the RD-11 home page, under 'Physics simulation'. The URL for this server is:
+
+[http://www.cern.ch/RD11](http://www.cern.ch/RD11)
+
+### 1.3 Contacts
+
+Please address any questions, complaints or suggestions to:
+
+jed.carter@cern.ch
+
+In particular, please inform us if you find this manual ambiguous or lacking, and we will be happy to improve it - _if you don't let us know we cannot help!_.
+
+## Chapter 2 Overview
+
+### 2.1 General
+
+The aim of the trigger simulation suite is to provide a coherent framework for trigger simulation studies in ATLAS. This involves simulation code for the T1 and T2, and the interface between them.
+
+The trigger simulation suite runs in the ATRECON reconstruction program. The main trigger steering routine ATRIGG is called from ARECON after the zeroth phase of preprocessing, and in turn calls the first and second level trigger steering routines TRIGL1 and TRIGL2.
+
+At the first level a detailed calorimeter trigger and a 'fake' muon trigger simulation are provided, along with a T1 global trigger. A fully functional muon trigger will be incorporated in the near future.
+
+At the second level the aim has been to provide for each subdetector participating in the T2 a _default_ method of building regions of interest and extracting features, and a _default_ framework for the global trigger. This approach gives users interested in developing algorithms for a particular subdetector or the global trigger a common environment with access to all T2 subdetectors. It is anticipated that improvements and/or extensions to the default algorithms, and alternative algorithms, will be added to the library by subdetector and global trigger experts as they are developed.
+
+The current implementation of the T2 simulation suite considers only the region of interest (RoI) driven scenario, in which a T2 supervisor identifies RoIs using the results of the T1 analysis, guides the operation of T2 subdetector triggers and then launches the T2 global trigger. The addition of non-RoI driven triggering at the second level (for low luminosity studies) is planned for the near future.
+
+The implementation has attempted to offer a scheme whereby modules communicate via REBANK data banks rather than common blocks. However, the lack of a standard data model is recognised as a limitation which we hope to address in the future.
+
+### 2.2 Status
+
+See table 2.1 for a summary of the status of the trigger simulation implementation (the column 'Text Format' refers to the facility to produce trigger data in a portable format described in [4]).
+
+In order to establish an overall framework, parts of the T2 simulation code have been implemented as dummy routines. The aim of the dummy routines is to show as far as we can at this stage how a user interested in developing code might proceed to interact with the T2 data structure and supervisor system. We cannot, however, foresee every possibility at this stage, andusers starting to refine the dummy routines should bear in mind that the example structure we have given may itself require modification for a particular task. In particular, further modular decomposition of dummy implementations is encouraged for reasons of flexibility and code reuse.
+
+The ATRIG trigger code is maintained in the cmz library atrig.cmz, which contains the patches relavant to the trigger previously located in atrecon.cmz. This library will shortly be released. In the interim, the current versions of the software can be found under:
+
+/afs/cern.ch/user/c/carter/public/atlas
+
+The atrig directory contains the subdirectories:
+
+dev/ old/ pro/
+
+These contain the cmz libraries, example datacards, and example scripts for building executables and running jobs on cern shift.
+
+The default version of atrig is the pro version, and user corrections or extensions should be generated relative to this version. At the time of writting the standard ATRIG version is 1.00.
+
+See also the file atrig/pro/KNOWNBUGS for trouble shooting.
+
+\begin{table}
+\begin{tabular}{|l|c|c|c|c|} \hline \multicolumn{5}{|c|}{Summary of the Trigger Simulation Code} \\ \hline Trigger Module & Data Access & Default Algorithm & Default Histogramming & Text format \\ \hline T1 Calorimeter & ok & ok & ok & no \\ \hline T1 Muon & ok & ok & ok & no \\ \hline T2 Supervisor & ok & ok & ok & ok \\ \hline T2 Calorimeter & ok & ok & ok & ok \\ \hline T2 SiT & ok & ok & ok & ok \\ \hline T2 TRT & ok & ok (barrel) & ok & ok \\ \hline T2 PreShower & ok & ok & ok & ok \\ \hline T2 MSGC & ok & ok & ok & no \\ \hline T2 Muon & dummy & dummy & dummy & no \\ \hline T2 Global & ok & ok & ok & no \\ \hline \end{tabular}
+\end{table}
+Table 2.1: Status of the trigger simulation code.
+
+## Chapter 3 How to use the trigger simulation
+
+The details of how to run an ATRECON job are to be found in [1]. Below we discuss the data cards specific to steering the trigger modules. Note that in general you may also need to understand the SLUG/DICE/ATRECON steering and detector parameter cards for the particular subdetector which a trigger module is operating on (for example, for calorimeter trigger modules it may be necessary to understand how the addition of noise is controlled by the subdetector DETA card). For information on how to change parameters of the trigger simulation please refer to the relevant trigger module subsection.
+
+IMPORTANT NOTE: it may be necessary to increase the default sizes of the SLUG parameters MAXZEB (in the sequence //SLUG/SLUGCDES/$ZEBCOM), and MAXHBK (in the sequence //SLUG/SLUGCDES/$PAWCOM), for proper operation of the trigger simulation.
+
+### 3.1 T1 Steering Cards
+
+The functions of the T1 simulation can be enabled by the following steering cards:
+
+T1 Calorimeter: *MODE 'T1CA' 'ANAL' x 'HIST' x 'PRIN' x T1 Muon: *MODE 'T1MU' 'ANAL' x 'HIST' x 'PRIN' x 'GRAP' x T1 Global: *MODE 'T1GL' 'ANAL' x 'HIST' x 'PRIN' x where x represents a parameter which is used to select different options.
+
+* 0 turns off all histogramming for a module
+* 1 turns on standard ntuple creation and filling for a module
+
+* 0 turns off all print information from a module
+* 0 different levels of detailed trace information for a module, where implemented
+
+* 0 no analysis
+* 0 run the module, producing output tables
+* GRAP: (T1MU only)0 no graphics > 0 produce graphics
+
+For the T1 calorimeter, the valid ANAL parameters are:
+
+ANAL=1 run the calorimeter T1 code, producing output tables ANAL=3 run the fake calorimeter code
+
+For the T1 muon, the valid ANAL parameters are:
+
+ANAL=1 run the fake muon T1 code, producing output tables
+
+For the T1 global, the valid ANAL parameters are:
+
+ANAL=1 run the module using T1 calorimeter data ANAL=2 as 1, but also set SLUG REJEFL flag if the event fails ANAL=3 run the fake global trigger system using the KINE banks
+
+### T2 Steering Cards
+
+The functions of the T2 simulation can be enabled by the following steering cards:
+
+T2 supervisor: *MODE 'T2SU' 'ANAL' x 'HIST' x 'PRIN' x T2 calorimeter: *MODE 'T2CA' 'ANAL' x 'HIST' x 'PRIN' x T2 SiT: *MODE 'T2SI' 'ANAL' x 'HIST' x 'PRIN' x T2 TRT: *MODE 'T2TR' 'ANAL' x 'HIST' x 'PRIN' x T2 MSGC: *MODE 'T2MS' 'ANAL' x 'HIST' x 'PRIN' x T2 PreShower: *MODE 'T2PS' 'ANAL' x 'HIST' x 'PRIN' x T2 Muon: *MODE 'T2MU' 'ANAL' x 'HIST' x 'PRIN' x T2 Global: *MODE 'T2GL' 'ANAL' x 'HIST' x 'PRIN' x *MODE 'T2GR' 'HIST' x where x represents a parameter which is used to select different options. For the HIST and PRIN keys the options are:
+
+* 0 turns off all histogramming for a module
+* 1 turns on standard ntuple creation and filling for a module
+* 2 for subtriggers, creates a histogram of a subtrigger window in a RoI, where implemented, in addition to enabling standard ntuples
+
+* 0 turns off all print information from a module
+* 0 different levels of detailed trace information for a module, where implemented
+
+To understand the different values of the ANAL parameter for the T2 supervisor it is necessary to know that the operation of the T2 supervisor is controlled according to the value of the parameter interpreted _at the bit level:_bit 0: if set, call subtrigger module to make window definition and raw data banks
+
+bit 1: if set, call feature extraction modules to make feature banks
+
+The values of the ANAL parameter for the T2 supervisor are therefore as follows:
+
+* T2 supervisor ANAL:
+
+ 0 no T2 analysis
+
+ 1 create window definition and raw data banks only
+
+ 2 create feature extraction banks only (ie assumes you have read in the window definition and raw data banks from a previously prepared data set)
+
+ 3 create window definition, raw data and feature banks
+
+The values of the ANAL parameter for the T2 subtriggers are simply:
+
+* T2 subtrigger ANAL:
+
+ 0 no analysis for this subtrigger
+
+ 1 analyse this subtrigger with default algorithm
+
+ > 1 reserved for future use (eg select different feature extraction algorithm)
+
+The values of the ANAL parameter for the T2 global trigger are:
+
+* T2 global ANAL:
+
+ 0 no analysis for the global trigger
+
+ 1 use the global trigger in 'parallel' mode
+
+ 2 use the global trigger in'sequential' mode
+
+As an example, the following cards will produce the window definition, raw data and feature banks for the calorimeter, SiT, and TRT using the default algorithms, and run the T2 global trigger in 'parallel' mode.
+
+*MODE 'T2SU' 'ANAL' 3
+
+*MODE 'T2CA' 'ANAL' 1
+
+*MODE 'T2SI' 'ANAL' 1
+
+*MODE 'T2TR' 'ANAL' 1
+
+*MODE 'T2GL' 'ANAL' 1
+
+Trigger simulation control cards should be placed in the second half of the datacard file, after the first STOP.
+
+## Chapter 4 Naming Convention
+
+The first level trigger is currently implemented as three components: T1 calorimeter, T1 muon, and T1 global. Since the T1 trigger code has evolved 'organically', a consistent naming convention has not always been observed. For future development, we recommend that all routines, sequences and data bank names begin with T1; all T1 calorimeter routines use a two letter code CA; all T1 muon routines use a two letter code MU; and all T1 global routines use a two letter code GL. Single letter codes for T1 bank naming are more problematic due to the large number of T1 data banks required, and this question is not resolved. However, _where possible_, it is recommended that single letter codes for the T1 modules should be C, M, and G for the calorimeter, muon and global T1 modules respectively. The convention recommended for T1 is summarised in table 4.1.
+
+For the second level trigger, routines, sequences and data bank names should begin with T2. A region of interest (RoI) refers to all the information associated with a given T1 local trigger. For example if an event has two T1 calorimeter clusters above threshold, then there are two RoIs in the event, and each RoI is comprised of all the T2 subdetector information which falls in the road defined by the position of the T1 'cluster' and the interaction vertex. We refer to each T2 subdetector module in the RoI as a subtrigger module, and to the partial view of an RoI seen by a T2 subtrigger as a window. Each subtrigger has a single letter identifier for bank identification and a two letter identifier to form a four letter detector name. The convention adopted for T2 is summarised in table 4.2.
+
+The sequence numbers reflect the internal organisation of the subtriggers in the supervisor. Note that the limitation of four characters for bank naming in the ZEBRA/REBANK environment has forced us to adopt obscure single letter tags for the MSGC and supervisor.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline \multicolumn{4}{|c|}{Recommended Naming Convention for the T1 Modules} \\ \hline T1 Module & Single Letter Code & Two Letter Code & Generic Name \\ \hline T1 Calorimeter & C & CA & T1CA \\ \hline T1 Muon & M & MU & T1MU \\ \hline T1 Global & G & GL & T1GL \\ \hline \end{tabular}
+\end{table}
+Table 4.1: Recommended T1 module naming convention.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|} \hline \multicolumn{5}{|c|}{**Naming Convention for the T2 Modules**} \\ \hline \hline
+**T2 Module** & **Sequence Number** & **Single Letter Code** & **Two Letter Code** & **Generic Name** \\ \hline \hline
+**T2 Supervisor** & - & Z & SU & T2SU \\ \hline
+**T2 Global** & - & G & GL & T2GL \\ \hline
+**T2 Calorimeter** & 1 & C & CA & T2CA \\ \hline
+**T2 SiT** & 2 & S & SI & T2SI \\ \hline
+**T2 TRT** & 3 & T & TR & T2TR \\ \hline
+**T2 MSGC** & 4 & Y & MS & T2MS \\ \hline
+**T2 PreShower** & 5 & P & PS & T2PS \\ \hline
+**T2 Muon** & 6 & M & MU & T2MU \\ \hline \end{tabular}
+\end{table}
+Table 4.2: T2 module naming convention.
+
+## Chapter Trigger Data Structure
+
+This section addresses the output data structure in ATRIG. An overview of the data structure is given, but caution should be observed since what is described here is only a snapshot of a dynamic structure. For details of the content of the data banks please refer to the associated ddl documents [7]. We do not discuss the (static) input trigger parameter banks in this section, again please refer to the ddl for details of these.
+
+The trigger information is stored in a ZEBRA structure using the ATRECON REBANK interface [1]. We have implemented the trigger data structure as a hierarchical tree. The default REBANK paths to the trigger data banks and associated utility routines for a particular module are generally stored in sequences of the form TxyyACC - for example, T2MSACC contains the bank location information for the T2 MSGC subtrigger. The idn variables in the T2xyyACC sequences should _never_ be explicitly used, but copied to local idn arrays and then used, since some REBANK routines take these idn variables as in/out, i.e. modify their value.
+
+Where window commons are used to access the data in the data structure, the window common generally bears the same name as the associated data bank, and functions of the form TxyyWAC are provided to copy the data bank to the window common (for example, the function T2CFWAC copies the T2CF calorimeter feature bank into the T2CF window common). Trigger raw data banks are in general of dynamic nature and therefore use the REBANK utilities RBSTORE and RBCOPY to move their data to and from working arrays, rather than window commons. Associated with each bank of this type is generally a sequence bearing the same name as the bank and which contains the definition of the utility array.
+
+In the interests of reusabilty, all trigger modules should communicate data via banks (ie a particular state of the window commons should not be assumed on entry to a routine and the data path and window common state should be reset).
+
+The root of the trigger data structure tree is the bank TRIG which is located below the reconstruction bank RECB. Below TRIG are the banks T1 and T2, which are the roots of the T1 and T2 data structures respectively (see figure 5.1).
+
+As an aid to future development and portability, implementors should attempt as far as possible to decouple the algorithmic functions from the data access functions in their routines. As a minimum, data bank access should be concentrated in a few clearly demarked places in the code; as an ideal, independent data access routines should be provided. (Note that on this issue we recognise that the current implementation is deficient, and should be improved upon where possible. We hope to rationalise the data model in the future.)
+
+### T1
+
+The current T1 data structure tree is shown in figure 5.2
+
+#### 5.1.1 T1 Calorimeter
+
+The output banks for T1 Calorimeter are summarised in table 5.1.
+
+#### 5.1.2 T1 Muon
+
+The output banks for the fake T1 muon trigger are summarised in table 5.2.
+
+Figure 5.1: Root of the trigger data structure.
+
+Figure 5.2: T1 data structure.
+
+#### 5.1.3 T1 Global
+
+The output banks for T1 Global trigger are summarised in table 5.3 (presently the T1GL bank simply summarises the information of the T1 calorimeter trigger).
+
+### T2
+
+The information produced by the T2 trigger is:
+
+* T2 supervisor RoI definitions
+* local RoI definitions for each subdetector participating in the T2
+* RoI raw data for each subdetector participating in the T2
+* extracted feature data for each subdetector participating in the T2
+* T2 global features and decision
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline \multicolumn{3}{|c|}{**Banks Created by the T1 Calorimeter Trigger**} \\ \hline \hline
+**Bank Name** & **Window Common** & **Description** \\ \hline T1ER & T1ER & electromagnetic (EM) cluste \\ \hline T1EC & T1EC & count of EM clusters passing each threshold \\ \hline T1JR & T1JR & JET cluster \\ \hline T1JC & T1JC & count of JET clusters passing each threshold \\ \hline T1EM & T1EM & calorimeter missing transverse energy vector \\ \hline \end{tabular}
+\end{table}
+Table 5.1: Banks containing the output of the T1 calorimeter trigger.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline \multicolumn{3}{|c|}{**Banks Created by the T1 Muon Trigger**} \\ \hline \hline
+**Bank Name** & **Window Common** & **Description** \\ \hline T1MR & T1MR & (fake) muon trigger cluster \\ \hline T1MC & T1MC & Count of muon clusters \\ \hline \end{tabular}
+\end{table}
+Table 5.2: Banks containing the output of the T1 fake muon trigger.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline \multicolumn{3}{|c|}{**Banks Created by the T1 Global Trigger**} \\ \hline \hline
+**Bank Name** & **Window Common** & **Description** \\ \hline T1GL & T1GL & T1 global data \\ \hline \end{tabular}
+\end{table}
+Table 5.3: Banks containing the output of the T1 global trigger.
+
+The T2 bank naming scheme is:
+
+* T2ZD supervisor RoI definition banks
+* T2xR window definition banks
+* T2xF feature banks
+* T2xM manager banks
+* T2xy window raw data banks
+
+where x is the T2 subtrigger single character code (table 4.2), and y is an arbitrary character depending on the particular details of each subtrigger.
+
+The T2 bank is the root of the T2 data structure, below which are stored the supervisor RoI definition banks and the global event feature and classification banks. Below each supervisor RoI definition bank (T2ZD), the local RoI definition banks for each T2 subtrigger (T2xR) are stored, and below these, the subtrigger RoI raw data (T2xy) and feature banks (T2xF) are located. The exception to this rule is the TRT, where an additional layer (TRT manager bank) has been introduced between the supervisor RoI definition bank and the local TRT RoI definition bank(s). For the T2 global trigger, the global event features and classification banks are located directly below the T2 bank for an event. In addition, a global manager bank (T2GM) is used as the root for all objects (T2GA) which are accepted by the T2 global trigger. Figure 5.3 shows the principal structure of the T2 branch, figure 5.4 shows the subdetector structure below the supervisor RoI definition, and succeeding figures show the detail for individual subdetectors. The output banks for T2 are summarised in table 5.4
+
+Figure 5.3: General view of the T2 data structure.
+
+Figure 5.4: Detail of the bank structure for the T2 local RoI definitions.
+
+Figure 5.5: Detail of the bank structure for the T2 calorimeter.
+
+Figure 5.6: Detail of the bank structure for the T2 silicon tracker.
+
+Figure 5.8: Detail of the bank structure for the T2 MSGC.
+
+Figure 5.9: Detail of the bank structure for the T2 preshower.
+
+Figure 5.10: Detail of the bank structure for the T2 muon system.
+
+Figure 5.7: Detail of the bank structure for the T2 TRT.
+
+Figure 5.8: Detail of the bank structure for the T2 MSGC.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|} \hline \multicolumn{4}{|c|}{**Banks Created by T2**} \\ \hline Bank Name & Window Common & Access Function & Description \\ \hline T2ZD & T2ZD & T2ZDWAC & T2 supervisor RoI definition \\ \hline T2GA & T2GA & T2GAWAC & T2 global accepted object bank \\ \hline T2GE & T2GE & T2GEWAC & T2 global event features \\ \hline T2GM & T2GM & T2GMWAC & T2 global manager and missing Et \\ \hline T2GT & T2GT & T2GTWAC & T2 global event classification \\ \hline T2GR & T2GR & T2GRWAC & T2 global RoI features \\ \hline T2CR & T2CR & T2CRWAC & T2 calorimeter local RoI definition \\ \hline T2CF & T2CF & T2CFWAC & T2 calorimeter features \\ \hline T2CE & - & - & T2 EM calorimeter RoI raw data \\ \hline T2CH & - & - & T2 HAD calorimeter RoI raw data \\ \hline T2SR & T2SR & T2SRWAC & -T2 SiT local RoI definition \\ \hline T2SF & T2SF & T2SFWAC & T2 SiT features \\ \hline T2SH & - & - & T2 SiT RoI raw data (one per layer) \\ \hline T2TM & T2TM & T2TMWAC & T2 TRT manager bank \\ \hline T2TR & T2TR & T2TRWAC & T2 TRT local RoI definition \\ \hline T2TF & T2TF & T2TFWAC & T2 TRT features \\ \hline T2TD & - & - & T2 TRT RoI raw data \\ \hline T2YR & T2YR & T2YRWAC & T2 MSGC local RoI definition \\ \hline T2YF & T2YF & T2YFWAC & T2 MSGC features \\ \hline T2YD & - & - & T2 MSGC RoI raw data \\ \hline T2PR & T2PR & T2PRWAC & T2 PreShower local RoI definition \\ \hline T2PF & T2PF & T2PFWAC & T2 PreShower features \\ \hline T2PD & - & - & T2 PreShower RoI raw data \\ \hline T2MR & T2MR & T2MRWAC & T2 muon local RoI definition \\ \hline T2MF & T2MF & T2MFWAC & T2 muon features \\ \hline T2MD & - & - & T2 muon RoI raw data \\ \hline \end{tabular}
+\end{table}
+Table 5.4: Banks containing the output of the second level trigger.
+
+## Chapter 6 The ATRIG Library
+
+The trigger simulation code is stored in the ATRIG library using the CMZ code management system [11]. Different functional components have been stored in separate subdirectories for clarity. Associated with each subdirectory XXXX is generally a subdirectory XXXCDE containing related CMZ sequences. The subdirectories are summarised in table 6.1.
+
+The source library is version stamped and a list of compatible SLUG/DICE/ATRECON versions will be circulated with the source release. A seperate ATRIG object library will not in general be maintained, but incorporated in the standard ATRECON object library for ease of linking.
+
+\begin{table}
+\begin{tabular}{|l|l|} \hline \multicolumn{2}{|c|}{**Trigger Subdirectories below //ATRIG**} \\ \hline Subdirectory Name & Description \\ \hline TRECON & ATRIG/ATRECON interface and utility routines \\ \hline T1CA & T1 calorimeter trigger implementation \\ \hline T1CACDE & T1 calorimeter trigger sequences \\ \hline T1GL & T1 global trigger implementation \\ \hline T1GLCDE & T1 global trigger sequences \\ \hline T1MU & T1 muon trigger implementation \\ \hline T1MUCDE & T1 muon trigger sequences \\ \hline T2CA & T2 calorimeter trigger implementation \\ \hline T2CACDE & T2 calorimeter trigger sequences \\ \hline T2MS & T2 MSGC trigger implementation \\ \hline T2MSCDE & T2 MSGC trigger sequences \\ \hline T2MU & T2 muon trigger implementation \\ \hline T2MUCDE & T2 muon trigger sequences \\ \hline T2PS & T2 preshower trigger implementation \\ \hline T2PSCDE & T2 preshower trigger sequences \\ \hline T2TR & T2 TRT trigger implementation \\ \hline T2TRCDE & T2 TRT trigger sequences \\ \hline T2SI & T2 silicon trigger implementation \\ \hline T2SICDE & T2 silicon trigger sequences \\ \hline T2SU & T2 supervisor implementation \\ \hline T2SUCDE & T2 supervisor sequences \\ \hline \end{tabular}
+\end{table}
+Table 6.1: Location of the trigger simulation code in the CMZ subdirectories of ATRIG.
+
+## Chapter 7 ATRICON/ATRIG Interface
+
+Located in the patch //ATRIG/TRECON is the interface between the trigger simulation and ATRECON. The trigger chain is initiated by the routine ATRIGG, which steers the T1 and T2 triggers via the routines TRIGL1 and TRIGL2. In addition, REBANK window common initialisation is performed once per run at this level (ATRIGGINI) to allow for input tapes containing banks for trigger modules not activated in this run. Kinematical utility routines are also provided in this subdirectory.
+
+## Chapter 8 T1 Implementation
+
+### 8.1 T1 Calorimeter (T1CA)
+
+A comprehensive summary of the issues pertaining to the T1 calorimeter trigger can be found in [2]. The implementation of the T1CA trigger uses a symetric cluster algorithm, and declustering is implemented as in a 'local' scheme, i.e. no global T1 cluster map is assumed.
+
+The performance of the T1 calorimeter trigger is a function of the threshold settings. These thresholds may be adjusted using the DETA 'T1CA' data card. Different threshold sets are available for the EM and JET clustering, and the missing Et trigger. For a cluster trigger the user should adjust the cluster energy threshold and electromagnetic and hadronic isolation energy thresholds, for the required efficiency/rate in different luminosity scenarios. Each trigger class (EM cluster, JET cluster and missing Et) allows the selection of eight different threshold combinations, which correspond to the eight multiplicity requirements per trigger class of the T1 global trigger.
+
+Different maximum eta limits on the calorimetry can be set for the EM and JET cluster triggers and the missing Et sum. The T1 calorimeter code uses the calorimeter hit data from the matrices ENE, DICEH and EPS (electromagnetic calorimeter, hadronic calorimeter and preshower, filled in the ATRECON preparation phase). These matrices have first stage calibration applied by default. If this calibration is changed, the trigger thresholds will in general require readjustment. The calorimeter electronic noise is applied by ATRECON when filling the calorimeter matrices - the mean value of this noise may be set using the appropriate DETA card for a calorimeter component (note that the default value of these noise parameters is currently zero). Additional noise due to the trigger ADCs can be applied in the trigger code (see DETA 'T1CA' card settings), but note that this makes the results of the T1CA code non-reproducible in general.
+
+The output of the T1 calorimeter trigger consists of: for each cluster there is a bank describing the cluster (EM cluster T1ER, JET cluster, T1JR), and banks (T1EC, T1JC) summarising the count of clusters for the different threshold combinations. An additional bank (T1EM) describes the missing transverse energy vector.
+
+The parameters of the DETA 'T1CA' parameter card have the following meaning and default values:
+
+Control parameters: Parameter# Default Description
+
+2 0.05 fractional gain variation in trigger ADCs
+
+3 0.2 pedestal width of trigger ADCs4 1.0 energy unit for digitising in GeV (not tested yet!)
+5 0.0 ECAL coherent noise term
+6 0.0 HCAL coherent noise term
+7 8.0 Number of bits in trigger ADCs (ADC values above 2**n-1 are truncated to 2*n-1)
+8 0.0 Preshower flag (1=use preshower energy, 0=don't)
+9 3.0 max value of eta for trigger
+
+EM cluster trigger (input to TEWindP table): Parameter# Default Description
+10 0.1 eta size of trigger cell in radians
+11 0.1 phi size of trigger cell in radians
+
+(these are rounded to produce an exact integer number of calorimeter cells per trigger cell, so the phi granularity is 0.098 in the standard ATLAS setup)
+12 2.5 max value of eta for em (cluster) trigger
+13 1.0 threshold for trigger cell
+14 1.0 threshold of cells used in isolation calculation
+15 4.0 number of thresholds being used (max 8)
+16 100. Et threshold 1 |> single electron trigger
+17 35. Et threshold 2 |
+18 15. Et threshold 3 |> di electron trigger
+19 7. Et threshold 4 |> RoI flagging threshold
+
+[MISSING_PAGE_POST]
+
+ 545 9999. EM+Hadronic Isolation for em threshold 6 46 9999. EM+Hadronic Isolation for em threshold 7 47 9999. EM+Hadronic Isolation for em threshold 8
+
+Jet trigger (input to TJWindP table): Parameter# Default Description 50 0.4 eta size of jet trigger cell in radians 51 0.4 phi size of jet trigger cell in radians 52 3.0 max value of eta for jet trigger 53 0.0 threshold for trigger cell 54 1 number of Et thresholds being used for jet trigger 55-62  Et thresholds: 1=200. all others 0
+
+Missing Et trigger (incut to TEtHisP): Parameter# Default De.ription 70 0.4 eta size of missing Et cell in radians 71 0.4 phi size of missing Et cell in radians 72 3.2 maximum value of eta for trigger 73 1.0 threshold per trigger cell 74 1.0 Number of Et thresholds used 75-82  Et thresholds: 1=150. all others 0.
+
+90 1.0 Preshower trigger calibration adjust factor 91 1.10 ECAL trigger calibration adjust factor 92 1.00 HCAL trigger calibration adjust factor
+
+### T1 Muon
+
+The muon system architecture and readout model have not yet been finalised. For this reason we have implemented a 'fake' muon trigger for the RPC barrel only. The uses kinematics and hits information and an assumed RPC segmentation to approximate a T1 muon trigger. It should be emphasised that this fake trigger is a tool for studying the generation of muon RoIs, and should not be used for detailed studies involving the T1 muon performance.
+
+The T1 muon implementation divides the muon barrel volume into sectors, by default 8 sectors in z, 1 sector per small chamber in phi, and 3 sectors per large chamber in phi. The hits in the RPCs are read and tested as to whether they are the result of a muon. If they are, then a condition on the number of hit planes in the trigger stations is applied: for low Pt trigger, this is at least 3 out of 4 planes hit in the inner station, and for high Pt at least 3 out of four planes hit in the inner station in coincidence with at least 2 out of three planes hit in the outer station. If a muon 'passes' a trigger condition, then a T1MR bank is filled.
+
+T1MR banks (one per muon 'cluster') are generated containing the position, threshold and Pt of the track producing the RoI. The Pt in the T1MR bank is the kinematic value at the vertex. A variable in the T1MR bank, T1MR_Type, has been included to allow future extension of the fake muon trigger to the TGT endcap.
+
+A display program for the T1 muon trigger is provided, but note that this is not supported on CERNVM.
+
+### T1 Global
+
+The integration of the T1 muon trigger and the global T1 trigger is incomplete, and at present the T1 global trigger simply collects the results of the T1 calorimeter simulation. To these it applies multiplicity requirements to the objects passing different thresholds..
+
+Parameters of the T1GL can be controlled using the datacard
+
+*DETA 'T1GL'
+
+The parameters are:
+
+Parameter# Default Description
+
+[MISSING_PAGE_POST]
+
+## Chapter 9 T2 Implementation
+
+### 9.1 T2 Supervisor (T2SU)
+
+The second level supervisor function is implemented in the module T2SUPER, which has the associated initialisation routine T2SUINI. The supervisor controls the subtrigger initialisation using the routine T2ZZINI, called by T2SUINI, at start of run. Additional initialisation, specifically that for the REBANK window commons, has been localised in the routine T2RBDEF, called from ATRIGG at the start of run. For each event with a valid T1 cluster trigger, the supervisor builds RoI definitions from the T1 cluster data banks. These RoI definitions are stored in T2ZD banks, one T2ZD bank for each RoI. Next, the supervisor controls the operation of the T2 subtriggers. This entails looping over all RoIs, testing the status of the ANAL and HIST key parameters, and for each enabled subtrigger calling the routine T2ZZGET to steer the building of the window definition(T2xR) and window raw data banks, the routine T2ZZFEX to steer the feature extraction algorithm, and the routine T2ZZHIS to steer histogramming.
+
+Each T2 subtrigger (short name y, long name xx, see table 4.2 ) provides:
+
+* T2xxINI: to initialise the subtrigger module, reading the DETA cards if necessary. Called by T2ZZINI.
+* T2xxGET: to build the local window definition (T2yR) and raw data banks. Called by T2ZZGET.
+* T2xxFEX: to perform the feature extraction task and save the results in the T2yF bank. Called by T2ZZFEX.
+* T2xxHIS: to create histograms and standard ntuples. Called by T2ZZHIS.
+
+The routines may make use of the information in the T2SUCOM common block. In particular the ANAL, PRINT and HIST key parameter values for a subtrigger are set in the common variables IHIST, IPINIT, and IANAL before the subtrigger is called.
+
+The addition of subtrigger modules may be performed by modifying the parameter NT2MODS (the number of subtrigger modules) in the sequence T2SUCOM, entering the appropriate naming information into the data initialisation statements for T2NAMDS, T2NAMDM and T2NAMDL in the routine T2SUINI, and supplying the appropriate subtrigger modules.
+
+The DETA 'T2SU' parameter card allows the modification of the half size of the RoI for different T1 trigger types and thresholds:EM RoI: Parameter# Default Description 2 0.15 EM RoI eta half size, EM threshold 1  3 0.15 EM RoI eta half size, EM threshold 2  4 0.15 EM RoI eta half size, EM threshold 3  5 0.15 EM RoI eta half size, EM threshold 4  6 0.15 EM RoI eta half size, EM threshold 5  7 0.15 EM RoI eta half size, EM threshold 6  8 0.15 EM RoI eta half size, EM threshold 7  9 0.15 EM RoI eta half size, EM threshold 8  10 0.15 EM RoI phi half size, EM threshold 1  11 0.15 EM RoI phi half size, EM threshold 2  12 0.15 EM RoI phi half size, EM threshold 3  13 0.15 EM RoI phi half size, EM threshold 4  14 0.15 EM RoI phi half size, EM threshold 5  15 0.15 EM RoI phi half size, EM threshold 6  16 0.15 EM RoI phi half size, EM threshold 7  17 0.15 EM RoI phi half size, EM threshold 8
+
+JET RoI: Parameter# Default Description 18 0.60 JET RoI eta half size, JET threshold 1  19 0.60 JET RoI eta half size, JET threshold 2  20 0.60 JET RoI eta half size, JET threshold 3  21 0.60 JET RoI eta half size, JET threshold 4  22 0.60 JET RoI eta half size, JET threshold 5  23 0.60 JET RoI eta half size, JET threshold 6  24 0.60 JET RoI eta half size, JET threshold 7  25 0.60 JET RoI eta half size, JET threshold 8  26 0.60 JET RoI phi half size, JET threshold 1  27 0.60 JET RoI phi half size, JET threshold 2  28 0.60 JET RoI phi half size, JET threshold 3  29 0.60 JET RoI phi half size, JET threshold 4  30 0.60 JET RoI phi half size, JET threshold 5  31 0.60 JET RoI phi half size, JET threshold 6  32 0.60 JET RoI phi half size, JET threshold 7  33 0.60 JET RoI phi half size, JET threshold 8
+
+Muon RoI: Parameter# Default Description 34 0.20 Muon RoI eta half size, Muon threshold 1  35 0.20 Muon RoI eta half size, Muon threshold 2  36 0.20 Muon RoI eta half size, Muon threshold 3  37 0.20 Muon RoI eta half size, Muon threshold 4  38 0.20 Muon RoI eta half size, Muon threshold 5  39 0.20 Muon RoI eta half size, Muon threshold 6  40 0.20 Muon RoI eta half size, Muon threshold 7  41 0.20 Muon RoI eta half size, Muon threshold 8  42 0.20 Muon RoI phi half size, Muon threshold 1  43 0.20 Muon RoI phi half size, Muon threshold 244 0.20 Muon RoI phi half size, Muon threshold 3
+45 0.20 Muon RoI phi half size, Muon threshold 4
+46 0.20 Muon RoI phi half size, Muon threshold 5
+47 0.20 Muon RoI phi half size, Muon threshold 6
+48 0.20 Muon RoI phi half size, Muon threshold 7
+49 0.20 Muon RoI phi half size, Muon threshold 8
+
+### T2 Calorimeter (T2CA)
+
+This section describes the implementation of the T2 calorimeter subtrigger, which comprises the electromagnetic and hadronic calorimeters.
+
+For each event, the calorimeter subtrigger performs preprocessing for the hadron calorimeter in the routine T2CAFIL, essentially reformatting the information in the DICEH hadron calorimeter array (which is fragmented into hadron calorimeter components) into a unified array. For the electromagnetic calorimeter, the data from the ATRECON ENE array is used. A model without zero suppression has been adopted, which implies that there are three fixed sizes of window, one each for electron, jet and muon type T1 triggers. How reliably the muon RoI will map onto a fixed sized window is yet unclear, so caution should be observed here.
+
+The RoI window definition information is stored in the bank T2CR. There has been no attempt to map the size of the window onto the modularity of the readout architecture. RoI raw data banks are written for the EM calorimeter (T2CE) and the HA calorimeter (T2CH), in the form of 3 dimensional arrays in \(\eta\), \(\phi\) and sample layer. Because the implementation uses static arrays, the sizes of the calorimeter RoI cannot be adjusted by data card, but by the parameters contained in the sequence T2CD. However, note that changes in the number of sampling layers used will require modification of the sample layer loop in T2CAROI.
+
+The default feature extraction algorithm is based on that described in [5] (the difference is that in the default algorithm implemented in ATRIG, the core of the cluster is found by locating the maximum energy group of core cells in the RoI), and the results are stored in the bank T2CF. Note that additional parameters X2CA_Core_Thresh_x have been introduced to set mimimum energy thresholds on the core energy for different RoI types, and that the default values of these parameters are currently arbitrary (see the sequence T2CF). The current feature extraction implementation uses only the EM calorimeter data and moreover performs the same clustering algorithm on electron, jet and muon type T1. (Note that the study of this algorithm in [5] was using the 'GENCAL' calorimeter with a \(\eta\) x \(\phi\) of 0.2 x 0.2 and two sampling layers. While the structure of the algorithm is essentially the same, the consequence of the change of granularity is the invalidation of cut thresholds described in [5] for optimal operation.)
+
+Various parameters of the feature extraction can be controlled by the DETA 'T2CA' data card:
+
+Parameter# Default Description
+
+EM RoI:  2 9.0 cluster size in eta, ecal cells  3 5.0 cluster cores size in eta, ecal cells  4 1.0 cluster inner ring width in eta, ecal cells  5 1.0 cluster outer ring width in eta, ecal cells  6 9.0 cluster size in phi, ecal cells  7 5.0 cluster cores size in phi, ecal cells8 1.0 cluster inner ring width in phi, ecal cells  9 1.0 cluster outer ring width in phi, ecal cells  10 2.0 (square) cluster in hcal size, hcal cells JET RoI:  11 32.0 (square) cluster size, ecal cells  12 16.0 (square) cluster core size, ecal cells  13 4.0 (square) cluster inner ring width, ecal cells  14 4.0 (square) cluster outer ring width, ecal cells  15 2.0 (square) cluster in hcal size, hcal cells Muon RoI:  16 9.0 (square) cluster size, ecal cells  17 5.0 (square) cluster core size, ecal cells  18 1.0 (square) cluster inner ring width, ecal cells  19 1.0 (square) cluster outer ring width, ecal cells  20 2.0 (square) cluster in hcal size, hcal cells Minimum Core Energy Thresholds:  21 0.1 EM RoI minimum core threshold in GeV  22 0.1 JET RoI minimum core threshold in GeV  23 0.1 Muon RoI minimum core threshold in GeV Minimum Cell Energy Thresholds:  24 0.25 EM RoI ecal minimum cell threshold in GeV  25 0.1 EM RoI hcal minimum cell threshold in GeV  26 0.1 JET RoI ecal minimum cell threshold in GeV  27 0.1 JET RoI hcal minimum cell threshold in GeV  28 0.25 Muon RoI ecal minimum cell threshold in GeV  29 0.1 Muon RoI hcal minimum cell threshold in GeV The T2 calorimeter implementation is deficient in a number of important areas: there is no single T2 calorimeter geometry parameter bank to decouple the T2 implementation; the increase in the number of different RoI types has not been allowed for; and the possibility of using different granularities for different RoI types is not available. Adaption of the present implementation is likely to be difficult, and if these problems are addressed in the future an implementation involving dynamically sized data banks and roi type tables would be a distinct advantage.
+
+### T2 SiT (T2SI)
+
+Further information on the T2 SiT track trigger can be found in [6]. The T2 SiT implementation provides an RoI based level 2 track trigger using the hit information from some of the silicon planes (SiTV and SiT) in the barrel. The system is split into two phases: RoI building (T2SIGET), in which the projection of the RoI onto the silicon planes is calculated, taking into account the readout modularity, the appropriate hits being transferred to a bank T2SR; and feature extraction (T2SIFEX) in which 'features' (estimators for the presence of a high Pt track) are determined from the RoI hit data. The algorithm used is to first divide the RoI into smaller subslices in phi and z, and then run a combinatorial least squares fit on the hits in each subslice. During the routing and RoI building phase, simple transformations are applied to the data such that helical tracks come out as straight lines in the fit. Thus the algorithm should work even for detector layouts where the silicon planes are widely spaced (e.g. the Cosener's House design).
+
+Parameters of the T2 SiT simulation may be controlled using the steering card DETA 'T2SI'. The meaning of the parameters of this steering card are:
+
+parameter # defaults Description (CH,panel)
+
+ 2 150. 150. Radius of Calorimeter (for eta_RoI -> z calculations)
+
+ 3 14. 14. Assumed vertex maximum z displacement from z=0
+
+ 4 16 8 Number of phi subslices to divide RoI into
+
+ 5 0.025 0.03 Fractional overlap between subslices
+
+ 6 (obsolete)
+
+ 7 4 4 Number of threshold sets defined
+
+ 8 1.0 1.5 Maximum eta of RoIs to be processed by T2SI
+
+ 9 2 2 Number of boards multiplexed onto one readout fibre
+
+ 20-27 Trigger pt for thresholds 1-8
+
+ 28-35 Max RMS deviation for thresholds 1-8
+
+ 36 10. SiTV pulse threshold
+
+ 37 10. SiT pulse threshold
+
+ 38 10. MSGC pulse threshold
+
+ 39 0. SiTV RMS noise
+
+ 40 0. SiT RMS noise
+
+ 41 0. MSGC RMS noise
+
+ 42 0. SiTV fraction of dead channels
+
+ 43 0. SiT fraction of dead channels
+
+ 44 0. MSGC fraction of dead channels
+
+ 45 0. SiTV fraction of random noise to add
+
+ 46 0. SiT fraction of random noise to add
+
+ 47 0. MSGC fraction of random noise to add
+
+The routine T2SIINI reads the DETA parameters into common T2SIPar. It then reads the DETP,DETD and DETG banks of the SiTV and SiT, and defines various geometry constants, stored in T2SIGeo. The INNE card is used to decide which tracker geometry is in use, and the appropriate set of parameter defaults are loaded. If no INNE bank can be found, it is assumed that the Cosener's House design is being used. Very old tapes with no DETG and DETD banks for the SiT and SiTV cannot be used, and the trigger refuses to initialise in the T2 list if this or other errors are detected.
+
+The routine T2SIGET performs the routing and RoI building functions of the trigger. It first uses the RoI position information in T2ZD (setup by T2SUPER) to calculate which silicon boards are in the RoI, taking into account also the ganging of several boards onto one fibre in z (i.e. the whole fibre is read out even if only some of the boards are required). This information is stored in bank T2SR. Then the DIGI banks of SiT and SiTV are scanned for hits in the appropriate boards, and the coordinates are converted to those appropriate to the trigger system (strip number divided by radius, offset from start of RoI - this gives straight lines for tracks originating from the vertex). The hit list for each layer (phi and z) is stored in T2SH, one T2SH bank hangs from T2SR for each SiT layer in the RoI. Additional detector noise, inefficiencies etc are taken into account when producing the hit information, though this can be switched off using the DETA parameters.
+
+The module T2SIFEX performs feature extraction on the raw RoI data in T2SR/T2SH. The RoI is divided into several phi and z slices, and a LSQ fit is performed on each combination of 5 or 6 hits in 6 layers. In the hardware implementation, this is foreseen to be performed with lookup tables and/or coordinate transformations [8]. A T2SF bank is created (under T2SR) describing the track features (position, pt, rms deviation, calorimeter impact point etc).
+
+The module T2SIHIS produces a ntuple on the T2SI trigger performance, if the T2SI HIST flag is set to \(>\)0. Various diagnostic and occupancy histograms are also produced by T2SIGET and T2SIFEX if HIST\(>\)2.
+
+### T2 TRT (T2TR)
+
+The T2 TRT implementation has been developed in the context of the 'Cosener's House' design, with the exception that the partial barrel components at low radius have been ignored. We have attempted to decouple the T2 implementation from specific TRT architectures, and the implementation also works on the panel layout.
+
+The coordinate system adopted is to divide the TRT into 'parts', where the T2 part numbering is as follows:
+
+1. left endcap
+2. left barrel
+3. right barrel
+4. right endcap
+
+Inside each part, absolute straw numbers are used, as in figure 9.1 (the numbers in Parenthesis after the T2 part numbers refer to the XMYGEO part numbers). The advantage of using this system is one of convenience: the DICE routine XMYGEO can be used to obtain information about a given z or r straw layer in a given TRT part. Using the following code fragment:
+
+ part = xmygeo_part_number (eg T2TR_part(T2_part_number))  plane = valid_z_or_r_stars_number  CALL XMYGEO(part,plane)
+
+the common XTRDCOR (defined in the DICE sequence XTRPAT) is filled. The relevant variables in this common have the meaning:
+
+* NEL the number of planes in this part
+* R1 the low radius of this plane
+* R2 the high radius of this plane
+* Z1 the low z of this plane
+* Z2 the high z of this plane
+* NDF the number of phi straws in this plane
+* FI0 the phi offset of phi straws in this plane
+* DF0 the spacing of phi straws in this plane The T2 TRT implementation treats the TRT components, ie endcap and barrel, separately due to the inhomogenous nature of their architecture: the endcaps are sensitive in \(z\phi\), while the barrel is in \(r\phi\). We have taken the approach that, if a RoI includes both endcap and barrel components, then two local RoI definitions (T2TR banks) are constructed, each with its own data bank (T2TD). This requires an additional level in the TRT bank structure, namely a T2 TRT manager bank T2TM, below which the T2TR banks are located. In this scheme, feature extraction is also performed independently on each component type, under the assumption that the barrel and endcap features can be combined in the global trigger. Currently there is no attempt to map the RoI onto the readout architecture, and the RoIs are dynamically sized in straw number to the size of the T2 supervisor RoI, with an additional constraint that the RoI must contain a minimum number of straws in z or r. The minimum RoI size in z/r straws is set in the parameter X2TRT_min_z_r_size in the sequence T2TRT, and has a default value of sixteen. The data bank is stored in a zero suppressed scheme, ie only hit straws in the RoI window are saved. Currently the information stored is the z straw number, the phi straw number, and the corresponding GEANT digitisation. A fixed size array is used to buffer the hits before saving to the T2TD bank: should this buffer size be insufficient, it can be increased using the parameter X2TRT_max_hit in the sequence T2TD.
+
+Feature extraction is implemented in the barrel TRT only using a histogramming algorithm. More details will be added in the future.
+
+Routines are provided for histogramming a RoI window, one using straw numbers and another using r or z \(\phi\) coordinates. (Straw number histograms are not very useful in the barrel, where there is effectively a different phi straw coordinate system in each r layer.)
+
+### T2 Msgc (T2ms)
+
+We have assumed a zero suppressed model. This implies that the RoI raw data bank (T2YD) is of dynamic size, and therefore cannot be accessed through a window common. The REBANK routines RBSTORE and RBCOPY are used to access the data. The data are further structured into 'clusters' below the T2YD bank.
+
+A Feature extraction algorithm is provided to locate tracks and stores the result in the T2YF feature bank.
+
+Functions are provided (T2YRWAC, T2YFWAC) to access T2 MSGC data banks which use
+
+Figure 9.1: The T2 TRT coordinate system.
+
+REBANK window commons.
+
+The DETA 'T2MS' data card may be used to modify the following parameters:
+
+*DETA 'T2MS'
+
+parameter default meaning
+
+1 - do not use
+
+2 1.0,1.5 eta lower limit (1.0=>Coseners,1.5=>Panel,T.P.)
+
+3 50.0 discriminator threshold
+
+More details will be added in the future.
+
+### T2 PreShower (T2PS)
+
+The T2 preshoower is implemented for the stand alone COPS/COPE preshower only.
+
+We have assumed a non-zero suppressed data representation. This means that there will be several sizes of PreShower RoI window, for the the different RoI types. The RoI window raw data is stored in the bank T2PD, using the buffer array T2PD_Data. The maximum size of the buffer array can be adjusted by modifying a parameter in the sequence T2PD. The T2PD bank approximates a 'dynamic' bank, thus allowing for the different sized rois. Access to this data is via utility functions, which provide an interface to the T2PD_Data array, and use _the RoI local definition bank T2PR currently in common_, which implies that one must invoke the T2PRWAC window access function in any routine before using these functions (the REBANK system is not relational). The function T2PCOPSADD adds the energy given as input to the energy of the specified cell; T2PCOPSSET overwrites the energy of the specified cell with the energy given as input; and T2PCOPSREAD returns the energy of the specified cell. Various parameters for RoI types and indexing are defined in the sequences T2PS and T2PSCOPS.
+
+Some of these parameters can be configured using the datacard:
+
+*DETA 'T2PS'
+
+Where
+
+Parameter# Default Description
+
+10 0.3 roi size in eta, electron roi
+
+11 0.3 roi size in eta, jet roi
+
+12 0.2 roi size in eta, muon roi
+
+20 0.3 roi size in phi, electron roi
+
+21 0.3 roi size in phi, jet roi
+
+22 0.3 roi size in phi, muon roi
+
+The feature routine T2PSFEX should performs an algorithm on the RoI raw data bank to extract PreShower cluster features, and then saves these cluster features in the PreShower feature bank T2PF.
+
+Functions are provided (T2PRWAC, T2PFWAC) to access T2 PreShower data banks which use REBANK window commons.
+
+### T2 Muon (T2MU)
+
+The T2 Muon is currently a dummy implementation. The aim of the dummy routines provided is to illustrate the interaction between the T2 framework and the Muon subtrigger. It should be remembered that the dummy implementation has been made from the point of view of the T2 framework and data structure, and that details of the Muon system have not been considered, ie certain assumptions may not be valid, and implementors should be prepared to make modifications to the template part.
+
+We have assumed a zero suppressed model. This implies that the RoI raw data bank (T2MD) is of dynamic size, and therefore cannot be accessed through a window common. The REBANK routines RBSTORE and RBCOPY are used to access the T2MD data bank, via the fixed length array T2MD_Data used for buffering hits in the implementation, and the specification of the number of elements in the array actually used for storing hits. Should the default length of the array prove to small (it effectively defines a maximum number of hits per RoI), then a parameter X2MU_max_hit in the sequence T2MD may be increased. For each hit, the number of data words stored is specified by the parameter X2MU_data_dim.
+
+The idea is that the implementor should add code in the routine T2MUGET to work out the projection of the supervisor RoI definition in the Muon local coordinate system, and save this local RoI definition in the bank T2MR. Then, in the same routine, access the hits for the Muon which fall inside the local RoI definition, store them in the local buffer T2MD_Data, and then save the hit information in the RoI raw data bank T2MD.
+
+In addition, a template for feature extraction has been provided. The feature extraction routine T2MUFEX should perform an algorithm on the RoI raw data bank to extract track features, and then save these track features in the Muon feature bank T2MF.
+
+Two other templates are provided. T2MUHIS is seen as being refined in the future to provide a ntuple of relevant information for the T2 Muon system. T2MUPIK should be implemented as giving a visual implementation of the RoI window in the Muon chambers.
+
+Dummy sequences for the local RoI window definition (T2MR), the local RoI window raw data (T2MD), and the features (T2MF) have been provided. Functions are provided (T2MRWAC, T2MFWAC) to access T2 Muon data banks which use REBANK window commons.
+
+### T2 Global (T2GL)
+
+The eventual aim is to provide two different philosophies of the T2 global implementation: 'independent' or 'parallel' mode, in which each subtrigger operates independently of all others and the output produced at the subtrigger level (feature banks) is used coherently in the T2 global decision to define the object and event hypothesis [3]; and 'dependent' or'sequential' mode in which the failure of any subtrigger is used to veto the RoI. Combinations of the two approaches are possible, for example using the TRT as a global track finder for low Pt tracks, and then launching independent RoI processing on the tracks found.
+
+We have explored the possibility of implementing these options at the supervisor subdetector level, but rejected this approach in favour of a global trigger implementation because:
+
+* we would like the possibility of writing out all raw data banks in a RoI whichever mode is used, for later study.
+* the order in which the the subdetectors in the dependent mode can be permuted and studied for the same RoICurrently only the 'independent' mode of the global T2 trigger is available.
+
+The independent global T2 trigger combines the subtrigger information in each RoI to give a refined particle identity hypothesis and kinematical measurement in the routine T2GLROI. This routine produces as output a global RoI feature bank T2GR from the subdetector features for each RoI. The global RoI features are then compared to a list of criteria for each object type hypothesis, and for accepted RoI objects T2GA banks are created for use in the event algorithm.
+
+The object hypothesis criteria may be modified by data cards as described below.
+
+The next stage in the independent mode is to combine the accepted oject hypothesis in an event feature bank T2GE in the routine T2GLEVT, and finally the event is classified and the results saved in the bank T2GT (routine T2GLVOTE).
+
+Criteria for the object hypothesis clasification may be adjusted using the datacards:
+
+Number of thresholds per object type hypothesis:
+
+*DETA 'T2GT'
+
+Parameter# Default Description
+
+2 3.0 muon object
+
+3 3.0 electron object
+
+4 3.0 gamma object
+
+5 3.0 hadron object
+
+6 3.0 jet object
+
+7 3.0 missing Et object
+
+T2 global parameters for muon object hypothesis:
+
+*DETA 'T2GM'
+
+Parameter# Default Description
+
+2 1.0 number of objects required for trigger, threshold set 1
+
+3 2.0 max allowed empty hits in trt, threshold set 1
+
+4 40.0 Et threshold, threshold set 1
+
+5 999.0 max RMS for Et measurement in muon system, threshold set 1
+
+6 3.0 max muon eta, threshold set 1
+
+7 32.0 min track Pt, threshold set 1
+
+8 999.0 max track RMS, threshold set 1
+
+[MISSING_PAGE_POST]
+
+20 0.0 min energy in PS for minimum ionizing track, threshold set 1
+
+21 0.0 min preshower shape parameter, threshold set 1
+
+22 0.8 max eta diff. in preshower, threshold set 1
+
+23 0.2 max phi diff. in preshower, threshold set 1
+
+24 2.0 number of objects required for trigger, threshold set 2
+
+25 2.0. max allowed empty hits in trt, threshold set 226 20.0  Et threshold, threshold set 2  27 999.0  max RMS for Et measurement in muon system, threshold set 2  28 3.0  max muon eta, threshold set 2  29 18.0  min track Pt, threshold set 2  30 999.0  max track RMS, threshold set 2  31 0.5  min ratio Pt to Et, threshold set 2  32 1.5  max ratio Pt to Et, threshold set 2  33 0.8  max eta diff. between track and muon, threshold set 2  34 0.2  max phi diff. between track and muon, threshold set 2  35 0.0  min energy in ECAL for minimum ionizing track, threshold set 2  36 10.0  max energy in ECAL for min ionizing track, threshold set 2  37 0.0  min energy in HCAL for minimum ionizing track, threshold set 2  38 10.0  max energy in HCAL for min ionizing track, threshold set 2  39 0.8  max eta diff. in calo, threshold set 2  40 0.2  max phi diff. in calo, threshold set 2  41 0.0  min energy in PS for minimum ionizing track, threshold set 2  42 0.0  min preshower shape parameter, threshold set 2  43 0.8  max eta diff. in preshower, threshold set 2  44 0.2  max phi diff. in preshower, threshold set 2
+
+45 3.0  number of objects required for trigger, threshold set 3  46 2.0  max allowed empty hits in trt, threshold set 3  47 10.0  Et threshold, threshold set 3  48 999.0  max RMS for Et measurement in muon system, threshold set 3  49 3.0  max muon eta, threshold set 3  50 9.5  min track Pt, threshold set 3  51 999.0  max track RMS, threshold set 3  52 0.5  min ratio Pt to Et, threshold set 3  53 1.5  max ratio Pt to Et, threshold set 3  54 0.8  max eta diff. between track and muon, threshold set 3  55 0.2  max phi diff. between track and muon, threshold set 3  56 0.0  min energy in ECAL for minimum ionizing track, threshold set 3  57 10.0  max energy in ECAL for min ionizing track, threshold set 3  58 0.0  min energy in HCAL for minimum ionizing track, threshold set 3  59 10.0  max energy in HCAL for min ionizing track, threshold set 3  60 0.8  max eta diff. in calo, threshold set 3  61 0.2  max phi diff. in calo, threshold set 3  62 0.0  min energy in PS for minimum ionizing track, threshold set 3  63 0.0  min preshower shape parameter, threshold set 3  64 0.8  max eta diff. in preshower, threshold set 3  65 0.2  max phi diff. in preshower, threshold set 3
+
+T2 global parameters for electron object hypothesis:
+
+*DETA 'T2GE'
+
+ Parameter# Default Description
+
+ 2 1.0  number of objects required for trigger, threshold set 1  3 4.0  number of high-E trt hits required for trigger, threshold set 1  4 2.0  max allowed empty hits in trt, threshold set 140.0 Et threshold, threshold set 1
+699.0 min quality factor, threshold set 1
+7999.0 min quality factor, threshold set 1
+83.0 max eta, threshold set 1
+932.0 min track Pt, threshold set 1
+1099.0 max track RMS, threshold set 1
+110.5 min ratio Pt to Et, threshold set 1
+121.5 max ratio Pt to Et, threshold set 1
+130.8 max eta diff. between track and EMC, threshold set 1
+140.2 max phi diff. between track and EMC, threshold set 1
+155.0 max energy in HCAL, threshold set 1
+160.05 max ratio of hac to emc energy, threshold set 1
+170.0 min energy in PS, threshold set 1
+180.0 min preshower shape parameter, threshold set 1
+190.8 max eta diff. in preshower, threshold set 1
+200.2 max phi diff. in preshower, threshold set 1
+
+212.0 number of objects required for trigger, threshold set 2
+224.0 number of high-E trt hits required for trigger, threshold set 2
+232.0 max allowed empty hits in trt, threshold set 2
+2420.0 Et threshold, threshold set 2
+25999.0 min quality factor, threshold set 2
+26999.0 min quality factor, threshold set 2
+273.0 max eta, threshold set 2
+2818.0 min track Pt, threshold set 2
+2999.0 max track RMS, threshold set 2
+300.5 min ratio Pt to Et, threshold set 2
+311.5 max ratio Pt to Et, threshold set 2
+320.8 max eta diff. between track and EMC, threshold set 2
+330.2 max phi diff. between track and EMC, threshold set 2
+345.0 max energy in HCAL, threshold set 2
+350.05 max ratio of hac to emc energy, threshold set 2
+360.0 min energy in PS, threshold set 2
+370.0 min preshower shape parameter, threshold set 2
+380.8 max eta diff. in preshower, threshold set 2
+390.2 max phi diff. in preshower, threshold set 2
+
+403.0 number of objects required for trigger, threshold set 3
+414.0 number of high-E trt hits required for trigger, threshold set 3
+422.0 max allowed empty hits in trt, threshold set 3
+4310.0 Et threshold, threshold set 3
+44999.0 min quality factor, threshold set 3
+45999.0 min quality factor, threshold set 3
+463.0 max eta, threshold set 3
+479.5 min track Pt, threshold set 3
+4899.0 max track RMS, threshold set 3
+490.5 min ratio Pt to Et, threshold set 3
+501.5 max ratio Pt to Et, threshold set 351 0.8 max eta diff. between track and EMC, threshold set 3
+52 0.2 max phi diff. between track and EMC, threshold set 3
+53 5.0 max energy in HCAL, threshold set 3
+54 0.05 max ratio of hac to emc energy, threshold set 3
+55 0.0 min energy in PS, threshold set 3
+56 0.0 min preshower shape parameter, threshold set 3
+57 0.8 max eta diff. in preshower, threshold set 3
+58 0.2 max phi diff. in preshower, threshold set 3
+
+T2 global parameters for gamma object hypothesis:
+*DETA 'T2GG' Parameter# Default Description
+2 1.0 number of objects required for trigger, threshold set 1
+3 40.0 Et threshold, threshold set 1
+4 999.0 min quality factor, threshold set 1
+5 999.0 min quality factor, threshold set 1
+6 3.0 max eta, threshold set 1
+7 5.0 max energy in HCAL, threshold set 1
+8 0.05 max ratio of hac to emc energy, threshold set 1
+9 0.0 min energy in PS, threshold set 1
+10 0.0 min preshower shape parameter, threshold set 1
+11 0.8 max eta diff. in preshower, threshold set 1
+12 0.2 max phi diff. in preshower, threshold set 1
+
+13 2.0 number of objects required for trigger, threshold set 2
+14 20.0 Et threshold, threshold set 2
+15 999.0 min quality factor, threshold set 2
+16 999.0 min quality factor, threshold set 2
+17 3.0 max eta, threshold set 2
+18 5.0 max energy in HCAL, threshold set 2
+19 0.05 max ratio of hac to emc energy, threshold set 2
+20 0.0 min energy in PS, threshold set 2
+21 0.0 min preshower shape parameter, threshold set 2
+22 0.8 max eta diff. in preshower, threshold set 2
+23 0.2 max phi diff. in preshower, threshold set 2
+
+24 3.0 number of objects required for trigger, threshold set 3
+25 10.0 Et threshold, threshold set 3
+26 999.0 min quality factor, threshold set 3
+27 999.0 min quality factor, threshold set 3
+28 3.0 max eta, threshold set 3
+29 5.0 max energy in HCAL, threshold set 3
+30 0.05 max ratio of hac to emc energy, threshold set 3
+31 0.0 min energy in PS, threshold set 3
+32 0.0 min preshower shape parameter, threshold set 3
+33 0.8 max eta diff. in preshower, threshold set 3
+34 0.2 max phi diff. in preshower, threshold set 3T2 global parameters for hadron object hypothesis:
+*DETA 'T2GH' Parameter# Default Description 2 1.0 number of objects required for trigger, threshold set 1  3 2.0 max allowed empty hits in trt, threshold set 1  4 160.0 Et threshold, threshold set 1  5 999.0 min quality factor, threshold set 1  6 999.0 min quality factor, threshold set 1  7 3.0 max eta, threshold set 1  8 120.0 min track Pt, threshold set 1  9 999.0 max track RMS, threshold set 1  10 0.5 min ratio Pt to Et, threshold set 1  11 1.5 max ratio Pt to Et, threshold set 1  12 0.8 max eta diff. between track and calo, threshold set 1  13 0.2 max phi diff. between track and calo, threshold set 1  14 0.8 max eta diff. in calo, threshold set 1  15 0.2 max phi diff. in calo, threshold set 1  16 0.0 min energy in PS, threshold set 1  17 0.0 min preshower shape parameter, threshold set 1  18 0.8 max eta diff. in preshower, threshold set 1  19 0.2 max phi diff. in preshower, threshold set 1
+
+20 2.0 number of objects required for trigger, threshold set 2  21 2.0 max allowed empty hits in trt, threshold set 2  22 80.0 Et threshold, threshold set 2  23 999.0 min quality factor, threshold set 2  24 999.0 min quality factor, threshold set 2  25 3.0 max eta, threshold set 2  26 60.0 min track Pt, threshold set 2  27 999.0 max track RMS, threshold set 2  28 0.5 min ratio Pt to Et, threshold set 2  29 1.5 max ratio Pt to Et, threshold set 2  30 0.8 max eta diff. between track and calo, threshold set 2  31 0.2 max phi diff. between track and calo, threshold set 2  32 0.8 max eta diff. in calo, threshold set 2  33 0.2 max phi diff. in calo, threshold set 2  34 0.0 min energy in PS, threshold set 2  35 0.0 min preshower shape parameter, threshold set 2  36 0.8 max eta diff. in preshower, threshold set 2  37 0.2 max phi diff. in preshower, threshold set 2
+
+38 3.0 number of objects required for trigger, threshold set 3  39 2.0 max allowed empty hits in trt, threshold set 3  40 40.0 Et threshold, threshold set 3  41 999.0 min quality factor, threshold set 3  42 999.0 min quality factor, threshold set 3  43 3.0 max eta, threshold set 3  44 30.0 min track Pt, threshold set 345 999.0 max track RMS, threshold set 3
+46 0.5 min ratio Pt to Et, threshold set 3
+47 1.5 max ratio Pt to Et, threshold set 3
+48 0.8 max eta diff. between track and calo, threshold set 3
+49 0.2 max phi diff. between track and calo, threshold set 3
+50 0.8 max eta diff. in calo, threshold set 3
+51 0.2 max phi diff. in calo, threshold set 3
+52 0.0 min energy in PS, threshold set 3
+53 0.0 min preshower shape parameter, threshold set 3
+54 0.8 max eta diff. in preshower, threshold set 3
+55 0.2 max phi diff. in preshower, threshold set 3
+
+T2 global parameters for jet object hypothesis:
+*DETA 'T2GJ'  Parameter# Default Description
+2 1.0 number of objects required for trigger, threshold set 1
+3 320.0 Et threshold, threshold set 1
+4 999.0 min quality factor, threshold set 1
+5 3.0 max eta, threshold set 1
+6 2.0 number of objects required for trigger, threshold set 2
+7 160.0 Et threshold, threshold set 2
+8 999.0 min quality factor, threshold set 2
+9 3.0 max eta, threshold set 2
+
+10 3.0 number of objects required for trigger, threshold set 3
+11 80.0 Et threshold, threshold set 3
+12 999.0 min quality factor, threshold set 3
+13 3.0 max eta, threshold set 3
+
+T2 global parameters for missing-Et object hypothesis:
+*DETA 'T2GX'  Parameter# Default Description
+2 1.0 number of objects required for trigger, threshold set 1
+3 160.0 missing-Et threshold, threshold set 1
+4 2.0 number of objects required for trigger, threshold set 2
+5 80.0 missing-Et threshold, threshold set 2
+6 3.0 number of objects required for trigger, threshold set 3
+7 40.0 missing-Et threshold, threshold set 3
+
+## Bibliography
+
+* [1] ATLAS ATRECON manual, ATLAS Offline Software Group [http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/software.html](http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/software.html)
+* [2] ATLAS Collaboration, _Technical Proposal_,
+* [3] R. K. Bock et al., _Second-Level Trigger: Global Decision Structures_, CERN/EAST note 92-06, 1992. R. K. Bock et al., _Modeling of L2 Global Decision Structures_, CERN/EAST note 93-03, 1993. R. K. Bock et al., _What Can Artificial Neural Networks do for the Global Second Level Trigger_, ATLAS/DAQ-No-11, CERN/EAST note 94-08. These notes can be found on the WWW server [http://www.cern.ch/RD11](http://www.cern.ch/RD11)
+* [4] J. Carter et al., _ATLAS Data for Trigger Studies in a Portable Text Format_, CERN/EAST note 94-33, 1994. [http://www.cern.ch/RD11](http://www.cern.ch/RD11), under 'Physics simulation'.
+* [5] J. Carter et al., _A second Level Calorimeter Trigger Algorithm_, ATLAS Internal Note, DAQ-NO-009, 12-01-1993.
+* [6] R. Hawkings, Silicon Track Trigger Implementation in ATRECON, [http://www.cern.ch/RD11](http://www.cern.ch/RD11), under 'Physics simulation'.
+* [7]_Trigger DDL_, [http://www.cern.ch/RD11](http://www.cern.ch/RD11), under 'Physics simulation'.
+* [8]_A Study of a Second Level Track Trigger for Atlas_, K. Borer et al., NIM A 336 (1993) 59-77.
+* for full details telnet info.cern.ch
+* [10] ZEBRA CERN Program Library Long Writeup Q100* [11] CMZ User's Guide & Reference Manual, available from the CERN Program Library office, CN division.

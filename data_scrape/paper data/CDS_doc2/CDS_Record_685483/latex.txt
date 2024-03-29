@@ -1,0 +1,557 @@
+# TrigConfig: The ATLAS High-Level Trigger Configuration Package
+
+**T. Schorner-Sadenius**
+
+###### Abstract
+
+This note describes the software packages TrigConfig and TrigData (to be found in the ATLAS CVS repository under offline/Trigger/TrigSteer) which have the purpose of providing the configuration for the ATLAS high-level trigger.
+
+**Document History**
+
+\begin{tabular}{|l|l|l|l|} \hline
+10/5/2002 & v2.1 & TSS & Initial version of document \\ \hline
+4/6/2002 & v2.2 & TSS & Implementing changes proposed in walkthrough. \\ \hline
+6/6/J2002 & v2.3 & TSS & Details to todo list. \\ \hline
+7/6/2002 & v2.4 & TSS & Started Requirements, constraints etc. \\ \hline
+17/6/2002 & v2.5 & TSS & Many changes going on these days... \\ \hline
+19/8/2002 & v2.6 & TSS & Simplified design by removing XMLObject class. \\ \hline
+11/9/2002 & v2.7 & TSS & Changed from TrigSimpleStore to DetectorStore. \\ \hline
+24/10/2002 & v2.8 & TSS & Improved documentation. \\ \hline
+31/05/2003 & v3.0 & TSS & Updating and improving. \\ \hline \end{tabular}
+
+###### Contents
+
+* 1 Introduction
+* 2 Requirements, Constraints and Assumptions
+	* 2.1 General Requirements for the Configuration
+	* 2.2 Requirements arising from Steering / TrigData Package
+	* 2.3 Ad-hoc Requirements to avoid Problems
+* 3 Use Cases and Tests
+	* 3.1 Use Cases related to the Internal Program Flow
+	* 3.2 Use Cases for Error Handling
+	* 3.3 Use Cases related to Normal User Behaviour
+* 4 Analysis: Principle of the HLT configuration
+	* 4.1 Notation
+	* 4.2 Configuration for a single simple signature [U1-1]
+	* 4.3 Concatenating algorithms
+	* 4.4 Adding a second trigger element [U1-2]
+	* 4.5 Different numbers of steps [U1-3]
+	* 4.6 More than one input TE [U1-4]
+	* 4.7 More than one signature [U1-5]
+	* 4.8 Hosting LVL2 and EF sequences [U1-6]
+* 5 Design and Implementation
+	* 5.1 Environment
+	* 5.2 Overall Class Design and Interface
+	* 5.3 Class Implementation
+* 6 The General Configuration Algorithm
+	* 6.1 Initialisation
+	* 6.2 Filling of Sequence and Signature Lists
+	* 6.3 Building of Trigger Element Trees
+	* 6.4 Re-arranging of Trigger Element Trees
+		* 6.4.1 _XMLSignature::rebranchXMLTErees_
+		* 6.4.2 _XMLSignature::adjustTEList_
+		* 6.4.3 _XMLTE::shift_
+	* 6.5 Filling of Menu and Sequence Tables
+* 7 Example Configuration XML and Job Options Files
+	* 7.1 Example XML Configuration Files
+	* 7.2 Example Output
+* 8 Questions, open points and things to do
+	* 8.1 ToDos for TrigConfig
+* A Simple Use Cases
+* B* B DTD Files for the Signature and Sequence List XML Files
+* C Output of Example Configuraton Job List of Figures
+* 1 Visualisation of a sequence.
+* 2 Visualisation of a signature as a logical AND of several trigger elements.
+* 3 Summary of the connection between TEs, algorithms, sequences, signatures, menu tables and sequence tables.
+* 4 Example of handling trigger element trees.
+* 5 Example configuration with two input TEs for one algorithm
+* 6 Example of trigger configuration for several simple signatures.
+* 7 UML diagram of the TrigData package.
+* 8 UML diagram of the TrigConfig package.
+* 9 Sequence diagram for a part of the TrigConfig package.
+* 10 Another sequence diagram for a part of the TrigConfig package.
+* 11 Overview of signature/sequence list filling and TE tree re-arrangements.
+* 12 Visualisation of the _XMLTE::adjustTEList_ method.
+* 13 Visualisation of the _XMLTE::shift_ method.
+* 14 Sequence diagram for use case [U2-4Introduction
+
+The HLT trigger derives its event decision in a serious of'steps' which each refine existing information (given in terms of trigger elements or 'TEs') by acquiring additional data from increasingly many ATLAS subdetectors. The basic unit of this process is a'sequence' which consists of a list of input TEs, a list of (LVL2/EF) algorithms to be run on these TEs in order to refine them, and one (and only one) output TE subsumming refined and combined information from the input TEs. The set of sequences to be run in a given step is called the'sequence table' (ST) of that step. Figure 1 shows this structure.
+
+After each step, a step decision tests whether the refined information still fulfills the event requirements. These requirements are given in terms of'signatures' which either ask for a single TE or for the conjunction of several different TEs (see figure 2. The set of signatures of a given step is called the'menu table' (MT) of that step. One further definition has to be given: The signatures that constitute the last step's menu table are called 'physics signatures', in contrast to 'intermediate signatures' in the other menu tables. The physics signatures are the ones that will be visible to the shift crew in the control room, whereas the intermediate ones are visible only for an expert with insight into the configuration scheme. Figure 3 summarizes the connection of signatures, trigger elements, algorithms, menu tables and sequence tables for the arbitrary example of two physics signatures '\(\gamma\)40i+\(\gamma\)25i' and 'e15i+mu20' consisting of the trigger elements \(\gamma\)40i, \(\gamma\)25i, e15i and mu20. Here \(\gamma\)/e/mu denotes a photon/electron/muon candidate, the numbers indicate energy thresholds that were passed, the 'i' indicates isolation criteria which have been fulfilled and 'RoI' indicates
+
+Figure 1: Visualisation of a sequence. See text for details.
+
+Figure 2: Visualisation of a signature as a logical AND of several trigger elements (TE). See text for details.
+
+Regions-of-Interest (or RoIs)1 from either the calorimeter or the muon trigger (in the next section a more formal and exact notation for all entities introduced above will be given).
+
+Footnote 1: In this note, the necessary conversion service from LVL1 RoIs to LVL2 trigger objects is neglected because it does not add to the clarity of the configuration process.
+
+From the above it is clear that the trigger configuration has to provide a set of menu and sequence tables. The approach chosen for the TrigConfig package could be called a 'top-down' approach: First, a list of physics signatures, on which the experiment wants to trigger, is defined, together with a list of all implemented algorithms (or sequences). Then, in a recursive algorithm that is described in detail later in this document, all sequence and menu tables are derived for all steps.
+
+This note is intended as a detailed documentation for the TrigConfig package, containing requirements (Sect. 2), use cases (Sect. 3), analysis (Sect. 4) and design/implementation (Sects. 5,6) pieces. In addition, some example steering files and and a list of open questions are given in Sects. 7 and 8.
+
+## 2 Requirements, Constraints and Assumptions
+
+The following requirements, constraints and basic assumptions govern the design and implementation of the TrigConfig package.
+
+Figure 3: Summary of the connection between TEs, algorithms, sequences, signatures, menu tables and sequence tables using randomly chosen algorithm and trigger element names. The necessary conversion stepbetween LVL1 RoIs and LVL2 trigger objects has been neglected here.
+
+### General Requirements for the Configuration
+
+1. The configuration shall start from XML files giving physics signatures to be triggered on and sequences for which algorithms have been implemented.
+2. The configuration shall be done separately for LVL2 and EF. _Implemented._
+3. The configuration shall be deterministic, i.e. for two identical configurations (identical in terms of the XML files) the code output shall be identical. _Implemented._
+4. The configuration shall be given in terms of menu and sequence tables, taking into account the step-wise working principle and the fast rejection requirement of the HLT. _Implemented._
+5. The configuration shall use basic classes for trigger relevant data as implemented in the TrigData package. _Implemented._
+6. The configuration result shall be stored in TrigSimpleStore for later use by other packages. _Implemented._
+
+**Warning for versions 02.02.02 and higher: Here, StoreGate/DetectorStore is used in order to store the configuration details for the steering software.**
+7. The configuration shall detect (syntactical and logical) errors in the XML files given to it. _Partially implemented, with good error reporting still missing due to problems with the XERCESC error catching methods._
+8. The configuration program shall not terminate abnormally without any error message explaining the reason of the failure. _Partially implemented, needs improvement._
+
+### Requirements arising from Steering / TrigData Package
+
+1. The TrigConfig package shall make use of the classes implemented in the TrigData package for menu and sequence tables, signatures and sequences, and trigger elements. _Implemented._
+2. No trigger element may be the output of more than one sequence. _Implemented; an error message is issued if violated._
+3. A sequence shall only have one output trigger element, although it may take more than one as input. _Not yet done, although trivially to check._* A sequence shall be designed to run either on LVL2 or on EF (exclusive 'OR'!). _Implemented._
+* The TrigConfig package shall treat trigger elements and algorithms essentially as string objects. _Implemented._
+
+### Ad-hoc Requirements to avoid Problems
+
+* No signature name ('signature_id' attribute in the XML file) shall start with a number since this leads the XML parser to neglect this signature. _Has to be watched manually._
+
+## 3 Use Cases and Tests
+
+In this section, a list of possible typical actions the user might want to perform using the TrigConfig package are listed. These use cases will be taken up again and be refered to in later parts of the document.
+
+### Use Cases related to the Internal Program Flow
+
+* Under the assumption of only LVL2 (or only EF sequences) and under the additional assumption of sequences requiring only one input trigger element a configuration consisting of only one signature which requires only on trigger element is given. _Treated in section 4.2._
+* Under the assumption of only LVL2 (or only EF sequences) and under the additional assumption of sequences requiring only one input trigger element a configuration consisting of only one signature which requires two trigger elements is given, where the trigger elements have the same degree of complexity in terms of steps necessary to arrive at them. _Treated in section 4.4._
+* Under the assumption of only LVL2 (or only EF sequences) and under the additional assumption of sequences requiring only one input trigger element a configuration consisting of only one signature which requires two trigger elements is given, where the trigger elements do not have the same degree of complexity in terms of steps necessary to arrive at them. _Treated in section 4.5._
+* Under the assumption of only LVL2 (or only EF sequences) a configuration consisting of only one signature requiring only one trigger element is given, where it is admissive for any sequence to require more than one input trigger element. _Treated in section 4.6._* An arbitrary (syntactically and logically correct) configuration is provided, the only constraint being that only EF (or only LVL2) sequences are to be used. _Treated in section 4.7_.
+* An arbitrary (syntactically and logically correct) configuration is provided, where sequences may be designed for LVL2 and for EF. _Treated in section 4.8_.
+
+### Use Cases for Error Handling
+
+* A sequence list file with wrong XML syntax is given. _Not yet treated in detail. Abnormal program termination_.
+* A signature list file with wrong XML syntax is given. _Not yet treated in detail. Abnormal program termination_.
+* A sequence list file is given where the output of a EF sequence acts as input to a LVL2 sequence. _Code issues error message and terminates_.
+* A sequence list file is provided in which a certain TE is output of two sequences. _Code issues error message and terminates_. _Treated in appendix A_.
+* A sequence list file is provided in which a sequence holds more than one output TE. _Not yet treated in detail. Unpredictable program behaviour_.
+* A sequence list file is given where an input trigger element of a given sequence is not the output trigger element of another sequence. _Up to now each input TE which is not an output of another sequence is assumed to be a LVL1 RoI_.
+
+### Use Cases related to Normal User Behaviour
+
+* The user wants to include a new top-level physics signature. _Not yet treated in detail. The user needs to edit the signaturelist.xml or corresponding file._
+* The user wants to change an algorithm in a given sequence. _Not yet treated in detail. The user needs to edit the sequencelist.xml or corresponding file._
+* The user wants to change the prescale of a signature. _Not yet treated in detail. The user needs to edit the signaturelist.xml or corresponding file._
+* The user wants to add a trigger element requirement to a signature. _Not yet treated in detail. The user needs to edit the signaturelist.xml or corresponding file._* The user wants to change the names of the XML files. _Not yet treated in detail. The user needs to create the new files and change the relevant jobOptions.txt file._
+* The user wants to change the locations of the configuration vectors in StoreGate. _Not yet treated in detail. The user needs to edit the relevant jobOptions.txt file. This can only be done in agreement with the HLT steering software responsables._
+
+## 4 Analysis: Principle of the HLT configuration
+
+### Notation
+
+For the following an XML notation will be used because it was also chosen for the actual implementation of the software (requirement [R1-1]). A trigger element XYZ is denoted as
+
+<TRIGGERELEMENT te_name="XYZ" />
+
+A sequence with inputs TE_1 up to TE_N, algorithms A_1 to A_M and an output TE TE_OUT is denoted as
+
+<SEQUENCE te_in="TE_1... TE_N" algo="A_1... A_M" te_out="TE_OUT" />
+
+where the names 'TE_1' etc. refer to the 'te_name' attribute of XML TRIGGERELEMENT tags defined elsewhere. A signature has a name and consists of various trigger elements (which currently are assumed to be concatenated by a logical 'AND'):
+
+<SIGNATURE signature_id="QRSYZ">  <TRIGGERELEMENT te_name="XYZ" />  <TRIGGERELEMENT te_name="QRS" /> </SIGNATURE>
+
+Sequence and menu tables, finally, are logically defined by the sequences / signatures contained in them (however, in the XML definition of the trigger configuration, no sequence or menu tables appear - these objects are only created by the configuration algorithm and represented in memory using instances of C++ classes which will be introduced later in this document).
+
+### Configuration for a single simple signature [U1-1]
+
+The configuration starts from physics signatures the experiment wants to trigger on. As an example let us consider a signature consisting of one trigger element '\(\gamma\)40i' (a photon2 passing the 40 GeV energy threshold. and fulfilling some isolation criteria). Let us call this signature the '1\(\gamma\)' signature3:
+
+Footnote 2: Please note that while in the text photons are symbolized by the greek letter ’\(\gamma\)’, in the XML notation the letter ’g’ was chosen for technical reasons.
+
+<SIGNATURE signature_id="1g">  <TRIGGERELEMENT te_name="g40i" /> </SIGNATURE>
+
+In order to derive all menu and sequence tables for this (very simple) trigger configuration, we have to find, in the list of existing sequences, the sequence which produces a TE \(\gamma 40\)i as output. We assume that this is done by the following sequence which contains the isolation algorithm for photons, \(\gamma\)_isol and takes a TE \(\gamma 40\) as input:
+
+<SEQUENCE te_in="g40" algo="g_isol" te_out="g40i" />
+
+The \(\gamma 40\) TE, in turn, stems from the following sequence
+
+<SEQUENCE te_in="g" algo="g_40" te_out="g40" />
+
+and the \(\gamma\) TE, finally, is the result of the sequence
+
+<SEQUENCE te_in="e/g_RoI" algo="g" te_out="g" />
+
+which requires a LVL1 e/\(\gamma\) RoI as input. It should be noted that in each of the sequences, only one input TE is required. Since we only require one signature (the \(1\gamma\) signature) with only one TE, these sequences also constitute the complete sequence tables for the different steps. The menu tables also consist of only one signature each with again only one TE required. For example the first step:
+
+<SIGNATURE signature_id="1g_first_step">  <TRIGGERELEMENT te_name="g" /> </SIGNATURE>.
+
+The second step MT would be:
+
+<SIGNATURE signature_id="1g_second_step">  <TRIGGERELEMENT te_name="g40" /> </SIGNATURE>.
+
+### Concatenating algorithms
+
+It should also be possible to concatenate algorithms such that in one step several algorithms work successively on the same inputs as is indicated in figure 1. In the XML notation this can be indicated by (for simplicity only one input TE is assumed):
+
+<SEQUENCE te_in=''TE_in'' algo=''Algo_1 Algo_2... Algo_M'' te_out='''TE_out'>
+
+This is completely equivalent (from a physics point of view, not from the configuration point of view, because the STs and MTS will of course look very different for the two cases) to:
+
+<SEQUENCE te_in=''TE_in_M'' algo=''Algo_M'' te_out='''TE_out'> ... <SEQUENCE te_in=''TE_in_2' algo=''Algo_2' te_out='''TE_3'>  <SEQUENCE te_in=''TE_in_1' algo=''Algo_1' te_out='''TE_2'>
+
+### Adding a second trigger element [U1-2]
+
+Let us now assume the initial signature \(1\gamma\) was extended to a signature \(2\gamma\) by requiring an additional trigger element \(\gamma 25\)i.
+
+<SIGNATURE signature_id="2g">  <TRIGGERELEMENT te_name="g25i" />  <TRIGGERELEMENT te_name="g40i" />\(\backslash\) </SIGNATURE>.
+
+The sequences required for the \(\gamma 25\)i shall be:
+
+<SEQUENCE te_in="g25" algo="g_isol" te_out="g25i" />  <SEQUENCE te_in="g" algo="g_25" te_out="g25" />  <SEQUENCE te_in="e/g_RoI" algo="g" te_out="g" />
+
+Apparently the menu tables now will be:
+
+<SEQUENCE te_in="g25" algo="g_isol" te_out="g25i" />  <SEQUENCE te_in="g40" algo="g_isol" te_out="g40i" />
+
+<SEQUENCE te_in="g" algo="g_25" te_out="g25" />  <SEQUENCE te_in="g" algo="g_40" te_out="g40" />\(\backslash\)
+
+and
+
+<SEQUENCE te_in="e/g_RoI" algo="g" te_out="g" />  <SEQUENCE te_in="e/g_RoI" algo="g" te_out="g" />.
+
+However, the two sequences in the step-1 sequence table are identical; therefore, one of them can be omitted. For the first step, the menu table will be
+
+<SIGNATURE signature_id="2g_first_step">  <TRIGGERELEMENT te_name="g" />  <TRIGGERELEMENT te_name="g" />  </SIGNATURE>
+
+and for the second step we will have
+
+<SIGNATURE signature_id="2g_second_step">  <TRIGGERELEMENT te_name="g25" />  <TRIGGERELEMENT te_name="g40" />  </SIGNATURE>
+
+Note that in the first step menu table we have to write the trigger element \(\gamma\) twice since the signature demands two photon candidates, not one.
+
+### Different numbers of steps [U1-3]
+
+Let us consider now a different combination of trigger elements:
+
+<SIGNATURE signature_id="g_e">  <TRIGGERELEMENT te_name="g25i" />  <TRIGGERELEMENT te_name="e20i" />  </SIGNATURE>.
+
+The TE e20i (an isolated electron candidate with more than 20 GeV of energy) may be arrived at using the sequences
+
+<SEQUENCE te_in="e20" algo="e_isol" te_out="e20i" />  <SEQUENCE te_in="e" algo="e_20" te_out="e20" />  <SEQUENCE te_in="e_cand" algo="e" te_out="e" />  <SEQUENCE te_in="e/g_RoI" algo="e_test" te_out="e_cand" />.
+
+Note that, in contrast to the \(\gamma\)25i TE which is built from an e/\(\gamma\)_RoI using three sequences or steps, four sequences are needed to arrive at the TE e20i used in the physics signature. There are two possible ways to deal with this complication:
+
+* It is possible to include already in the first step sequences / signatures from both the electron and the photon chain, resulting in the following sequence and menu table for the first step:
+
+Figure 4: Different solutions for handling trigger element chains of different length (a,b). In c, the effect of introducing a ’dummy’ sequence is shown. Note that trigger elements are shown as white squares and algorithms as shaded ellipses. The letter ’g’ denotes the photon (as \(\gamma\) does in the text). Again, the conversion service from LVL1 RoIs to LVL2 trigger objects is neglected.
+
+<SEQUENCE te_in="eg_RoI" algo="e_test" te_out="e_cand" /> <SEQUENCE te_in="eg_RoI" algo="g" te_out="g" /> <SIGNATURE signature_id="g_e_1">  <TRIGGERELEMENT te_name="e_cand" />  <TRIGGERELEMENT te_name="g" />  </SIGNATURE>.
+
+Obviously, the last step then will only have entries for the electron chain in the sequence table
+
+<SEQUENCE te_in="e20" algo="e_isol" te_out="e20i" /> whereas the menu tables of the last but one and last steps will be
+
+<SIGNATURE signature_id="g_e_3">  <TRIGGERELEMENT te_name="e20" />  <TRIGGERELEMENT te_name="g25i" />  </SIGNATURE>
+
+and
+
+<SIGNATURE signature_id="g_e_4">  <TRIGGERELEMENT te_name="e20i" />  <TRIGGERELEMENT te_name="g25i" />  </SIGNATURE>.
+
+* One could, on the other hand, assume that the first step should only perform actions with the electron chain. Then the menu and sequence table of the first step would have the following shape:
+
+<SEQUENCE te_in="eg_RoI" algo="e_test" te_out="e_cand" />. <SIGNATURE signature_id="g_e_1">  <TRIGGERELEMENT te_name="e_cand" />  </SIGNATURE>.
+
+The tables for the remaining three steps would then all contain two entries, one for the electron chain and one for the photon chain.
+
+Actually the first solution is the prefered one: Since already in the first step the step decision has to judge on two trigger elements in the signature \(\gamma\_\)e_1, this method allows for a faster event rejection then the second one. The price for this is, however, that, due to the way the algorithm that will be described in section 6 works, a 'dummy' algorithm has to be introduced which makes sure that the'shorter' \(\gamma\) chain also has its impact on the last menu table. The 'dummy' algorithm simply transports the \(\gamma\)25i TE, which was already finalized in the last but one step, to the last step. To be more precise the necessity for dummy algorithms arises because the sequence and menu tables are derived by simply picking all sequences in one step (at one 'level' within the figure, so-to-say) and by combining all required trigger elements to intermediate signatures. This can, however, only be accomplished if indeed every sequence and output trigger element has been assigned the right 'level' or step number. In fact, the question of dummy algorithms is an implementation detail and does not have to bother users of the TrigConfig package who will not see these 'dummy' sequences in the menu tables. Figure 4a shows the situation for the first scenario, fig. 4b for the second. In fig. 4c the effect of introducing the 'dummy' algorithm is demonstrated.
+
+It is clear that for even larger differences in length between TE chains hanging from one signature more and more 'dummy' sequences have to be used.
+
+### More than one input TE [U1-4]
+
+Let's assume that the e algorithm (see above) needs a piece of a track (a 'track' TE) in order to really count for an electron and to distinguish it from a photon. Then the chain of sequences for the e20i TE reads:
+
+<SEQUENCE te_in="e20" algo="e_isol" te_out="e20i" /> <SEQUENCE te_in="e" algo="e_20" te_out="e20" /> <SEQUENCE te_in="e_cand track" algo="e" te_out="e" /> <SEQUENCE te_in="e/g_RoI" algo="e_test" te_out="e_cand" />.
+
+(note that the third sequence has to input trigger elements!) and we need an additional TE track_cand which delivers the track TE:
+
+<SEQUENCE te_in="track_cand" algo="track" te_out="track" />.
+
+The menu table for the first step is still pretty straight forward:
+
+<SIGNATURE signature_id="e_1">  <TRIGGERELEMENT te_name="e_cand" />  <TRIGGERELEMENT te_name="track" /> </SIGNATURE>.
+
+The situation may, however, be more complicated if we assume that in fact we have two steps to perform in order to arrive at a track TE, for example first an assembly of hits in the silicon:
+
+<SEQUENCE te_in="track_cand" algo="track_2" te_out="track" />  <SEQUENCE te_in="sc_hits" algo="track_1" te_out="track_cand" />.
+
+Then, we again have to introduce 'dummy' sequences as in the example above in order to make the electron chain and the track chain of steps under the e algorithm equally long and to be able to reject an event as quickly as possible. Figure 5 demonstrates this.
+
+It may already now become obvious that in a realistically complicated configuration, even for only one signature, the situation might be even much more complicated due to the fact that we may have several algorithms that require two or even more inputs and that all of the branches of the trigger element tree may require different numbers of steps.
+
+### More than one signature [U1-5]
+
+In case that more than only one signatures are required in the trigger menu, the configuration algorithm (which will be explained in detail in section 6) will arrange the sequences in each signature separately according to the ideas given above. In a final step, when collecting the menu and sequence tables, care will have to be taken to start collecting from 'the bottom' - i.e. from the first steps in each signature (the first step of each signature will be assigned to the global step one). Figure 6 demonstrates this for three signatures 'A', 'B' and 'C' which, for simplicity, each require only one TE (which, however, may be quite complex as in case of the signature 'B').
+
+### Hosting LVL2 and EF sequences [U1-6]
+
+One more complication occurs. The high-level trigger consists of two distinct systems, the level-2 trigger (LVL2) and the event filter (EF). The set of sequences running in the LVL2 and in the EF are disjunct, and in addition all LVL2 sequences must be ready before the EF can start its work. Therefore the tree of trigger elements must be separated in two, with the 'lower' part constituted by all LVL2 sequences and the 'upper' one by the EF sequences. This separation is again done using 'dummy' algorithms of which the user of the TrigConfig package will see nothing. The result of the procedure is again a list of menu and sequence tables, but now a given table is either an LVL2 or an EF table.
+
+In order to make the configuration code know to which level a sequence belongs, the notation introduced in the first section of this note must be extended by an additional attribute 'lvl', indicating the level which is either 'L2' or 'EF':
+
+Figure 5: Example of a configuration with two input TEs for one algorithm. Again it is necessary to insert a ’dummy’ sequence. Again, the conversion service between LVL1 RoIs and LVL2 trigger objects is neglected. As before, open squares stand for trigger elements, dark ellipses denote algorithms.
+
+<SEQUENCE lvl="L2" in="e/g_RoI" algo="g" te_out="g" />
+
+ or
+
+<SEQUENCE lvl="EF" in="e20" algo="e_isol" te_out="e20i" />,
+
+for example. Hosting LVL2 and EF sequences in one configuration leads to the additional requirements and use cases [R1-2], [R2-4], [U1-6] and [U2-3].
+
+## 5 Design and Implementation
+
+### Environment
+
+The HLT trigger configuration is implemented in the two software packages TrigConfig and TrigData which reside in the ATLAS software repository under offline/Trigger/TrigSteer. The language chosen for the implementation is C++. The code is supposed to run in the ATLAS offline computing framework Athena [1]. The algorithmic part of the configuration is contained in the TrigConfig package with the _TriggerConfig_ Athena algorithm, whereas the configuration structure (in terms of menu and sequence tables etc.) is implemented in classes contained in TrigData. Both packages are also mentioned and described in [2]. The requirements for the overall PESA selection software can be found in [3].
+
+Figure 6: Example of trigger configuration for several simple signatures A,B,C. The step numbering on the left side and the thick dashed lines indicates which sequences (trigger elements) will be gathered to form the sequence table (menu table) of the respective step. Again, open squares stand for trigger elements, dark ellipses denote algorithms.
+
+The code as described here was included in the offline release version 6.0.3 (May 2003); it corresponds to the code versions TrigConfig-02-02-12 and TrigData-00-00-11. Please note that the functionality in the TrigData package exceeds the functional requirements of the HLT configuration and contains also things needed for the HLT steering and navigation. The person in charge of these parts is currently G. Comune.
+
+The code is present in version 6.0.3 has also been used for the studies carried out for the HLT technical design report [4] which was due in June 2003.
+
+### Overall Class Design and Interface
+
+From what has been said before it should be clear that the configuration requires two sets of menu tables and sequence tables, one set for each of LVL2 and EF. These sets are implemented as vectors of pairs of menu tables and sequence tables using classes of the TrigData package. Figure 7 shows a UML class diagram of this software.
+
+The code that fills the objects shown in figure 7 is implemented in the TrigConfig package and is rather complicated: it will be explained in more detail later. The class structure of
+
+The vectors of pairs of MTs and STs are stored in DetectorStore for later use in the steering part of the HLT software. The locations at which they are stored are defined within the job options fragment of the TrigConfig package (see later):
+
+TriggerConfig.trigConfigL2Vector = "storeL2Location";
+
+TriggerConfig.trigConfigEFVector = "storeEFLocation";
+
+Figure 7: UML diagram of the TrigData package.
+
+[MISSING_PAGE_FAIL:19]
+
+a method of type _vector_\(<\)_pair_\(<\)_MenuTable*,SequenceTable*\(>>\) getEFTablesVector_ which returns the EF configuration vector.
+* **TrigData::MenuTable:** The _MenuTable_ class has only two (private) data members: _m_MenuTableStep_ of type int which holds the step to which this table belongs and _m_MenuTableSignatureVector_ of type _vector_\(<\)_Signature*\(>\)_. A reference to this vector is delivered by the _signatureVector_ method. In addition there are methods _step_ and _setStep(int)_ of types _int_ and _void_, respectively, which manipulate the _m_MenuTableStep_ data member.
+* **TrigData::SequenceTable:** The _SequenceTable_ class has only two (private) data members: _m_SequenceTableStep_ of type _int_ which holds the step to which this table belongs and _m_SequenceTableSequenceVector_ of type _vector_\(<\)_Sequence*\(>\)_. A reference to this vector is delivered by the _sequenceVector_ method. In addition there are methods _step_ and _setStep(int)_ of types _int_ and _void_, respectively, which manipulate the _m_SequenceTableStep_ data member.
+* **TrigData::Signature:** The main data members of the _Signature_ objects are a vector _m_SignatureTEVector_ of pointers to _TriggerElement_ objects4 which constitute the signature, a vector _m_SignatureTEStringVector_ containing _std::string_s which indicate the names of these trigger elements5, an integer _m_SignaturePrescale_ holding the prescale for the signature, a float _m_SignatureForcedRate_ containing the forced accept rate and a bool _m_SignatureVeto_ indicating whether the signature is vetoed. There exist public methods to retrieve references to the vectors and set and get methods for all of the three other data members just mentioned. In addition, some operator for signature comparison have been overloaded. Footnote 4: The _TriggerElement_ class is currently implemented in the TrigData package.
+* **TrigData::Sequence:** A _Sequence_ instance holds a _vector_\(<\)_std::string_\(>\) member _m_-_SequenceAlgoVector_ which contains the names of the algorithms to be run on the --em TriggerElement objects pointed to in the _m_SequenceInputVector_ vector of type _vector_\(<\)_TriggerElement*\(>\)_. In addition a _vector_\(<\)_std::string_\(>\) contains the names of the trigger elements to be used. A type _TriggerElement*_ member _m_SequenceOutput_ points to the output trigger element. In addition, a boolean member _m_SequenceIsEF_ indicates whether the sequence is to be run on LVL2 or EF level. There are public methods to retrieve and (for most members) set the private data members.
+* **TrigConfig::XMLSignature:** The _XMLSignature_ class is used to store the signatures as read from the signature XML file. The main data members of the class are (integer) prescale and (float) forced-accept rate (_m_XMLSignaturePrescale_ and --em m_XMLSignatureForcedAccept), a _list_\(<\)_XMLTE*\(>\) which constitute this signature (_m_XMLSignatureTEList_), and a string containing the signature name (_m_XMLSignatureName_). The most important member functions of the _XMLSignature_ class are neededfor arranging the TE trees (_XMLSigma::buildXMLTErees_, _XMLSignature::rebranchXMLTErees_ and _XMLSignature::adjustTEList_) and for the filling of the menu and sequence tables (_XMLSignature::fillSequenceTables_ and _XMLSignature::fillMenuTables_). See section 6 for more details.
+* **TrigConfig::XMLTE:** The _XMLTE_ class stores the trigger elements found in the signature list XML file and the trigger elements that are generated during the creation and arrangement of the trigger element trees. Each _XMLTE_ object holds a _list\(<\)XMLTE*\(>\)_ of pointers to objects that branch from it in the TE tree (_m_XMLTEChildTEList_) and a pointer to the _XMLTE_ it branches from (_m_XMLTEParent_). In addition, a _std::string_ member gives the name of the _XMLTE_ object (_m_XMLTEName_). The _XMLTE_ class has numerous member functions which basically serve for the process of arranging the TE tree. See again section 6 for more details.
+
+## 6 The General Configuration Algorithm
+
+In this section, the general algorithm will be explained that derives from top-level physics signatures and a list of existing sequences the configuration in terms of menu and sequence tables.
+
+The description of sequences and signatures is done using XML in the way indicated in section 4. The XML structures are translated into C++ class objects (of types _Sequence_ and _XMLTE_, respectively) using the XERCES4C DOM API [6] and the classes described above. The basic behaviour of the code can be seen in the sequence diagrams in figures 9 and 10.
+
+### Initialisation
+
+In a first initialisation step, the XML files sequenclist.xml and signaturelist.xml (or other files indicated by the
+
+TriggerConfig.sequenceListFileLocation
+
+TriggerConfig.signatureListFileLocation
+
+labels in the jobOptions.txt file of the TrigConfig package) are parsed using the XERCES DOM API [6] The correctness of the XML file content/syntax is partially controlled using the document type definitions (DTDs) in the files sequenclist.dtd and signaturelist.dtd.
+
+### Filling of Sequence and Signature Lists
+
+Then, in the _Frame::buildSequenclist_ method, a list of C++ objects of type _Sequence_ (TrigData package) is filled from the \(<\)SEQUENCE\(>\) tag objects in the XML file containing all sequences. The input and output trigger elements stated in the \(<\)SEQUENCE\(>\) tag objects are translated into _TriggerElement_ objects (see TrigData package) which are filled into the respective members of the _Sequence_ class. In addition, in _Frame::buildSignatureList_, _XMLSignature_ and _XMLTE_ objects are filled from the XML tags of types \(<\)SIGNATUREand \(<\)TRIGGERELEMENT\(>\), respectively, in the signature XML file. In doing so, the relationship between the signatures and the trigger elements is retained such that a \(Signature\) object holds pointers to its constituting _XMLTE_ objects, and vice versa. This step is indicated in Fig. 11a for a signature which contains two trigger elements.
+
+### Building of Trigger Element Trees
+
+In a third step, the _Frame::buildXMLTErees_ method invokes the generation of _XMLTE_ object trees with the help of the _Sequence_ objects defined above. This is done iteratively and for each trigger element of each signature separately, by finding in the list of _Sequence_ objects the one object that produces the trigger element in question as an output. The input trigger elements to that sequence are the next generation of branches. This algorithm is run until primary (LVL1) trigger elements/RoIs are found which constitute the 'leaves' of the trigger element trees and which are the inputs to the HLT. Figs. 11b,c show the evolution of the trigger element tree under the signature, where it is assumed that after two repetitions of the algorithm the tree is fully developed (such that the bottom trigger elements in each branch correspond to RoIs). See also section 4 for conceptual details.
+
+Figure 9: Sequence diagram for the part of the TrigConfig package that reads the XML files, builds the lists of required signatures and provided sequences, builds the trigger elements trees and rearranges them.
+
+### Re-arranging of Trigger Element Trees
+
+Next, the trees of _XMLTE_ objects are re-arranged in order
+
+* to separate sequences which are supposed to run on LVL2 and those which are to run on the event filter and
+* to allow for the fastest possible rejection.
+
+This is done using mainly the _XMLSignature::reBranchXMLTETrees_, _XMLSignature::adjustTEList_ and _XMLTE::shift_ methods. Fig. 11d gives an example for one step of the re-arranging procedure which consists in giving the same 'length' in terms of steps to all branches of trigger elements for a given tree. The flow of the code up to this step can be seen in the sequence diagram in figure 9. See again also section 4 for conceptual details. The three methods just mentioned will be explained in more detail in the following three subsections.
+
+Figure 10: Sequence diagram for the configuration code that creates the sequence and menu tables. See the text for more explanations. Note that for versions 02.02.02 and higher of TrigConfig, the TrigSimpleStore is replaced with StoreGate/DetectorStore, using the record() method.
+
+#### 6.4.1 _XMLSignature::rebranchXMLTETrees_
+
+This method governs the re-arranging of the _XMLTE_ trees, using, together with other methods, the _adjustTEList_ and _shift_ methods described below.
+
+1. First, it has to be made sure that all EF sequences in all branches of the tree start at the same step. This is aimed for because then the principle of fast rejection can be fully exploited at EF and LVL2 independently. * In a first step, the highest EF _XMLTE_ step number \(N_{EF,max}\) is derived using the _calculateMaxEFStep_ method. * Then, all EF _XMLTE_ instances which are not direct ancestors of an EF _XMLTE_ at step \(N_{EF,max}\) are shifted until they are either at this step themselves or they are ancestors of an EF _XMLTE_ at this step. * _adjustTEList_ is called the first time.
+2. Then, special treatement for the LVL2 part of the tree is applied. In particular care has to be taken that in the maximum EF step, no LVL2 _XMLTE_ can be found. This is necessary in order to have a clear distinction between the LVL2 and EF configuration vectors (and thus MTs and STs). * First, It is assured that no single _XMLTE_ has child _XMLTE_ objects of both EF and L2 type. This is achieved using the _preventL2EFChildMix_ method. * Then, care is taken that, if both EF and L2 _XMLTE_ are present in the child _XMLTE_ list of the signature in question, the L2 ones are shifted.
+
+Figure 11: Schematic overview of a) the initial filling of signature and sequence lists; b) and c) the evolution of the trigger element tree; d) the re-arranging of the trigger element tree, all for a given physics signature (dark box) consisting of two trigger elements (light boxes). The grey circles show sequences/algorithms, and the black circles and trigger element boxes show elements which have to be introduced in the process of the re-arranging.
+
+* In the end, the _adjustTEList_ method is called again.
+3. Finally, all branches of the tree are arranged to have the same length. * Therefore, first the maximum LVL2 _XMLTE_ step number is evaluated using the _calculateMaxStep_ method. * Then, all L2 _XMLTE_ which are not ancestors of a L2 _XMLTE_ at this maximum step are shifted using the _adjustL2TELength_ method.
+
+#### 6.4.2 _XMLSignature::adjustTEList_
+
+This short method, which is called several times during the execution of the _XMLSignature::rebranchXMLTErees_ method has the task of making sure that only _XMLTE_ instances of step zero (0) are inserted into the _XMLSignature::m_XMLSignatureTEList_ member of the _XMLSignature_ class. _XMLTE_ of other steps (typically 1) might be in the list if originally they were of step 0 but were moved down and became a child of a dummy which now is in the _XMLTE_ list of the signature. Figure 12 shows the effect of this method.
+
+#### 6.4.3 _Xmlte::shift_
+
+This method is used in order to change the step associated to a given _XMLTE_ instance, and those of all the _XMLTE_ instances for which the instance in question is an ancestor (i.e. higher up in the _XMLTE_ tree). The method first creates a 'dummy' _XMLTE_, sets as its parent the parent of the instance in question and inserts itself into the children _XMLTE_ list of the parent. The instance in question is erased from this children _XMLTE_ list and changes its parent pointer to point to the 'dummy'. The level (L2 or EF) of the 'dummy' is set equal to that of the instance in question. Finally, in an iterative procedure, the step member of all _XMLTE_s which are below the instance in question in the tree are increased by one. Figure 13 schematically depicts the effect of the method.
+
+Figure 12: Visualisation of the _XMLTE::adjustTEList_ method. The left side shows the situation BEFORE calling the _adjustTEList_ method, with the _XMLTE_ ’XMLTE A’ as a part of the _XMLSignature_ and thus entered in the _m_XMLSignatureTEList_ member of the signature. On the right side the situation after calling _adjustTEList_ is shown, where the ’XMLTE A’ has been removed from the TE list member of the signature and the ’dummy’ has been entered instead. See text for more details.
+
+### Filling of Menu and Sequence Tables
+
+In a final step, the sequence and menu tables needed by the HLT steering are filled from the re-arranged trees of _XMLTE_ objects in a call to _Frame::buildTables_. To be more precise, for each LVL2 and EF, a vector of pairs is created, where each pair consists of the menu table and the sequence table of a given step. These vectors, which are filled in calls to the _fillSequenceTables_ and _fillMenuTables_ methods of the _XMLSignature_ class can then be accessed using the methods _Frame::getEFTablesVector_ and _Frame::getL2TablesVector_. The sequences that are put into the sequence tables have already been created during the second step of the procedure, 'Filling of Sequence and Signature Lists', together with the necessary _TriggerElement_ objects. The _Signature_ objects, however, which are required for the menu tables, and their constituting _TriggerElement_ objects do not yet exist and are created 'on the fly' in the _fillMenuTables_ method. The flow of the code which creates and fills the sequence and menu tables and puts them into the TrigSimpleStore can be seen in the sequence diagram in figure 10.
+
+## 7 Example Configuration XML and Job Options Files
+
+The TrigConfig requirements contains the following entries:
+
+#include "$ATHENACOMOMNROOT/share/Atlas_Gen.UnixStandardJob.txt" ApplicationMgr.DLLs += { "TrigConfig" };
+
+Figure 13: Visualisation of the _XMLTE::shift_ method. The arrows indicate the parent-child _XMLTE_ relation, with the parent being on top, and the child (or of one of the children) at the bottom of the arrow. The left side shows the situation BEFORE the _shift_ method was called, the right side the situation AFTER the call. See text for more details.
+
+ApplicationMgr.TopAlg += {"HLT::TriggerConfig/TriggerConfig"}; TriggerConfig.OutputLevel = 3; TriggerConfig.sequenceListFileLocation = "seqlist_test_old.xml"; TriggerConfig.signatureListFileLocation = "siglist_test_old.xml"; TriggerConfig.trigConfigL2Vector = "storeL2Location"; TriggerConfig.trigConfigEFVector = "storeEFLocation"; Here, after including general running conditions, the DLL for the TrigConfig package is loaded and the _TriggerConfig_ algorithm is initialised. After setting the corresponding output level, the locations of the XML sequence list and signature list files are specified (see later for examples for these files), and the locations of the LVL2 and EF configuration vectors in DetectorStore are specified.
+
+A corresponding TestRelease/cmt/requirements file has to contain the following lines:
+
+package TestRelease
+
+author Christian Arnault <arnault@lal.in2p3.fr>
+
+author David Quarrie <David.Quarrie@cern.ch>
+
+use AtlasPolicy AtlasPolicy-*
+
+use Control Control-*
+
+use Event Event-*
+
+use AthenaCommon AthenaCommon-* Control
+
+use AthenaServices AthenaServices-* Control
+
+use StoreGate StoreGate-* Control
+
+use GaudiInterface GaudiInterface-* External
+
+use TrigConfig TrigConfig-* Trigger/TrigSteer
+
+use AtlasRelease AtlasRelease-*
+
+path_remove PATH "/RecExample/RecExCommon"
+
+path_remove LD_LIBRARY_PATH "/RecExample/RecExCommon"
+
+path_remove PATH "" noJava "${JDK_HOME}"
+
+path_remove LD_LIBRARY_PATH "" noJava "${JDK_HOME}"
+
+path_remove LD_LIBRARY_PATH "" noJava "${JAVA3D_HOME}"
+
+path_remove CLASSPATH "" noJava "${JDK_HOME}"
+
+path_remove CLASSPATH "" noJava "${JAVA3D_HOME}"
+
+apply_pattern install_runtime
+
+apply_pattern install_applications
+
+### Example XML Configuration Files
+
+A simple example for a sequence list file looks like the following (this is file _eGammaDevel_sequence.xml_ from the offline/Trigger/TestRelease package):
+
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+
+<!DOCTYPE SEQUENCE_LIST SYSTEM "sequencelist.dtd">
+
+<SEQUENCE_LIST>
+
+<SEQUENCE level="L2" input="EMTAUROI"
+
+algorithm="T2Calo/T2Calo/g4
+
+IdScan::ZFinder/IdScan_ZFinder/1
+
+IdScan::HitFilter/IdScan_HitFilter/1
+
+IdScan::SctKFitter/IdScan_SKFilter/1
+
+TrigSiTrack/SiTrack/sTrack/stirack
+
+TrigRTTxK/TRTxK/param
+
+TrigEgammaNtuple/TrigEgammaNtuple/1
+
+TrigTimeNtuple/TrigTimeNtuple/1
+
+"
+
+output="LVL2out" />
+
+</SEQUENCE_LIST>
+
+Note how the file has one input TE and concatenates various algorithms to be run in one step.
+
+A corresponding signature list file looks like (file \(eGamma\)_Devel_sequence_.xml_ from TestRelease):
+
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+
+<!DOCTYPE SIGNATURE_LIST SYSTEM "signaturelist.dtd">
+
+<SIGNATURE_LIST>
+
+<SIGNATURE signature_id="LVL2out" prescale="1" forced_accept="0">
+
+<TRIGGERELEMENT te_name="LVL2out" />
+
+</SIGNATURE>
+
+</SIGNATURE_LIST>
+
+The two files just shown are used for the e/\(\gamma\) HLT trigger slice during DC1 data production.
+
+The DTD files for the signature and sequence list XML files are given in appendix B.
+
+### Example Output
+
+The configuration code for the XML files just specified leads to the output presented in appendix C
+
+## 8 Questions, open points and things to do
+
+### ToDos for TrigConfig
+
+In this section, questions, open issues and things left to do for the TrigConfig package are listed in a rather arbitrary order.
+
+* Insert boolean return values for most methods in order to check the outcome of calling methods.
+* Check why XML signatures having names which start with a number are not seen by the code. Put a warning * Suppress use of 'cout', use MessageSvc instead. For classes which do not inherit from Algorithm, use the MessageSvcProvider from TrigStore, and find out how to set the output level then (S. George?).
+* Improve use of 'const' and of pointers/references as return types.
+* Make better use of the prescale, forced accept and veto facilities which are foreseen in the XML configuration alread, but which are not yet used in the code.
+* Move from TMUtil to TW's BitOp class. There exists a better implementation of the TMUtil class in the offline/Trigger/TrigT1/TrigT1Interfaces package, in which also the BitOp class resides.
+* Check method: error if one TE output of more than one sequence. Check that also names each contain two slashes. Check that output TE string does not contain blanks.
+* Introduce XML error catching again!
+* Remove all TrigStore and TrigSimpleStore stuff (which is not needed for MessageSvcProvider) from the requirements and job options files.
+* Use of 'private' and 'protected' keywords in XMLTE!
+* Include tests in package and run Simon's tests.
+* Treat TEs which are not output of some sequences automatically as LVL1 RoIs?
+* Check the possibility of a sequence file hash include mechanism for the sequence XML files or fragments.
+* What about using DataLinks between the Frame class and the XMLTE, XMLSignature and between XMLTE and XMLSignature?
+* and the new gcc is much stricter. So many changes will have to be made to the code....
+* Improve this documentation by extending it and by inserting more sequence diagram for the core code and the use cases.
+
+## References
+
+* [1][http://atlas.web.cern.ch/GROUPS/SOFTWARE/00/architecture/General/index.html](http://atlas.web.cern.ch/GROUPS/SOFTWARE/00/architecture/General/index.html)
+* [2] M. Elsing _et al._, **Analysis and Conceptual Design of the HLT Selection Software**, ATL-DAQ-2002-013.

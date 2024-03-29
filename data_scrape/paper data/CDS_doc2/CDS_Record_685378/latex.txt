@@ -1,0 +1,198 @@
+ATLAS-SOFT-2002-004
+
+ATLAS-DAQ-2002-014
+
+ATLAS-ID-2002-008
+
+June 6, 2002
+
+**Requirements for an**
+
+**[0.5cm] Inner Detector Event Data Model**
+
+S. Armstrong (editor),1 M. Elsing, D. Froidevaux, I. Gavrilenko,
+
+Footnote 1: contact: Stephen.Armstrong@cern.ch
+
+R. Hawkings, N. Konstantinidis, A. Poppleton
+
+_European Organization for Nuclear Research (CERN) - EP Division_
+
+W. Wiedenmann
+
+_University of Wisconsin - Madison_
+
+_Department of Physics_Introduction
+
+This document summarizes requirements of an Event Data Model (EDM) for the Inner Detector (ID) suitable to the needs of existing Offline Reconstruction Packages (ORPs) (_e.g._, xKalman++ [1] and iPatRec [2]) and the High Level Trigger Selection Software (HLTSSW) [3]. The dual nature of these requirements stems from the need to run Offline algorithms in the HLTSSW environment and _vice versa_.
+
+The scope of the EDM for the ID covers all of the data entities in an event and their relationships with each other. In the context of the Athena/Gaudi object-based paradigm separating _knowledge objects_ from _data objects_[4, 5], the EDM specifies the nature and content of data objects, referred to as Event Data Objects (EDOs) which are passed between algorithms and software packages to communicate information about the event and hence are potentially persistifiable. A corollary to this approach is that data object classes contain minimal algorithmic content (_e.g._, algorithms for finding, following, or fitting tracks are separated from methods in the class definition of Track itself).
+
+Since existing ORPs function within the context of the ATLAS detector and its simulation, they should, in principle, draw upon common EDM components. Ideally the Requirements Capture and Design for such an EDM would be independent of any one package or packages. However, our goal is a Requirements Capture which maintains compatibility with and draws upon the development experience of the existing ORPs.2
+
+Footnote 2: In other words, a prime Use Case implicit throughout this document is that both xKalman++ and iPatRec use the same EDOs of a new ID EDM.
+
+Existing ORPs have developed almost independently of each other, and, in many cases, crucial design and implementation details were initially made purposefully orthogonal to create a robust environment that provides inherent cross-checking. Existing ORPs have already implemented components of an ID EDM (and Detector Description, see below), but these components are incompatible [6]. Further complications arise due to the fact that the ID consists of not one but three independent sub-detectors (_i.e._, the Pixel Detector (Pixels), the Semiconductor Tracker (SCT), and the Transition Radiation Tracker (TRT)), and clients of ORPs include both physics analyses and alignment procedures [7] in the Offline environment, and HLTSSW in the Online environment [6, 8].
+
+An important distinction exists between the EDM and what is referred to as _Detector Description_ (DD). In this document, we assume that the components of the EDM are objects which are event features or participate directly in their formation (_e.g._, RawDataObjects, Clusters, Tracks) while the components of the DD are separate objects and external services. However, these two entities are closely coupled with correlated requirements, and existing ORPs have implemented their own versions of DD upon which their EDOs closely rely. Hence, this document discusses DD components, which overlap with the EDM (DetectorElements and their groupings), as well as relevant DD services upon which these components are highly dependent (services for DetectorGeometry and PassiveMaterial).
+
+With the definitions and requirements of EDM components in hand, a coherent design and implementation of the EDO classes (or modifications to existing EDO classes) representing these components may be achieved. This would represent the general ATLAS ID EDM rather than a single ORP-view or version of it. It is anticipated that existing ORPs will migrate to these new EDM classes internally as the requirements and design will have been oriented towards them (_i.e._, the ultimate long-term goal is that tracking algorithms make **direct** use of these classes and not rework or convert them into specialized internal classes).
+
+An implicit assumption throughout this document is that the use of EDM components should not violate the computational resources of the High Level Trigger (HLT) or Offline environments (_i.e._, the trade-off between computational time and storage media space). For the HLT, under present assumptions, this translates into access and processing of a full event will not exceed the maximal Event Filter (EF) trigger latency period of 1 s extrapolated to the HLTSSW running on a 4 GHz Pentium processor with several GBytes of main memory.3 The complementary Offline assumption is that the EDM should not preclude compact persistency of EDOs.
+
+Footnote 3: There are also CPU time restrictions for Offline reconstruction; however, the HLT requirement is the more stringent.
+
+Extensive work has been done on general ID EDM components and performance issues related to them [9, 10]. Where suitable, these classes could be used directly or with minimal modification without "re-inventing the wheel." However, crucial issues related to Analysis and Design of the ID EDM (_i.e._, a class or package of classes meeting the requirements articulated in this document do not necessarily have a suitable design) cannot be neglected and should be the topic of a future document(s).
+
+Furthermore, although this document concentrates on requirements rather than implementation issues, an awareness of potential restrictions of the Transient and Persistent Event Stores [5] should accompany the design and implementation phases of the EDM (_e.g._, achieving bi-directional associations).
+
+Finally, the requirements of both ID and Muon Systems could be merged into a common EDM framework. Along these lines, several classes are already shared between the ORPs iPatRec (ID) and Moore (Muons) [11]. It is hoped that future work can yield further EDM unification [12]
+
+The subsequent sections of this document are organized as follows. Section 2 presents a definition of terms. Section 3 consists of subsections each of which concentrates on the requirements of a single component class of the ID EDM. Section 5 discusses requirements for Object Organization and Relationships. Finally, Section 6 provides some exemplary Use Cases.
+
+Definition of Terms
+
+This section defines, in conceptual order, terms relevant to the ID EDM. Terms with a \(\dagger\) next to them are the EDOs.
+
+* **RawData**: Read-Out Buffer (ROB)-formatted data produced by the ATLAS detector or its simulation.4 Footnote 4: The format of the ROB-data is subdetector dependent and is not yet fixed. Definitive proposals of the format and data content for each subdetector exist and are use-case dependent. For a summary of on-going discussions, see [13].
+* **RawDataObject(RDO)\({}^{\dagger}\)**: Uncalibrated RawData converted into an object representing a set of readout channels.5 Historically this has been referred to as a _Digit_. It is the representation of RawData which is put into the Transient Event Store and is potentially persistifiable. Footnote 5: These RDOs may or may not be produced. In the HLT environment, a conversion from RawData directly to Clusters occurs.
+
+* _Pixel Detector_: A module, equivalent to a single Silicon wafer.
+* _SCT_: One side of a module, equivalent to a bonded pair of wafers whose strips are oriented in a single direction (_i.e._, axial or stereo).
+* _TRT_: a planar set of straw tubes representing one row at a given radius of straws in a barrel module (_i.e._, a plane corresponding to the tangential direction in the barrel) and \(1/32\) in \(r\phi\) at a given \(z\) of straws in an end-cap wheel.
+
+* _Pixel Detector_: A two-dimensional group of neighbouring readout channels in a DE.
+* _SCT_: A one-dimensional group of neighbouring readout channels in a DE.
+* _TRT_: A calibrated measurement in a single straw.
+* **Global Coordinate System**: A right-handed Cartesian coordinate system where the origin is centered around the nominal interaction point (_i.e._, the mean beam collision point) with the \(z\)-component parallel to the axial component of the magnetic field produced by the solenoid.
+* **Local Coordinate System**: A DE-dependent coordinate system related to the Global Coordinate System by an Euler transformation.
+* **SpacePoint(SP)\({}^{\dagger}\)**:_Pixels_: A single Cluster in the Global Coordinate System. * _SCT_: A combination of one axial Cluster and one stereo Cluster.
+* **ClusterOnTrack(COT)\({}^{\dagger}\)**: A modified Cluster with its parameters and errors corrected given knowledge of a track intersect and direction accounting for DE alignment and calibration.
+* **Track\({}^{\dagger}\)**: In general, an object containing a parameterization of a hypothesized particle trajectory through space relating groups of Clusters together. As discussed and defined elsewhere [14], a Track trajectory consists of three position, two direction, and one curvature6 parameters. If specified at an intersecting surface, there are five parameters and a covariance matrix. At various stages of the reconstruction process, different versions of Track exist: Footnote 6: The use of curvature assumes a homogeneous magnetic field in which case this quantity is constant. For ATLAS and its inhomogeneous magnetic field, this parameter may be replaced by an invariant quantity such as _charge/p_
+* **TrackSegment**: a local combination of Clusters which may span subdetectors, also referred to as a Track _seed_.
+* **TrackCandidate**: a Track contained internally within reconstruction algorithms and subject to further processing.
+* The object for use by physics analysis packages containing consistent sets of parameters with errors evaluated at specified point(s) and knowledge of the fitted combination of COT(s) from which they are derived.
+* **DetectorGeometry**: A static view (_i.e._, not reinitialized or recalculated for a set of events in which conditions and alignment are assumed to be constant) of the ATLAS detector containing the positions and geometric parameters of each DE in the ID, and an associated hierarchical organization of DEs.
+* A level in the hierarchical structure consisting of an aggregation of DEs at similar radial positions (barrel) or \(z\) (endcap).
+* **PassiveMaterial**: A reconstruction-oriented view of the material within the ATLAS tracking volume of appropriate granularity in which all detector and service material is parameterised into a set of surfaces with a radiation length, an interaction length, and a minimum-ionising particle energy-loss coefficient.
+
+## 3 Requirements
+
+The subsections below discuss requirements for the EDOs of the ID EDM.
+
+### Cluster
+
+1. Cluster from the Pixels and SCT shall provide a position measurement in Local and Global Coordinate Systems.
+2. Cluster shall provide a covariance matrix at its position in its Local Coordinate System.
+3. Cluster from the TRT shall provide the center of the drift circle inside a straw in Local and Global Coordinate Systems, the drift radius, and the uncertainty on the drift radius.
+4. Cluster for the TRT shall provide time-over-threshold and transition radiation information.
+5. Cluster for the Pixels (and SCT) shall provide its overall multiplicity and its two (one)-dimensional width.
+
+Requirements related to Cluster Relationships (UR6.1-UR6.7) and Organization (UR7.1-UR7.4) are described in Section 5.
+
+### SpacePoint (SP)
+
+1. SP shall provide its position in Cartesian and Cylindrical coordinates.
+2. SP position shall be provided in the Global Coordinate System.
+3. SP shall provide a covariance matrix in the Global Coordinate System on demand.7
+
+Footnote 7: The Use Case for this requirement is pattern recognition in xKalman++ where cylindrical coordinates are used and only the diagonal terms (\(\sigma_{rr}\), \(\sigma_{\phi\phi}\), \(\sigma_{zz}\)) are required
+
+Requirements related to SP Relationships (UR6.2, UR6.5, UR6.6) and Organization (UR7.1-UR7.4) are described in Section 5.
+
+### ClusterOnTrack (COT)
+
+1. A service shall be provided that corrects a Cluster with respect to an external Track prediction which produces ClusterOnTrack.
+2. COT from the Pixels and SCT shall provide their corrected position in Local and Global Coordinate Systems.
+
+* COT from the TRT shall provide the corrected center of the drift circle in Local and Global Coordinate Systems, the corrected drift radius and its uncertainty, choosing the appropriate side of the drift circle for a given Track.
+* COT shall provide a covariance matrix.
+* COT should provide additional information to support ID alignment; these are
+* Position with current alignment (see UR3.2);
+* Knowledge of its DE (see UR6.5);
+* Track fit residuals and uncertainty (one or two planes);
+* Track direction in Local Coordinate System;
+* Scattering angles at plane and expected RMS (derived from UR5.7);
+* Derivatives of residuals (calculable from above);
+* Drift time (for TRT) (see UR3.3).
+
+Requirements related to COT Relationships (UR6.3, UR6.4, and UR6.6) are described in Section 5.
+
+### Track
+
+The requirements below apply equally for OutputTrack, TrackCandidate, and TrackSegment (referred to in general as _Track_).
+
+* A Track shall know its parameters and covariance matrix in the Global Coordinate System in the vicinity of the interaction region and at its end point.
+* It must be possible to extrapolate a Track to any location or detector surface along its trajectory.
+* A Track shall know its fit quality (_e.g._, \(\chi^{2}\), number of missing Clusters, number of shared/ambiguous Clusters, presence of kinks).
+* It must possible to refit8 the Track.
+
+Footnote 8: Here the term _refit_ covers a variety of Use Cases. In the context of Heavy Flavour triggers or analyses, a Track may be refit to a secondary or tertiary vertex constraint. Also a Track could be refit in the context of changes to alignment, calibration, magnetic field mapping, or clusterization algorithms. Furthermore, given a Track from one ORP, the need could exist to refit it using the algorithm of a different ORP or more refined stage of the same ORP.
+
+Requirements related to Track Relationships (UR6.4 and UR6.6) are described in Section 5.
+
+DetectorElement (DE) and DetectorGeometry
+
+As mentioned in Section 1, DEs and DetectorGeometry are not part of the EDM, but instead belong to DD, and, in a broader context, the general Data Model. However, as DEs contain Event Data (_i.e._, RDOs and Clusters belong to a given DE), the EDM and the DD are closely coupled. In this section, we discuss requirements for DD components needed by the ID EDM.
+
+1. DE shall know its position in the Global Coordinate System as well as its shape and geometrical description.
+2. DE shall know the transformation into its Local Coordinate System.
+3. DE shall know its position in a hierarchical structure.
+4. For a given DE, the neighbouring DEs shall be obtainable in an efficient way (_i.e._, without iterating over all DEs in a subdetector or Layer). In the case of the SCT, DEs shall also know their axial or stereo DE counterpart in a similar manner.
+5. DE shall provide its orientation (_i.e._, barrel versus endcap, tilt, and relevant stereo angle information).
+6. A service shall provide a list of DE(s) and/or PassiveMaterial intersected by a Track or a given volume in space.
+7. PassiveMaterial shall be grouped into surface elements, each of which is characterized by the energy loss for a minimum-ionising particle and radiation and interaction lengths for particles intersecting the surface at normal angle.
+
+Requirements related to DE Relationships (UR6.7) and Organization (UR7.1-UR7.3) are described in Section 5.
+
+## 5 Object Organization and Relationships
+
+### Relationships
+
+1. It shall be possible to iterate over all RDOs used to produce a Cluster.
+2. SP should know the Clusters that produced it.
+3. Effective bidirectional association9 between a Cluster and one or more COTs shall be possible.
+
+* Effective bidirectional association between COTs and their associated Track shall be possible.
+* Cluster, COT, and SP shall know the DE(s) to which they belong. [(s) for SCT]
+* Appropriate Monte Carlo simulation truth information shall be associated to RDO, Cluster, SP, COT, and Tracks, but the possibility of such association will be active only for simulation.
+* DE shall permit navigation to its event data (_i.e._, RDO and Cluster).
+
+### Organization
+
+* RDOs and Clusters shall be ordered by DEs.
+* The collection or organizing structure for RDOs, Clusters, and SPs shall know the corresponding DE(s).
+* It shall be possible to randomly iterate over all Clusters (SPs) corresponding to a given DE(s) [(s) for SP in SCT].
+* Iteration over Clusters and SPs within a collection shall follow a defined ordering, if possible that of "byte stream" RawData.
+
+## 6 Use Cases
+
+* **Alignment**: The Inner Detector alignment procedure is an iterative process with the following use cases. 1. Tracks need to provide their quality information (\(\chi^{2}\), number of ambiguous hits, _etc._); 2. Residuals between a Cluster or ClusterOnTrack with respect to a Track are recomputed; 3. Cluster global position and ClusterOnTrack are recomputed using alignment conditions from the previous iteration, and Tracks are refitted.
+* **Calibration and Evaluation of related Conditions Data**: 1. Given a set of new TRT time-distance relations, TRT Clusters as well as ClusterOnTrack and Track, which are derived from them, are all recomputed; 2. Given a new dead or noisy channel map, SCT and Pixel Clusters are recomputed leading to a new processing (this also applies for changes in clusterization algorithms).
+
+* **Cluster Building** RDOs or RawData from neighbouring readout channels within a DE are grouped together with a sub-detector dependent algorithm accounting for calibration information (_i.e._, dead or noisy channels) to form a Cluster which has knowledge of its position and is able to know its DE.
+* **SpacePoint Formation** Groups of Clusters within the SCT (or Pixels) are grouped together to form three dimensional space points with a sub-detector dependent algorithm.
+* **Track Finding** A Track seed is formed from a set of SpacePoints in SCT or Pixels forming a TrackSegment.
+* **Track Following** A TrackSegment is extrapolated through the Inner Detector tracking volume. A service provides an ordered list of DEs which intersect the trajectory. The Clusters on each DE which are closest to the Track's intersect are determined in an efficient way.
+* **Track Fitting** An algorithm is used to optimize a TrackCandidate's trajectory given knowledge of the residuals between itself and its Cluster as well as energy loss and multiple scattering occuring at any PassiveMaterial along its trajectory.
+* **ClusterOnTrack creation** ClusterOnTracks are created during reconstruction which contain the corrected position of a Cluster given a Track extrapolation and detailed information about alignment and calibration.
+* **Combined Reconstruction** A Track is associated with a Calorimeter object for the purposes of electron/photon identification. A Track from the Inner Detector is associated with a Track from the Muon System.
+* **Physics Analysis** A set of OutputTracks is used to derive quantities useful for physics analysis. For Heavy Flavour analyses or Discovery physics analyses relying upon identification of b jets, displaced vertices are formed from sets of Tracks. Tracks are refit using the constraint that they originate from these displaced vertices. Track impact parameters are calculated with respect to the Primary Vertex and displaced vertices.
+
+## Acknowledgements
+
+The authors would like to acknowledge useful discussions within the CERN Atlas Team Software and Physics Tools Working Group during January and February 2002. The editor would like to thank Brookhaven National Laboratory for its hospitality during May 2002 while the final draft of this document was prepared, and would also thank D. Adams, R. Clifft, W. Krasny, H. Ma, and S. Rajagopalan for useful discussions.
+
+## References
+
+* [1] I. Gavrilenko, _xKalman++_, see [http://maupiti.lbl.gov/atlas/xkal/xkalmanpp/index](http://maupiti.lbl.gov/atlas/xkal/xkalmanpp/index). en.html.
+* [2] R. Clifft and A. Poppleton, _IPATREC: inner detector pattern-recognition and track-fitting_, see [http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/DOCUMENTS](http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/DOCUMENTS) /IPATREC/ipatrec.html.
+* [3] The PESA Software Group (ed. Markus Elsing), _Analysis and Conceptual Design of the HLT Selection Software_, May 2002.
+* [4] M. Cattaneo _et al._, GAUDI Data Processing Applications Framework, see [http://proj-gaudi.web.cern.ch/proj-gaudi/GDG/v1/GDG.pdf](http://proj-gaudi.web.cern.ch/proj-gaudi/GDG/v1/GDG.pdf).
+* [5] P. Calafiura, H. Ma, S. Rajagopalan, and D. Rousseau, _The ATLAS Data Model User's Guide_, February 2002.
+* [6] S. Armstrong, _Event Data Model for Inner Detector Reconstruction_, presentations given 5 March 2002 (ATLAS Software Week) and 18 April 2002 (ID EDM meeting), available via [http://www.cern.ch/Steve.Armstrong/talks](http://www.cern.ch/Steve.Armstrong/talks).
+* [7] R. Hawkings, _Alignment and Calibration Requirements for the Event Data Model and Detector Description_, presentation given 18 April 2002 (ID EDM meeting), available via [http://r.home.cern.ch/r/rhoking/www/atlas/idedm_apr02.pdf](http://r.home.cern.ch/r/rhoking/www/atlas/idedm_apr02.pdf).
+* [8] M. Elsing, _General Event Data Model Issues and the Event Data Model for the Trigger_, presentation given 27 February 2002 (PESA meeting), available via [http://documents.cern.ch/archive/electronic/other/agenda/a02260/a02260s1t6](http://documents.cern.ch/archive/electronic/other/agenda/a02260/a02260s1t6) /transparencies/Markus.pdf.
+* [9] D. Calvet, _ATLAS Silicon Trackers Software_, available via [http://atlas-proj-id-software.web.cern.ch/atlas-proj-id-software/ATLAS/index.html](http://atlas-proj-id-software.web.cern.ch/atlas-proj-id-software/ATLAS/index.html); D. Candlin and R. Candlin, _The IDetSpacePoint Package_, documentation available via [http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/dist/current](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/dist/current) /installed/share/doc/InDetSpacePoint/
+* [10] N. Konstantinidis, _Developments of Event Data Model for Inner Detector_, presentation given 26 February 2002 (Inner Detector Software meeting), available via [http://documents.cern.ch/AGE/current/fullAgenda.php?ida=a02353](http://documents.cern.ch/AGE/current/fullAgenda.php?ida=a02353).
+* Muon OO REconstruction for ATLAS_, see [http://www.usatlas.bnl.gov/computing/software/moore/](http://www.usatlas.bnl.gov/computing/software/moore/).

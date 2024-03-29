@@ -1,0 +1,161 @@
+# Fast Cherenkov model of optical photons generation and transportation
+
+Mateusz Dyndal\({}^{\text{a,b}}\), Laurent Schoeffel\({}^{\text{b}}\), Tomas Sykora\({}^{\text{c}}\)
+
+\({}^{\text{a}}\)_AGH Univ. of Science and Technology, Cracow, Poland_
+
+\({}^{\text{b}}\)_IRFU, CEA Saclay, France_
+
+\({}^{\text{c}}\)_Charles University, Prague, Czech Republic_
+
+###### Abstract
+
+This note describes the technical details of Fast Cherenkov model of optical photons generation and transportation: in particular, the mechanism of Cherenkov photons transportation through the straight bar geometry. As an example of usage, the implementation of the method inside Quartic detector simulation in GEANT4 will be presented and compared to the nominal results.
+
+Draft version 0.2.
+
+(c) Copyright 2013 CERN for the benefit of the ATLAS Collaboration.
+
+Reproduction of this article or parts of it is allowed as specified in the CC-BY-3.0 license.
+
+###### Contents
+
+* 1 Introduction
+* 2 Cherenkov Photons Production
+* 3 General Formalism
+* 4 Implementation in GEANT4
+* 5 Quartic Bar Simulation
+* 6 Summary
+* 7 References
+* 8 Reflection conditions inside the bar
+
+## 1 Introduction
+
+The simulation of Cherenkov light production is already implemented in GEANT4 code. However, since GEANT4 is treating each particle individually, the simulation of such processes might be time consuming. Especially if one would like to store the information about every single optical photon, which is a crucial point in simulating the high precision timing detectors [1].
+
+To avoid such timing performance behavior, the Fast Cherenkov model is proposed. It is designed to handle the problem of efficient simulation in transportation of Cherenkov light through the straight radiator bars: from the generation to absorption point. Nevertheless, this formalism can be easily extended to the other radiator geometries.
+
+So far, the GEANT4 implementations of optical photons processes in ZDC [2] and LUCID [3] detectors are based on the dedicated formulas, which make the simulation faster and more flexible.
+
+## 2 Cherenkov Photons Production
+
+When a particle of charge \(Z\) travels in a dispersive medium faster than the phase velocity of the light in that medium, it emits Cherenkov light [4]. A particle traveling with speed \(\beta=v/c\) will emit photons in a characteristic cone with the cone angle \(\theta_{ch}\) (measured with respect to the particle momentum) given by
+
+\[\cos\theta_{\rm ch}=\frac{1}{\beta\cdot n(\epsilon)}\, \tag{1}\]
+
+where \(n(\epsilon)\) is the refractive index of the medium as a function of photon energy \(\epsilon\). Approximated relation for the number of generated photons is given by the relation:
+
+\[dN=370\cdot Z^{2}\left[\frac{\rm photons}{\rm eV\cdot cm}\right]\left(1- \frac{1}{\beta^{2}\cdot n^{2}(\epsilon)}\right)d\epsilon dx. \tag{2}\]
+
+GEANT4 provides a method of generating Cherenkov photons based on the formulas above [5]. In particular, the total number of photons produced is calculated from a Poisson distribution with parameter
+
+\[\langle n\rangle=\frac{dN}{dx}\cdot StepLength\, \tag{3}\]
+
+and the distribution of the photon energy (as well as the angle of emission) is sampled from the density function
+
+\[g(\epsilon)=\left(1-\frac{1}{\beta^{2}\cdot n^{2}(\epsilon)}\right)=\sin^{2} \theta_{\rm ch}. \tag{4}\]
+
+## 3 General Formalism
+
+Fast Cherenkov model is based on effective photon length calculations. For straight bar geometry, photons are transported through the bar yielding multiple reflections, until they reach the photomultiplier (PMT) region. A simple, two-dimensional example of such transportation is presented on Figure 1. Photon is generated at the top of the bar of length \(L\) at a given angle \(\alpha\). Before it reaches the bottom part of the bar (PMT) it covers the effective path length:
+
+\[L_{\rm eff}=\frac{L}{\cos\alpha}. \tag{5}\]
+
+This is a general formula on which the method is based.
+
+In the realistic 3-D scenario one has to introduce another angle \(\delta\) to uniquely describe the initial direction of the photon. This is shown on the Figure 2. The bar is placed at the fixed angle concerningthe initial proton momentum (in red). Interaction with the bar starts at \(P_{\rm pre}\) and ends at \(P_{\rm post}\) point. In \(P_{\rm ch}\), the generation of Cherenkov photon occurs (blue line) which travels through the bar with multiple reflections (denoted as #) until the absorption point (marked with \(*\)). In this case formula (5) takes the form:
+
+\[L_{\rm eff}=\frac{y_{0}}{\cos\alpha\cdot\cos\delta}\, \tag{6}\]
+
+where \(y_{0}\) denotes the distance from \(P_{\rm ch}\) to the PMT, situated at the end of the bar. Notice that \(L_{\rm eff}\) does not depend on the initial proton-x position at given angles. Also note that the angle \(\delta\) on Figure 2 is plotted schematically (due to its projection) and its real value is apparent on the Figure 7 in Appendix A.
+
+## 4 Implementation in GEANT4
+
+To implement the method in existing GEANT4 simulation code, it is preferred to perform calculations in the local coordinate system of hit bar. To do so, it is recommended1 to use G4TouchableHistory class. To get the proper transformation one can use:
+
+Footnote 1: [http://geant4-hn.slac.stanford.edu:5090/HyperNews/public/get/geometry/17/1.html](http://geant4-hn.slac.stanford.edu:5090/HyperNews/public/get/geometry/17/1.html)
+
+const G4AffineTransform trn = myTouch->GetHistory()->GetTopTransform(); G4ThreeVector PreStepPoint2 = trn.TransformPoint(PreStepPoint); Successively, it is easy to obtain the size of the bar in a dynamic manner: using GetXHalfLength() method in the case of G4Box solid or DistanceToOut() for G4ReflectedSolid() type. The second method might be also useful in computing the \(y_{0}\) distance.
+
+In order to generate the Cherenkov photons, one should start with the randomization of the generation point. Knowing the initial and final proton (step) positions, the parametric equation of the line might be used:
+
+G4double rand = G4UniformRand(); G4double PhotonX = PreProtonX + (PostProtonX-PreProtonX)*rand; G4double PhotonY = PreProtonY + (PostProtonY-PreProtonY)*rand; G4double PhotonZ = PreProtonZ + (PostProtonZ-PreProtonZ)*rand; where rand is a random number generated in the \([0,1]\) range, while PreProton(X,Y,Z) and PostProton(X,Y,Z) are the coordinates of initial and final step position.
+
+Figure 1: Simple example of single photon transportation through the bar of length \(L\). Photon is generated at the angle \(\alpha\) calculated w.r.t. \(L\).
+
+Concerning the initial photon momentum, it can be calculated in two stages:
+
+1. Generation of random position of photon on the cone surface defined by \(\theta_{\rm ch}\), in the coordinate system with primary particle direction aligned with the z axis,
+2. Rotation momentum direction back to global reference system (using rotateUz() method).
+
+Having the initial photon generation point and its momentum, one has to compute \(\cos\alpha\) and \(\cos\delta\) values. To do so, the scalar product
+
+\[\vec{A}\cdot\vec{B}=|\vec{A}||\vec{B}|\cos\phi \tag{7}\]
+
+might be used, where \(\phi\) is the angle between the vectors \(\vec{A}\) and \(\vec{B}\).
+
+To account for the effect of absorption of photons inside the medium, the relevant probability must be determined:
+
+\[p_{\rm abs}=1-\exp\left(-\mu_{\rm abs}(\epsilon)\cdot L_{\rm eff}\right)\, \tag{8}\]
+
+where \(\mu_{\rm abs}(\epsilon)\) is the attenuation coefficient of radiator/waveguide.
+
+Figure 2: (a) Schematic view of single Cherenkov detector bar in \(y-z\) plane. (b) Same in \(x-z\) plane. Details are explained in the text.
+
+Since the transportation of the photons is very often based on the total internal reflection, one can also specify the additional cut conditions. In the case of \(\alpha\) and \(\delta\) angles defined in (6) they will take form:
+
+\[\sin\alpha\cos\delta < \cos\theta_{\rm c}\] \[\sin\delta < \cos\theta_{\rm c}\, \tag{9}\]
+
+where \(\theta_{\rm c}\) is a critical angle (angle of incidence above which the total internal reflectance occurs). If a given photon is not satisfying above conditions, it will be refracted or absorbed, depending on the front painted, at the surface of the medium. For a detailed description of these conditions, see the Appendix A.
+
+In the case of precise time measurements, one needs to specify the global time when photon is reaching the PMT region. An appropriate formula is given by
+
+\[t=t_{\rm pre}+\frac{z_{0}}{\beta\cdot c}+\frac{y_{0}}{v_{\rm g}\cdot\cos\alpha \cdot\cos\delta}\, \tag{10}\]
+
+where:
+
+\(-t_{\rm pre}\) - global time of incoming particle in \(P_{\rm pre}\) point,
+
+\(-z_{0}\) - distance between \(P_{\rm pre}\) and \(P_{\rm ch}\) points,
+
+\(-v_{\rm g}\) - group velocity of light in the medium2.
+
+Footnote 2: \(v_{\rm g}=\frac{c}{n(e)+\epsilon\cdot dn/d\epsilon}\)
+
+For a single incoming particle, the whole procedure has to be repeated \(n\) times, where \(n\) is an integer generated from Poisson distribution with parameter given by equation (3). For secondary particles, the analogous process must be also reiterated.
+
+## 5 Quartic Bar Simulation
+
+As an example of method usability, simulation of single Quartic [6] bar was performed. Quartic is a particle detector based on quartz Cherenkov radiator bars read out with photomultipliers. It is is designed to measure very precisely the time-of-flight of small angle protons from exclusive reactions. The geometry of the detector is shown on Figure 3.
+
+To reproduce the timing measurement of single proton, complete GEANT4 simulation with default Cherenkov photons transportation was used as a default option. Then, the Fast Cherenkov model was implemented inside the \(SensitiveDetector\)[7] part of simulation. Figure 4 presents the average photons time of arrival distribution (for PMT) in a single Quartic bars and nuclear interactions turned on/off. One can observe a good agreement of Fast Cherenkov method with full GEANT4 simulation on a picosecond scale: both in the distribution shape, as well as in the normalization (mean number of photons generated per bar). The consistency of the model is also observed in a single event profile, which is presented at Figure 5.
+
+Figure 6 shows comparison between the wavelength distributions of generated photons. As expected, Fast Cherenkov method fully reproduces the default GEANT4 Cherenkov photons energy spectra.
+
+Comparing the CPU time-consumption of the method, it is over 100 times faster than the default one. This is a crucial aspect of usability of this model.
+
+## 6 Summary
+
+Fast Cherenkov model of optical photons generation and transportation has been developed. As an example of usage, the implementation of the method inside Quartic detector simulation in GEANT4 was presented: the model fully reproduces default GEANT4 distributions. The advantage is that it is more than 100 times faster, which makes it a very good alternative.
+
+Figure 4: (left) Photons PMT time of arrival distribution in a single Quartic bar (first in a train) averaged over 1000 events with nuclear interactions turned off. Default GEANT4 simulation is marked in black while the Fast Cherenkov model in red.
+
+(right) Same for the bar being last in a train and nuclear interactions turned on. For comparison the Fast Cherenkov distribution from the previous scenario is also shown (green dashed line).
+
+Figure 3: Schematic view of Quartic detector with \(8\times 4\) quartz bars array.
+
+Figure 5: (left) Single event photons PMT time of arrival distribution in a single Quartic bar (first in a train) with nuclear interactions turned off.
+
+(right) Same for the bar being last in a train and nuclear interactions turned on.
+
+Figure 6: Wavelength distribution of photons reaching PMT in a single Quartic bar. Default GEANT4 simulation is marked in black while the Fast Cherenkov model in red.
+
+## References
+
+* [1] M. Albrow, _Fast Timing Detectors for Forward Protons at the LHC_, Acta Phys.Polon. B **4** (2011) 65.
+* [2] S. White Nucl. Inst. And Meth. **A617** (2010) 126.
+* [3] P. Jenni and M. Nessi, _ATLAS Forward Detectors for Luminosity Measurement and Monitoring_, Tech. Rep. CERN-LHCC-2004-010. LHCC-I-014, CERN, Geneva, Mar, 2004.
+* [4] J. D. Jackson, _Classical Electrodynamics_. John Wiley Sons, Inc., 1999.
+* [5]_GEANT4 Documentation: Cherenkov Effect_,. [http://geant4.web.cern.ch/geant4/G4UsersDocuments/UsersGuides/PhysicsReferenceManual/html/node37.html](http://geant4.web.cern.ch/geant4/G4UsersDocuments/UsersGuides/PhysicsReferenceManual/html/node37.html).
+* [6] M. G. Albrow, H. Kim, S. Los, M. Mazzillo, E. Ramberg, A. Ronzhin, V. Samoylenko, H. Wenzel, and A. Zatserklyaniy, _Quartz Cherenkov counters for fast timing: QUARTIC_, Journal of Instrumentation **7** (Oct., 2012) 27P, arXiv:1207.7248 [physics.ins-det].
+* [7]_AFP SensitiveDetector package_,. [https://svnweb.cern.ch/trac/atlasoff/browser/ForwardDetectors/AFP/AFP_G4_SD](https://svnweb.cern.ch/trac/atlasoff/browser/ForwardDetectors/AFP/AFP_G4_SD).

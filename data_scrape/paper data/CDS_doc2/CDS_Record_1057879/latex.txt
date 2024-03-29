@@ -1,0 +1,208 @@
+[MISSING_PAGE_EMPTY:1]
+
+Introduction
+
+The digitization starts from the output given by the G4 simulation (Hit: visible energy in LAr per cell) and aims at simulating the electronics readout chain: electronics noise, pulse shape, conversion to ADC counts and reconstructed energy, pileup effects. For the LAr calorimeter, the digitization consists in two steps:
+
+* The first step converts the hits to 5 time samples ADC counts (the output of the front-end electronics). Electronic noise and pileup are introduced in this step.
+* The second step mimics the online energy reconstruction performed in the ROD which converts the ADC counts to energy (on the EM scale), time and quality per cell
+
+This note starts by a discussion of the two algorithms involved. The details of the input ingredients are then presented. The last section is devoted to the illustration of obtained results. All this note uses as reference the software of athena 12.0.x, used for the CSC production. More details on the digitization (in earlier athena version, but quite similar to 12.0.x) can be found in [1].
+
+sectionAlgorithms
+
+### Hits to ADC
+
+The algorithm performing this operation is called LArDigitization residing in _LArCalorimeter/LArDigitization_ package. The input objects are LArHits containers. The output object are LArDigit. The main equation to convert visible energy in LAr per cell to ADC counts is given below:
+
+\[S_{i}=\frac{E_{hit}}{f_{sampl}}\frac{1}{ADC2MeV}\cdot(g_{j}-\delta t\cdot g_{j} ^{\prime})+Ped+Noise \tag{1}\]
+
+\[j=i-rint(\frac{t_{hit}}{25}) \tag{2}\]
+
+\[\delta t=t_{hit}-25.\timesrint(\frac{t_{hit}}{25}) \tag{3}\]
+
+The input ingredients are:
+
+* \(f_{sampl}\): The intrinsic EM sampling fractions. It brings the LAr visible energy (the energy lost in active Liquid Argon) to the total energy deposited in the calorimeter. It is computed from G4 simulations where single electrons are sent to the calorimeter without any upstream dead material. The total calorimeter energy (no cluster) is used. This effective sampling fraction also absorbs some part of the energy to current conversion which is included in the LArHit computation inside the simulation2). It depends on the G4 version used, the details of the calorimeter geometry and the details of the energy to current simulation. Footnote 2): For instance for the barrel, the current given by the simulation is converted back to energy stored in LArHit using the current to visible energy ratio in the straight part of the accordion geometry. In the EMEC, gap and high voltage variations are taken into account.
+* \(ADC2MeV\): This is the overall conversion factor from ADC counts to MeV on the EM scale. It can be written as the product of few sub-factors:
+* \(DAC/ADC\): output of the electronics calibration ramp fit
+* \(\mu A/DAC\): conversion from DAC to injected \(\mu\)A in the calibration system (directly related to the injection resistance value)
+\(MeV/\mu A\): conversion from current induced on the electrodes from the ionization signal in the LAr to total deposited energy at the EM scale. This factor is taken from 2002 Test Beam analysis. The multiplication of these factors is done inside the LArADC2MeVTool which caches the results that can then be used by any algorithm. This subdivision is motivated by the EM calorimeter. For the FCAL, only the overall result makes sense and the subdivision is somewhat arbitrary in the constants used for the digitization.
+* \(g\) and \(g^{\prime}\): Pulse shape and its derivative. 25 ns binned pulse shapes are used. To take into account non zero hit time (where the maximum of the pulse amplitude after shaping would be between two bins), the pulse shape derivative is used for interpolation. For large time offset (like could happen in case of pileup), the proper shift in the maximum sample is taken into account thanks to the second equation in the formula above.
+* _Ped_: Pedestal value. A single value of 1000 for all cells is used for the simulation
+* _Noise_: This is the value of the electronics noise in ADC counts. The noise autocorrelation between different time samples is also taken into account in the simulation of the electronics noise. Coherent noise between different calorimeter cells is neglected.
+
+The resulting \(S_{i}\) is properly rounded to integer and restricted to be in the range 0 to 4095, corresponding to the ADC range of the front-end electronics.
+
+For a given cell, several hits coming either from the same physics event (but with different times) or coming from pileup events (minimum bias shifted in time by multiple of 25 ns) are accumulated in the same digit. In case of pileup, the minimum bias hits are provided by the pileup athena service. This is a real "brute force" simulation in which many minimum bias are stored in memory. For each bunch crossing in the sensitive LAr readout time interval, a Poisson random number of minimum bias is taken from the memory cache and hits are given to the digitization. For the relevant bunch crossings where both calorimeter and tracker are sensitive, this procedure provides a full correct correlation between both detectors. In the pileup procedure, all bunch crossings are assumed to have the same average luminosity. Holes in the bunch train structure of the LHC machine are also neglected. This is a small effect on the pileup noise RMS, but can give small positive bias in the measured energy, especially at high luminosity3[2]. For the LAr pileup, in the default configuration used for the CSC productions, the bunch crossing time range used is from -800 to +125 ns, covering fully the sensitive time of the detector.
+
+Footnote 3: if pedestals from appropriate “random” triggers are used, this bias could be eliminated
+
+The use of the 25 ns binned pulse shape is appropriate for the Atlas case, where the ADC clock frequency is synchronous with the bunch crossing time. It is not very accurate for asynchronous sampling, like in cosmics muon events. To deal better with the latter case, 1 ns binned pulse shape can also be used in the digitization, with an overall timing offset provided by a tool mimicking the trigger time.
+
+The choice of the readout electronic gain is done such as to mimic what is done in the FEBs. The ADC counts for the maximum sampling is computed using medium gain ADC2MeV conversion. If this value if lower than a threshold, high gain is used. If it is larger, then low gain is used. The details of the thresholds can be found in the appendix. Note that for the HEC only medium and low gains are used. Once the gain is chosen, only the energy to ADC conversion is re-done and the proper electronics noise selected, but the pulse shape itself is not re-applied, so it is implicitly assumed that in the MC digitization the same pulse shape can be used for all gains.
+
+Cross-talk effects between neighbor cells are also taken into account for the EM calorimeters. Two kinds of cross-talk are simulated:* Cross-talk from strip to strip in eta (of the order of 4%)
+* Cross-talk from middle to back (of the order of 0.5%)
+
+For a given hit, its energy is shared among the cells affected by the cross-talk before simulating the pulse shape. The cross-talk numbers used are thus the ones corresponding to "under the peak" cross-talk (i.e. the amount of cross-talk at the maximum of the amplitude for the original signal), and the effect of cross-talk on the signal shape is neglected. The cross-talk is performed such that the total energy does not change (so in the strip case it is consistent with applying strip cross-talk correction to the calibration when reconstructing data).
+
+### ADC to RawChannel
+
+The algorithm performing the conversion of ADC to energy as done in the RODs is LArRawChannelBuilder in _LArCalorimeter/LArROD_ package. The input objects are LArDigit. The output objects are LArRawChannel, which contain the reconstructed energy per cell, and for cell above threshold time and quality as well.
+
+The master equations are:
+
+\[ADC_{peak}=\Sigma a_{i}(S_{i}-Ped) \tag{4}\]
+
+\[E=ADC2MeV\times ADC_{peak} \tag{5}\]
+
+\[t=\frac{1}{ADC_{peak}}\Sigma b_{i}(S_{i}-Ped) \tag{6}\]
+
+where \(S_{i}\) are the ADC counts from the LArDigit. \(ADC2MeV\) is the same conversion factor from ADC counts to energy on the EM scale as the one used in the previous step. \(a_{i}\) and \(b_{i}\) are optimal filter coefficients used to estimate energy and time. They are computed from the pulse shape and the total noise autocorrelation function with the well known formula [3], which can be easily obtained minimizing the total noise contribution to the reconstructed \(E\) and \(E.t\) with the proper normalization constraint and the fact that the reconstructed energy should be at first order insensitive to time jitter:
+
+\[a_{i} = \Sigma_{j}R_{ij}^{-1}(\lambda g_{j}-\mu g_{j}^{\prime})\] \[b_{i} = \Sigma_{j}R_{ij}^{-1}(\mu g_{j}-\nu g_{j}^{\prime})\] \[\lambda = \Sigma_{ij}R_{ij}^{-1}g_{i}g_{j}^{\prime}/\Delta\] \[\mu = \Sigma_{ij}R_{ij}^{-1}g_{i}g_{j}/\Delta\] \[\nu = \Sigma_{ij}R_{ij}^{-1}g_{i}g_{j}/\Delta\] \[\Delta = (\Sigma_{ij}R_{ij}^{-1}g_{i}^{\prime}g_{j}^{\prime})\cdot(\Sigma _{ij}R_{ij}^{-1}g_{i}g_{j})-(\Sigma_{ij}R_{ij}^{-1}g_{i}g_{j}^{\prime})^{2}\]
+
+where \(R^{-1}\) is the inverse of the total noise autocorrelation matrix.
+
+These coefficients are computed by the LArOFCTool, which uses for the pulse shape the same input as the one used in LArDigitization. The total noise autocorrelation is computed in LArAutoCorrTotal-Tool and combines the electronic noise autocorrelation with the pileup noise autocorrelation, using the luminosity to get the proper relative normalization:
+
+\[R_{ij}=\frac{R_{ij}^{e}+N_{MB}.\frac{\sigma_{MB}/f_{ampl}}{\sigma_{e}}.\Sigma _{k}g(k-i).g(k-j)}{1+N_{MB}.\frac{\sigma_{MB}}{\sigma_{e}}.\Sigma_{k}g(k)^{2}} \tag{7}\]where \(R^{e}_{ij}\) is the electronic noise autocorrelation, \(\sigma_{MB}\) is the RMS of the energy deposit in the cell (on the LArHit scale, \(f_{sampl}\) is the sampling fraction to bring it to the EM scale) for one minimum bias event, \(\sigma_{e}\) is the electronic noise on the same scale and \(N_{MB}\) is the average number of minimum bias per bunch crossing. The sum over the pulse shape should extend to the full duration of the pulse shape and it gives the autocorrelation of the pileup noise which is directly linked to the pulse shape (the diagonal term involves \(\Sigma_{i}g(i)^{2}\), which is the so-called "pileup integral"). \(\sigma_{e}\) is computed from the same noise in ADC counts and ADC to MeV conversion as used by the other algorithms. \(\sigma_{MB}\) is stored in the database.
+
+### CaloNoise Tool
+
+CaloNoise Tool is not used at all in LArDigitization nor in LArRawChannelBuilder. It is a tool which is used at the reconstruction level to predict the noise per cell. Therefore it shares the same input arguments as the ones discussed above. CaloNoiseTool can compute electronics noise only, pileup noise, or total noise. In the following we discuss only the implementation for the LAr. CaloNoiseTool also provides electronic noise for the Tile Calorimeter (but no pileup noise)
+
+The electronic noise can be computed as:
+
+\[\sigma_{e}=\sigma_{ADC}.ADC2MeV.\sqrt{\Sigma_{ij}a_{i}R^{e}_{ij}a_{j}} \tag{8}\]
+
+where \(\sigma_{ADC}\) is the electronic noise in ADC counts. The optimal filter coefficients are obtained from the procedure and tools discussed above using the full noise autocorrelation matrix, but only the electronic noise autocorrelation matrix enters explicitly in the formula above. This equation is slightly modified to also take into account the quantification noise of the ADC. The electronic noise is obviously a function of the gain range. Note that since the total autocorrelation matrix (and thus also the optimal filter coefficients) is a function of luminosity, the electronic noise is also a function of the luminosity.
+
+The pileup noise4 can be computed as:
+
+Footnote 4: The pile up noise computation is fully correct in CaloNoiseTool only since 12.0.6.2 included.
+
+\[\sigma_{p}=\sqrt{N_{MB}}\sigma_{MB}/f_{sampl}.\sqrt{\Sigma_{i}g_{i}^{2}}.\sqrt {\Sigma_{ij}a_{i}R^{p}_{ij}a_{j}} \tag{9}\]
+
+where \(\sigma_{MB}\) is the RMS of the energy deposit at the hit level in the cell under consideration for one minimum bias event. \(R^{p}\) is the autocorrelation of the pileup noise which is a direct function of the pulse shape:
+
+\[R^{p}_{ij}=\frac{\Sigma_{k}g(i-k)g(j-k)}{\Sigma_{k}g(k)^{2}} \tag{10}\]
+
+Obviously, the pileup noise is directly related to \(\sigma_{MB}\) and to the pileup integral of the pulse shape. In the simple case of using only the maximum time sample to estimate the energy, one would recover the well known formula:
+
+\[\sigma_{p}=\sqrt{N_{MB}}\sigma_{MB}/f_{sampl}.\sqrt{\Sigma_{i}g_{i}^{2}} \tag{11}\]
+
+Note that after the optimal filter coefficient optimization, \(a_{i}\) can be negative, taking advantage of the intrinsic positive short distance autocorrelation of the pileup noise to perform some "effective" baseline subtraction of the contribution of out-of-time bunch crossings. It should also be noted that the formula above gives the RMS of the pileup noise, but the distribution at high luminosity becomes significantly non-gaussian.
+
+The total noise is then computed as the quadratic sum of the electronic noise and the pileup noise. Again the tool can return this value for each electronics gain or for the default highest gain.
+
+### Constant term in the energy resolution
+
+Although this is not done in the digitization stage, the introduction of the constant term for the EM calorimeter for simulated events is discussed briefly here5). The "intrinsic" constant term in the energy resolution at the output of the G4 simulation is much smaller than the expected "goal" of 0.7% for the EM calorimeter. To reach this 0.7% constant term, some additionnal cell to cell spread is added at the first step of the reconstruction job for release 12.0.4 and later. The cell to cell spread is separated into two components:
+
+Footnote 5): Nothing is done for the hadronic calorimeter as the constant term is supposed to be limited by physics effects more than intercalibration effects.
+
+* Region to Region spread: A region covers 0.39 in \(\phi\). In the barrel it covers 0.2 in \(\eta\). In the EMEC, there are 9 \(\eta\) regions corresponding to the 9 different HV regions of the detector (1.375-1.5, 1.5-1.6, 1.6-1.8, 1.8-2.0, 2.0-2.1, 2.1-2.3, 2.3-2.5, 2.5-2.8 and 2.8-3.2). The region to region spread is set to 0.5%, which could be a typical value after intercalibration based on Z\(\rightarrow\) ee events.
+* Cell to Cell spread in a region: It is set to 0.7%. As a shower averages several cell, the resulting contribution to the constant term is only about half of this value.
+
+The combination of these two effects and of the "intrinsic" local constant term of the G4 simulation should give an overall constant term close to 0.7%. The same "intercalibration" spread is used for all events.
+
+To illustrate the interplay of the region to region and cell to cell spreads, Figure 1 shows the energy resolution for 50 GeV photons (at \(\eta<0.7\)) with various settings of these two spreads.
+
+## 2 Input ingredients
+
+For the the ingredients used, \(\phi\) symmetry and \(\pm z\) symmetry are assumed for the EM calorimeters and the HEC. For the FCAL a smaller half module based symmetry is used to take into account the proper cartesian geometry of the FCAL.
+
+The various input ingredients which are stored in the database are:
+
+\(\underline{f_{\it sampl}}\): It is used in LArDigitization directly to get the proper EM scale, and it also enters in the total noise autocorrelation computation to normalize the pileup contribution. It is computed from G4 simulations, starting the electron showers at the beginning of the active part of the calorimeter. No noise is added and the sampling fraction is defined as the ratio between the total energy in LArHits ("effective" visible energy in Liquid Argon, taking into account energy to current conversion and HV variations with eta in the EMEC) and the total energy deposited in the calorimeter. For the 12.0.x production, the EM sampling fractions were computed with exactly the same version as used in the simulation production. The numbers for the hadronic calorimeters are slightly older and not completely consistent with the simulation for the FCAL. The sampling fraction values as a function of \(\eta\) for the different calorimeters are illustrated in Figures 2 and 3. For the presampler, the sampling fraction is not defined since the presampler is not a sampling calorimeter. By convention, sampling fractions of 1/20 for the barrel presampler and 1/60 for the end-cap presampler are used (with this definition, the typical weights to apply later at the cluster level for the upstream matter energy lost correction should be close to 1).
+
+Noise in ADC counts: It enters in the LArDigitization to simulate the electronic noise. It also enters in the normalization of the electronics noise in the computation of the total noise autocorrelation function. It is also used in CaloNoiseTool. The values are extracted from 2002 test-beam data for the different gains. They are illustrated in Figures 4 and 5 for high gain (except HEC which is medium gain). Comparing to more recent values observed during commissioning phase 3, one can notice that the barrel numbers agree within \(\approx\) 10%.
+
+Electronic Noise Autocorrelation: It enters in the LArDigitization to simulate the electronic noise. It is also used in the computation of the total noise autocorrelation function and in CaloNoiseTool for the electronics noise prediction. The values are extracted in the same way as the noise in ADC count. The noise autocorrelation for an example cells is illustrated in Figures 6 and 7 for high gain (except HEC
+
+Figure 1: _Reconstructed cluster energy for 50 GeV photons at \(|\eta|<0.7\). Top left: no intercalibration spread. Top right: both region to region and cell to cell spread equal to 0.5%. Bottom left: only 2% region to region spread, Bottom right: only 2% cell to cell spread._
+
+Figure 2: _EM sampling fraction vs eta for the barrel accordion (left) and the EMEC (right). The change at 0.8 in the barrel is the lead thickness change. The structures in the EMEC come from the different HV regions and in each HV region the sampling fraction and gap variations with eta._
+
+which is medium gain).
+
+ADC to MeV: The input ingredients for the overall ADC to MeV conversions are also extracted from test beam data. The overall product of the three sub-factors is shown in Figures 8 and 9 for high gain (except HEC which is medium gain). There are a couple of known approximations in these values:
+
+Figure 4: _Noise in ADC counts for high gain vs eta for the EM barrel (left) and the EMEC (right) from 2002 test beam data._
+
+Figure 5: _Noise in ADC counts for the HEC medium gain (left) and the FCAL high gain (right)._
+
+Figure 3: _EM sampling fractions for the HEC (left) and FCAL (right) calorimeters._
+
+* \(M_{phys}/M_{cal}\) (difference between electronics calibration and physics pulse normalization for the same initial current) effects are ignored (in the 2002 test beam they were directly put in the normalization of the OFC used for test-beam data reconstruction)
+* The conversion from current to MeV are the old values from the standalone EM test-beam analysis package (EMTB), which include out-of-cluster corrections (while it should not be included to get the proper EM scale definition). Also in the EMEC, HV effects on this factor (the so-called \(\alpha\) and \(\beta\) corrections) are not taken into account.
+
+It should be noted that these approximations (which somewhat compensate each other in the case of the EM barrel at a level of \(\approx 5\%\)) enter only in the electronic noise value (both from the full digitization chain and in the CaloNoiseTool prediction), and don't affect the energy scale of the signal (as is obvious from the equations described earlier in this note). They also very slightly affect the total noise autocorrelation computation.
+
+Pulse Shape: The pulse shape is used directly in the LArDigitization, and enters in the OFC computation and the noise autocorrelation computation. Some typical used pulse shapes are shown in Figures 10 and 11. The variation in drift time vs \(\eta\) in the EMEC is clearly taken properly into account. These pulse shapes come from testbeam analysis. It should be noted that they enter only in the simulation of the pileup noise and to a lesser extent the electronic noise.
+
+Figure 6: _Example of noise autocorrelation function for a cell in the EM barrel (left) and the EMEC (right)_
+
+Figure 7: _Example of noise autocorrelation function for a cell in the HEC (left) and the FCAL (right)_
+
+\(\underline{\sigma_{MB}}\): The RMS of the visible energy deposited in one cell for one minimum bias event is used in the computation of the total noise autocorrelation. It also enters directly in the pileup noise prediction
+
+Figure 8: _Overall conversion from ADC to MeV for the EM barrel (left) and the EMEC (right) as a function of eta._
+
+Figure 10: _Typical pulse shapes for three different middle layer cells in the EM barrel (left) and the EMEC (right)._
+
+Figure 9: _Overall conversion from ADC to MeV for the HEC (left) and the FCAL (right) as a function of eta._
+
+[MISSING_PAGE_FAIL:11]
+
+Figure 16 for the sample
+
+ideal0_mc12.007061.singlepart_e_E100.simul.HITS.v12000601_id006746, simulated with the CSC-01-00-00 geometry. The dip around eta 1.5 comes from the crack between barrel and end-cap. Obviously, only refined corrections which are applied at the cluster level in the reconstruction can properly account for the details of the energy loss upstream the calorimeter. The overall scale at the raw channel level is
+
+Figure 14: Strip to Strip cross-talk in the EM barrel (left) and the EMEC (right).
+
+Figure 13: Same as the previous figure but for the HEC and the FCAL.
+
+Figure 15: Middle to Back cross-talk in the EM barrel (left) and the EMEC (right).
+
+however behaving as expected.
+
+### Electronic noise
+
+The electronic noise is checked running the digitization on single particle events and looking at the RMS of the energy deposit in cells in which there is no true hit energy from Geant (thus having only contribution from electronic noise). The observed RMS are compared to the CaloNoiseTool predictions in Figures 17 and 18. The computation from CaloNoiseTool agrees very well with the observed noise. This is not surprising as the same input ingredients are used in both cases, but this provides a cross-check of the overall consistency of the algorithms. The previous section listed some known approximations in these input ingredients which affect at some level the noise simulation compared to what happens in the real detector.
+
+Figure 16: _Total raw channel energy vs eta for 100 GeV single electrons without noise._
+
+Figure 17: _Electronic noise vs eta for the EM barrel (left) and the EMEC (right). The predictions from CaloNoiseTool (lines) are compared to the observed RMS from the full digitization chain (points)._
+
+[MISSING_PAGE_FAIL:14]
+
+randomly over the barrel, when a minimum bias signal event is overlayed with pileup from other minimum bias event. The small offset for zero luminosity comes from the activity in the "signal" minimum bias event. This offset does not increase with luminosity, as expected since the pileup noise should have a higher signal event.
+
+Figure 21: _Total noise at \(2.10^{33}\)cm\({}^{-2}s^{-1}\) vs eta for the EM barrel (left) and the EMEC (right). The predictions from CaloNoiseTool (lines) are compared to the observed RMS from the full digitization chain (points)._
+
+Figure 22: _Same as the previous figure, but for the HEC and the FCAL._
+
+Figure 20: _Same as the previous figure, but for the HEC and the FCAL._
+
+zero average. The noise RMS increases significantly with luminosity (2 MB overlayed corresponds to roughly \(1\times 10^{33}\mathrm{cm}^{-2}\mathrm{s}^{-1}\) and 16 MB to \(8\times 10^{33}\mathrm{cm}^{-2}\mathrm{s}^{-1}\)). One can clearly see that the total noise is non gaussian, with the large positive tails coming from in-time minimum bias events, and the peak of the distribution becoming negative. These noise values are consistent with what was reported in the TDR if one takes into account the fact that the current \(3\times 5\) athena cluster includes significantly more cells than the "optimized" \(3\times 5\) cluster used at the time of the TDR.
+
+## 4 Summary
+
+The digitization of the LAr calorimeter signals allows a detailed implementation of electronic noise and pileup effects, going from the simulation of the front-end electronics output to an emulation of the energy reconstruction in the ROD. The ingredients used come mostly from standalone calorimeter test-beam data. The short term evolution would be to use more recent inputs from the on-going calorimeter commissioning in the pit and to remove some small approximations in the current implementation, although the expected effects are not large. On a longer time scale, noise and pileup effects should also be applied to MC events using overlay with real Atlas random events. This would allow to take better into account any possible pathology and to remove uncertainties in the simulation of minimum bias events for the pileup.
+
+Figure 23: _Total noise in a 3x5 EM cluster in the barrel, expressed in transverse energy, for different pileup level._
+
+## Appendix A Gain switching values
+
+Below are the gain switching transitions in ADC counts on the middle gain range (for the peak sample)
+
+\begin{tabular}{c c c}  & High to Medium & Medium to Low \\ EM & 1300 & 3900 \\ HEC & 0 & 2500 \\ FCAL & 1100 & 2000 \\ \end{tabular}
+
+## References
+
+* [1] M.Lechowski, (in french), Ph.D. thesis, LAL 05-20.
+* [2] F.Henry-Couannier and E.Monnier, Pile up simulation studies for the ROD, ATL-LARG-2003-009.
+* [3] W.E.Cleland and E.G.Stern, NIM **A338** (1994) 467.

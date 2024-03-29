@@ -1,0 +1,625 @@
+**TileCal ROD Hardware and Software Requirements**
+
+Internal Note
+
+_J. Castelo, V. Castillo, C. Cuenca, A. Ferrer, E. Fullana, E. Higon, C. Iglesias, A. Munar, J. Poveda, A. Ruiz-Martinez, B. Salvachia, C. Solans, J. A. Valls_
+
+IFIC
+
+C.S.I.C. - University of Valencia, Dept. F.A.M.N.
+
+_Valencia, SPAIN_
+
+### Abstract
+
+In this paper we present the specific hardware and firmware requirements and modifications to operate the Liquid Argon Calorimeter (LiArg) ROD motherboard in the Hadronic Tile Calorimeter (TileCal) environment. Although the use of the board is similar for both calorimeters there are still some differences in the operation of the front-end associated to both detectors which make the use of the same board incompatible. We review the evolution of the design of the ROD from the early prototype stages (ROD based on commercial and Demonstrator boards) to the production phases (ROD final board based on the LiArg design), with emphasis on the different operation modes for the TileCal detector. We start with a short review of the TileCal ROD system functionality and then we detail the different ROD hardware requirements for options, the baseline (ROD Demo board) and the final (ROD final high density board). We also summarize the performance parameters of the ROD motherboard based on the final high density option and show some results from the different system tests and testbeams at CERN. A detailed map of the different hardware modifications over the original LiArg design is summarized in the Appendix.
+
+[MISSING_PAGE_EMPTY:2]
+
+[MISSING_PAGE_EMPTY:3]
+
+[MISSING_PAGE_EMPTY:4]
+
+[MISSING_PAGE_EMPTY:5]
+
+[MISSING_PAGE_EMPTY:6]
+
+Introduction
+
+The central element of the back-end system of the TileCal detector [1] is the ROD (Read-Out Driver). The ROD has to receive and compute information from 9856 channels from the front-end electronics in less than 10 us, which is the expected ATLAS first level trigger (L1\(\Lambda\)) latency. The ROD provides thus real time processing capabilities without introducing dead-time in the ATLAS data acquisition chain. The data gathered from the front-end electronics are digitized and transmitted to the RODs with high-speed optical links. A ROD module must have the ability to process this data and send them through an output optical link to the next stage in the data acquisition chain (ROB, Readout Buffers).
+
+The ROD system must provide, in addition, some communication for monitoring and control of all the ROD crate modules. This feature is driven by the ROD controller (SBC, Single Board Computer), which is the master CPU of the ROD crate which controls the ROD modules (slave devices). There is another slave module to be built for this application, the TBM (Trigger and Busy Module), which is responsible to receive the TTC (Trigger and Timing Control) information at the ROD crate level and to distribute it to all ROD modules. The TBM collects1 the Busy signal from ROD modules in order to stop the L1\(\Lambda\) generation. \(\Lambda\) bidirectional communication with the CTP (Central Trigger Processor) is done through a TTC crate in the partition, which manages the Busy and TTC signals with dedicated VME modules.
+
+Footnote 1: The TBM implements an OR function over all the Busy signals of the ROD modules.
+
+## 2 Tilecal ROD System Functionality
+
+### Read Out System Processing and Dataflow: ROD Crate
+
+The ROD is the intermediate link of the chain between the front-end electronics and the general data acquisition system of the ATLAS detector (TDAQ [2]). It represents thus the core of the back-end electronics of the TileCal hadronic calorimeter.
+
+Figure 1: ATLAS three-level trigger architecture.
+
+[MISSING_PAGE_FAIL:8]
+
+ROB through the standard ATLAS readout links and with the standard DAQ-1 data format at the expected L1A event rate (100 kHz). Output buffers should be placed to manage random deviations in the Level 1 trigger rate and/or in the digital processing time budget.
+* **Trigger Handling:** the trigger signals will be present at each ROD module (with a \(\sim\)2 \(\upmu\)s latency after L1A) through the TBM. They will provide the ROD L1ID, BCID and Ttype (trigger type). The ROD receives events which have just passed the Level 1 trigger. Therefore, the trigger signals are only used for event synchronization.
+* **Error Detection and Handling**: the ROD must check whether the BCID and L1ID numbers match those received from the front-end electronics. If a mismatch is detected, an error flag must be set with some error code. The data consistency (e.g., CRC, parity) should also be checked at the ROD level.
+* **Busy Generation**: the ROD must provide a Busy signal in order to stop L1A generation. A global OR of the RODs Busy signals per sub-detector has to be provided to the CTP through the TBM. Furthermore, each sub-detector partition Busy signal could be managed in standalone with the Local Trigger Processor (LTP) as described in Section 2.3.
+* **Local Monitoring**: the ROD should allow a VME access to the data during a run without introducing dead-time or additional latency into the DAQ. Each ROD motherboard is based on a VME64x slave module commanded by the ROD controller (VME SBC). The ROD is VME writable for configuration and readable for status and online monitoring purposes.
+
+Figure 3: TTC rate and components. There will be a crate controller, a DTCTPI/CTPTDI board, a TTOwTTCex module, a ROD Busy module and a LTP board for each TTC rate.
+
+Figure 2: ROD crate and components. There will be up to 8 ROD motherboards, a single TBM board and a ROD Crate Controller for each ROD crate.
+
+### Sub-detector Readout Partitioning: the TTC Crate
+
+The ROD must be able to interact with the CTP system for trigger management. Two types of signals are used for this purpose:
+
+* The reception of the Level 1 Accept (I.1A) trigger signal by the ROD as well as 'TTC commands and data to handle reset commands, calibration, control and test parameters.
+* The generation of a Busy signal by the ROD when its buffers are nearly full.
+
+Each sub-detector has several partitions which must be considered as independent sub-systems. Each sub-system is considered thus as a partition from the DAQ point of view and corresponds either to a complete sub-detector or a subset of a sub-detector.
+
+A partition requires:
+
+* Independent Trigger and Timing Control (TTC) signals.
+* Independent handling of the dead-time (Busy signals).
+
+All the TTC systems of the sub-detectors which are working in common (global acquisition) physics data taking mode use the trigger and timing signals provided by the CTP. These signals include the Bunch Clock (BC), Orbit, Event Counter Reset (ECR), Trigger Type (Ttype), etc. Each TTC partition will also deliver to the CTP calibration trigger requests as well as a partition Busy signal. The handling of this information will be done through a pair of modules referred to as CTPIDI (CTP To Detector Interface) and DTCTPI (Detector To CTP Interface) located in the TTC crate (Figure 3).
+
+A single partition working in stand-alone mode will only receive from the CTP the BC and Orbit signals while the rest will be generated and managed locally by the LTP.
+
+A sub-detector working in calibration mode uses its own trigger generation and timing signals (if necessary). The partition Busy signal is then routed to its trigger generator to handle the dead-time. During calibration physics runs a Pre-Pulse signal from the CTP will generate a calibration command. Note that the TTC partition has, in this case, no control over the emission of this Pre-Pulse signal which could be sent at regular intervals.
+
+A partition is managed by a TTC crate, equipped with standard modules developed by the RD12 [4] collaboration for the LHC experiments.
+
+The different TTC crate modules include:
+
+* 1 crate controller.
+* 1 'TTCvi and 'TTCex module.
+* 1 DTCTPI/CTPTDI.
+* 1 ROD Busy module.
+* 1 LTP module.
+
+A TTCvi module will be used to select a trigger source from either a L1A input, test trigger inputs, an internal rate programmable random trigger generator or triggers generated by specific VME access. The TTCvi will also transmit the L1A signal as well as formatted commands and data to the front-end and readout systems. A TTCex module multiplexes and encodes the information generated by the TTCvi and transmits the resulting signals to the destination TTCrx's in the front-end and readout boards via fiber optic cables. The ROD Busy module collects the eventual ROD Busy signals coming from the TBM in the ROD crate. The sum of all the Busy signals is then flagged as a veto to the CTP. The only detector-specific module present in the TTC crate is the LTP, used for local calibration and ROD specific tests.
+
+### Impact of Partitioning on the Readout Processing
+
+As mentioned before, the TileCal detector has 9856 channels to readout. Each channel contains a discrete response of a photomultiplier signal shaped and sampled with the LHC bunch cross clock. The samples are digitized with a 10-bit ADC and two gains are provided to achieve an overall dynamic range of 16 bits. The number of samples to be stored for a signal is configurable, although 7 samples is the expected number for ATLAS physics runs. The TileCal front-end boards, arranged in super-drawers, contain 45 or 32 calorimeter channels for the central barrel (LBA and LBC) and extended barrel calorimeter modules, respectively. This means that one optical link coming from a FEB may contain either 32 or 45 channels with 7 samples each. This situation gives us an unbalanced readout multiplicity scheme at the ROD level, with a readout mapping not yet decided. There are two possible scenarios:
+
+* **The partitioning is done in barrels**: the TileCal detector is organized in 2 central barrels and 2 extended barrels, with 64 modules per barrel. The ROD will be organized in four partitions corresponding to the readout of two extended barrels (EBA and EBC) and the two parts of the central barrel (LBA and LBC). Each partition covers the full azimuth \(\phi\) range [0, 2\(\pi\)] and different pseudorapidity \(\eta\) intervals: EBA (\(\eta\)<0), LBA (\(\eta\)<0), LBC (\(\eta\)>0) and EBC (\(\eta\)>0). This distribution will allow to work with only central barrels if not enough RODs are available during the detector commissioning or the early runs of the experiment. The 4 partitions EBA, LBA, LBC and EBC will be readout by 4 ROD crates. This is the present partitioning proposal chosen by the collaboration. There will be two ROD crates with 45+45=90 channels to process per DSP (Digital Processing Unit), and two other ROD crates with 32+32=64 channels per DSP. This means that the ROD crates for the extended barrels will have \(\sim\)30% less processing power consumption. A solution to exploit the full power capacity could be to implement extra reconstruction features for the physics of extended barrels. This option is highlighted with colors in Figure 4.
+* **The partitioning is done mixing barrel drawers**: with this configuration a good homogenization of the processing resource is achieved, mapping a super-drawer of the extended barrel and a central barrel into a single DSP. Therefore all DSPs should manage 32+45= 77 channels. Two examples of this type of partitioning are shown in Figure 5 and Figure 6.
+
+The unbalanced partitioning described above is the present architecture chosen by the collaboration as the more convenient for physics performance. Note that there is only one Busy signal per partition such that when a partition is busy it stops the data acquisition while the others may continue triggering independently. Concerning the processing time estimations in this document, we use the worst case scenario which corresponds to \(90\) channels per DSP. The final readout scheme is easily configurable without the need of hardware modifications.
+
+## 3 **TileCal** ROD Hardware Requirements
+
+Several studies were performed to choose and implement the final readout architecture of the TileCal ROD. They are chronologically ordered in the following sequence:
+
+* ROD motherboard based on a commercial data processing board from LSI Corporation (DBV44) with three C40 DSPs [1].
+* ROD motherboard based on commercial VME CPUs optimized for Data Transfer Modes (DMA) [5].
+* ROD motherboard based on the ROD demonstrator board prototype (ROD Demo board). It is a hardware approach to the final production LiArg ROD system as it incorporates a similar architecture based on FPGAs and DSPs, although only 4 input links and half the processing power of the final production RODs. This option was tested at the 2003 ATLAS testbeam period with TileCal custom firmware. The testbeam set-up for acquiring real data was important to exercise and test the viability of this architecture successfully [6]. The expected 100 KHz trigger rate with online DSP reconstruction (Section 3.1) was reached. Tocover the full readout system 64 ROD Demo motherboards would be needed. This is the baseline low density option.
+* ROD motherboard based on the ROD final production board from the LiArg detector [7]. This is the final hardware solution to work at a \(100\) KHz Level 1 trigger rate with digital signal processing capabilities and input/output optical links. The ROD LiArg board represents the ideal hardware option for TileCal although several hardware and a complete firmware and software modifications are needed. With this high density option (8 input data links) only 32 ROD motherboard would be needed (which represents half of the baseline requirements). It also provides the possibility to use the same motherboard for all the ATLAS calorimetry. This option is described in detail in Section 3.2.
+
+Although the ROD Demo option was initially considered as the ROD TileCal solution, the selected option was finally to use the same ROD motherboard for all ATLAS calorimetry based on the ROD final motherboard LiArg PCB design. This new high density board introduces, nevertheless, a hardware incompatibility at the input stage when used with the TileCal front-end electronics. This incompatibility requires simple hardware modifications to be implemented over the LiArg base design and a complete redesign of the firmware. In the next sections the different hardware options to implement the required TileCal ROD modifications on the LiArg designs are discussed.
+
+### ROD Demo Boards: the Baseline Option
+
+The ROD Demo prototype board is based on a 9U motherboard with up to 4 data optical input links. In order to treat all calorimeter channels a total of 64 modules would thus be necessary. This means a total of 4 ROD crates fully equipped with 16 ROD Demo boards each, enough to cover the whole data acquisition system. The ROD Demo prototype was first developed for the LiArg electromagnetic calorimeter [8] and was then adapted to the TileCal to be tested at the ATLAS 2003 testbeams [6]. The general architecture of this board is very similar to the final ROD design (see Section 3.2) although it contains half its density in terms of data processing. These tests represented a good R&D training for the final ROD prototype design.
+
+There are two main module components for the ROD Demo board:
+
+**1. ROD module**: a 9U VME64x slave board with the following components briefly described below:
+
+* **VME FPGA**: a device which allows the communication between the whole ROD motherboard and the ROD crate controller for configuration and control issues.
+* **TTC FPGA + TTCrx**: receives the trigger information decoded by the TTCrx chip and distributes it to the Processing Units.
+* **Miscellaneous FPGA**: handles the Busy signals from the Processing Units, the IRQ signals, etc.
+* **Data Distributor**: a multiplexer which selects the input data source either from VME (fake injected data for debugging) or S-link data coming from the FEB super-drawers (through the Transition Module). There are two Data Distributor blocks in the ROD Demo motherboard.
+
+**Processing Units (PU)**: these are 4 mezzanine boards per ROD. Each one includes an Input FPGA and a Dual Port Memory (DPM) for input data buffering and event sampling. A Digital Signal Processor (DSP) implements digital filters for data reconstruction and synchronization with the TTC trigger information. A FIFO allows for output data buffering and an Output FPGA with a VME core is used to control and program the whole Processing Unit daughter board [6].
+* **Output Controller FPGA**: this FPGA manages the output data coming from the 4 PUs. The data are then sent to either a S-Link (LSC, Link Source Card) placed in the Transition Module and to the ROB (Read-Out Buffers) inputs (ROBin) or to an SDRAM chip for testing and debugging through VME access.
+
+## 2 The Transition Module (TM4Plus1):
+
+developed to hold up to 4 S-Link ODIN LDCs (Link Destination Card) with modified firmware to receive FEB data and to send them to the Data Distributor in the ROD Demo board. The TM4Plus1 also receives processed data from the Output Controller FPGA and sends them to ROBin (Read-Out Buffer input module) through an integrated ODIN LSC core and an AUX/S-Link FPGA. There is also a Ref. FPGA and 4 FIFOs to reformat and buffer FEB data respectively.
+
+Figure 7 shows a general block diagram of a ROD Demo module with its main interconnections. This low density option follows the baseline requirements to use 64 ROD motherboards with full digital signal processing capabilities at a \(100\) KHz trigger rate and with input/output optical links.
+
+### ROD Final Boards: the High Density Option
+
+The final ROD motherboard proposed for the LiArg electromagnetic calorimeter has some incompatibilities with the front-end boards of the TileCal calorimeter. These differences are mainly at the input stage of the board and related to the data clock frequency and protocol transmission. The general architecture of this new board and the ROD Demo board is the density of components
+
+Figure 7: TileCal ROD dataflow block diagram with the ROD Demo board and a custom Transition Module (TM4Plus1).
+
+integrated in the system. The final design reduces the number of ROD boards needed to read-out the whole system to the half (see Table 2). In the next sections the ROD system based on this ROD final motherboard and the minor hardware design modifications proposed to keep the same PCB layout are described. There are large modifications related with the input stage and PU firmware which will also be commented. These modifications were proposed to be implemented in the second batch of final ROD prototypes and validated in the two units received for TileCal from the LiArg prototype series production.
+
+#### 3.2.1 TileCal Readout with the High Density Architecture.
+
+The TileCal ROD final back-end electronics architecture is shown in Figure 8. The data acquisition of the entire hadronic calorimeter is organized around 3 barrels (1 central barrel with 2 sections LBA and LBC, and 2 extended barrels, \(\mathrm{EBA}\) and \(\mathrm{EBC}\)) with 64 modules per barrel. Each module has its own front-end electronics (super-drawer) placed in a mobile cage inserted in a girder. A super-drawer receives the analog pulses from the photomultipliers (which are connected to scintillators with WLS fibers) where they are treated and digitized [9] with the front-end electronics (Dividers, 3-in-1 cards, Digitizers, etc.) and managed by the Interface Card [10] which collects and sends to the ROD the digitized event data of a calorimeter module (45 channels for a central barrel and 32 for an extended barrel) through an optical link6 after a first level trigger is asserted.
+
+Footnote 6: Note that there are two identical optical outputs from a super-drawer in order to have data redundancy at the ROD level and to improve the error tolerance. The system described here is nevertheless assumed to read a single fiber.
+
+The back-end electronics receive the digitized events through a radiation immune optical transmission at the \(\mathrm{USA15}\) radiation free room. Radiation is thus expected not to affect the correct behavior of the back-end electronics.
+
+The TileCal data acquisition system is divided in 4 readout partitions. A partition is built around a ROD crate with at least 10 modules mounted in it 1 ROD controller, 1 Trigger and Busy Module and 8 ROD modules. With this architecture there will be 32 RODs to feed 64 ROBs. With this 1:2 mapping, two optical links (S-Link HOLA LSC) are mounted per ROD to compensate the number of ROBin's and to fulfill the TileCal dataflow needs.
+
+\begin{table}
+\begin{tabular}{|l|c|c|} \multicolumn{1}{c|}{} & \multicolumn{1}{c|}{ROD Deno} & \multicolumn{1}{c|}{ROD Final} \\ \multicolumn{1}{c|}{} & \multicolumn{1}{c|}{(baseline option)} & \multicolumn{1}{c|}{(high density option)} \\ \hline Optical Input Links/ROD & 4 & 8 \\ \hline Processing Unit (PU)/ROD & 4 & 4 \\ \hline DSP/PU & 1 & 2 \\ \hline Output Controller/ROD & 1 & 4 \\ \hline TTCr/ROD & 1 & 1 \\ \hline Output Optical Links/ROD & 1 & 4 \\ \hline Nb. modules to read-out 256 FEB & 64 & 32 \\ \hline Nb. Crates for 4 partitions & 4 & 4 \\ \hline Nb. ROD/Crate & 16 & 8 \\ \hline ROD/ROB mapping & 1:1 & 1:2 \\ \hline \end{tabular}
+\end{table}
+Table 2: Comparison of the two ROD hardware options (ROD Demo or low density baseline and ROD final or high density solution).
+
+#### 3.2.2.1 ROD Motherboard
+
+The ROD motherboard (Figure 9) represents the core implementation of the ROD crate. It is based on a standard 9U VME64x board (with a height/width/thickness of 366.7/400/2.4 mm). \(\Lambda\) ROD can be equipped with up to four Processing Units (with height/width/thickness of 85/120/1.6 mm) which are pluggable daughter-boards responsible for the data processing. Other devices for input/output and control are soldered in the 9U board. \(\Lambda\) 9U Transition Module (height/width/thickness of 366.7/220/2.4 mm) is plugged in the rear part of the crate to hold up to 4 S-Link Link Source Cards which convert the electrical output data to a high speed optical line. The block diagram of the motherboard and the rear Transition Module is shown in Figure 9.
+
+There are three main important data paths to be emphasized due to the different tasks they perform in the board. They are shown in Figure 10 and described below.
+
+* **Dataflow**: the input data coming from the optical fibers are received by eight Optical Receivers (ORx) and deserializer G-Link chips to be distributed into four Staging FPGAs. The main function of the Staging FPGA is to configure the distribution of the FEB data into the PUs. In the PU, the data are treated and formatted in less than 10 \(\upmu\)s due to the strong requirements of the Level 1 trigger. The output data from the PU (which are buffered in the PU FIFOs) are received by the Output Controller FPGA (OC FPGA). There are four OC FPGAs in the ROD motherboard which configure the output data distribution. The OC may either store the data in a SDRAM to send the event fragment to VME or send it directly to the Transition Module S-Link LSC cards and later to the ROS. There are LVTTIL to LVDS serializers in the motherboard and LVDS to LVTTIL deserializers in the Transition Module as there were not enough pins in the P2/P3 backplane to handle the whole S-Link signals. Also, a FIFO and a small PLD device to control it, are mounted in the Transition Module to get more output buffering than the provided with the S-Link LSC before asserting an XOFF
+
+Figure 8: TieCal ROD general architecture organized around ROD crates.
+
+signal which will stop the data transmission from the OC. The dataflow path is shown in green in Figure 9.
+* **Timing, Trigger and Control signals (TTC) and Busy signals**: the ROD receives the trigger clock and the related information from the P3 backplane. These data are then decoded and managed by a TTCrx chip and the TTC FPGA before they are sent to the Processing Units to synchronize the FEB and TTC data. The TTC signals are highlighted in orange in Figure 10. The Busy signal is issued by the PU when the Output Controller stops receiving data. In this case the output buffering of the PU (FIFO) is almost full. There are 4 individual Busy signals which are OR-ed at the VME FPGA and sent through the P3 backplane to stop undesired triggers inducing dead-time. The Busy signals are highlighted in purple in Figure 10.
+* **Control and monitoring from ROD controller (VME)**: the VME slave core of the ROD is implemented in the VME FPGA. The VME bus is usually used to configure and read the status of the motherboard devices. Furthermore, the ROD controller monitors the G-Links temperature, boots the Processing Unit FPGAs and DSPs and downloads online histograms also from VME (blue color in Figure 10).
+
+#### 3.2.2.1.1 The Optical Receiver
+
+The fibers coming from the Front-End Boards (FEB super-drawers) are plugged in small mezzanine cards called Optical Recceivers [11] (height/width 12.7/23.37 mm). These Optical Receiver modules have an optical to electrical converter and an amplifier (MAX3268) to provide constant-level output and controlled edge electrical signals in Positive-referenced standard Emitter-Coupled Logic (PECL). These signals contain the serial data to be sent to the G-Link chipsets in the motherboard. There are eight Optical Receivers per ROD located in the front panel which allow the readout of up to 8 FEBs with a single ROD motherboard [7].
+
+#### 3.2.2.1.2 The G-Link HDMP1024
+
+There are 8 G-Link chips mounted in a ROD. The G-Link chip is a monolithic 5 volts silicon bipolar HDMP1024 [12] chip used for high speed communication. The HDMP1024 deserializes the data previously serialized from a HDMP1022 chip which is the one used by LiArg FE boards. In TileCal the FEBs incorporate a 3,3 volts CMOS version of this last chip, the HDMP1032 [13], and ideally the HDMP1034 should be mounted in the ROD motherboard instead of the HDMP1024 but they are not mechanically compatible (different case type). Nevertheless, the HDMP1024 has been tested in long term burn-in runs to check the compatibility with the HDMP1032. The results of these tests will be discussed later in this report.
+
+The HDMP1032 chip mounted in the TileCal FEBs [10] serializes the 16-bit data at 40 MHz. This is then deserialized in the ROD motherboard by the HDMP1024 and the 16bit(@)40MHz data sent to the Staging FPGA chip together with additional protocol signals (control, clock locked, error signal, etc). If any problem related with the state of the chip occurs, then a reset signal is asserted. This reset signal to G-Links could come from two sources, a broadcast general reset signal which resets the motherboard or an individual reset signals which is managed from the Processing Units (through the Staging FPGA). Each HDMP1024 chip has a local 40.00 MHz reference clock for the internal PLL of the chip.
+
+Figure 9: ROD motherboard block diagram architecture and related devices.
+
+Figure 10: ROD motherboard block diagram dataflow with the TTC and VME communication operating in Normal Mode.
+
+#### 3.2.2.1.3 The Staging FPGA
+
+There are 4 Staging FPGA chips per ROD. The Staging FPGA represents the input data distributor in the ROD. It may route the data into the ROD in two operating modes depending on the processing power needed per channel:
+
+* **Staging Mode**: 4 FEB to 1 PU.
+* **Normal Mode**: 2 FEB to 1 PU.
+
+The main functionalities of the Staging FPGA [18] are:
+
+* To receive deserialized data from 2 G-Links (HDMP1024) in Normal Mode or from 4 G-Links in Staging Mode and to route them to a Processing Unit (PU).
+* To provide a clock de-skew between the G-Link clock and the PU clock with a dual-clock FIFO implemented inside the device.
+* To provide G-Link reset and configuration.
+* To provide VME access for configuration and status.
+* To monitor the G-Link temperature and make it available to the VME interface with a read only register (current, maximal and minimal values) and to the slow control system.
+* To send test data from an internal RAM (VME writable) to the PU (debug/test purposes).
+
+The G-Link temperature is very important in order to monitor the chips performance and to find out whether the use of water cooling is needed, as is the case of the LiArg ROD (which operates with an 80 MHz G-Link clock). Bit Error Rate (BER) tests will provide an answer to this (see Section 5.1). The temperature measurement is implemented with Siemens B57/02-M103-G thermistors (THERMally sensitive resISTOR) glued to each G-Link and with an Analog to Digital Converter (ADC) MAX1110 which also includes an internal voltage reference, an input analog multiplexer and a serial digital output to the Staging FPGA (SPI interface, Serial Peripheral Interface).
+
+#### 3.2.2.1.4 The Output Controller FPGA
+
+There are 4 Output Controller FPGA per ROD [14]. They act as the output data distributors of the ROD motherboard and send data to the ATLAS TD\(\Lambda\)Q system in two operating modes depending on the needed output bandwidth needed (amount of output data per event). The two Output Controller FPGA operating modes are:
+
+* **Staging Mode**: data from 1 PU are sent to 2 S-Link LSC cards and to 2 ROB inputs (ROBin).
+* **Normal Mode**: data from 1 PU are sent to 1 ROBin.
+
+The tasks to be performed by the Output Controller are:* To read the DSP reconstructed output events from the PU output FIFO (16bits(@80MHz) and to add S-Link header and trailer words to the output data according to the ATLAS TD\(\Lambda\)Q data format [15].
+* To provide control (R/W) and status (R) registers accessible through VME.
+* To manage and send data either to the SDRAM (VME readout) or to the serializer (S-Link Readout).
+
+3.2.2.1.5 The VME FPGA
+
+There is one VME FPGA in each ROD to provide communication between the ROD controller and the devices in the ROD motherboard: 4 Processing Units, 4 Staging FPGAs, 4 Output Controller FPGAs and 1 TTC FPGA. Additional features implemented in this device are:
+
+* **The Busy logic** and Busy monitoring system.
+* **The interrupts handling** from the controller devices to signal special actions to be taken by the ROD controller when some event occurs. They are ROAK type.
+* **JTAG Boundary Scan**, to be able to program the ROD FPGAs remotely from the ROD controller without physical access to the crate with a JTAG programming cable.
+
+The communication of the VME FPGA with the ROD motherboard is handled with 2 protocols:
+
+* **Communication with the ROD controller**: based on a standard VME64x slave core for singlc R/W cycles and block transfers with a D32 data bus and an A32 addressing for data transfer, and an A24 addressing for CR/CSR.
+* **Communication with the ROD motherboard devices**: this is based on a custom protocol [16] with 5 serial lines. One unidirectional line managed by the VME FPGA to flag the control/address data, and 4 bidirectional lines for the serialized 4 bytes of the 32-bit word (Byte[3]...[0]). In case of the Staging FPGA the bus is daisy-chained to avoid extra routing lines in the PCB.
+
+3.2.2.1.6 The TTC FPGA and TTCrx
+
+The trigger information is received at the ROD level coming from the TBM (after an optical to electrical conversion) and through the P3 backplane in differential LVDS format. All TTC connections are \(100\)\(\mathbf{\Omega}\) point to point (which corresponds to the characteristic impedance of the CP3) and are ended with a \(100\)\(\mathbf{\Omega}\) resistor near the ROD LVDS receiver.
+
+The differential TTC signals contain information about the \(\mathrm{A}\) and \(\mathrm{B}\) channels of the TTCvi [4] as well as trigger information and commands. They are decoded in the TTCrx chip [4] and managed by the TTC FPGA which sends the TTC information to each PU in a serialized point to point connection. The information needed by the ROD is:
+
+* **The Level 1 Accept (L1A) trigger signal**.
+* **The TTC clock (40.08 MHz)**.
+
+* **The BCID (I2 bits)**: sampled bunch crossing when an interesting event occurs (Level 1 Accept). It is cleared by the BcntRes (Bunch Counter Reset) signal.
+* **The Trigger Type (8 bits)**: This value is used to identify the type of event being acquired and to apply the appropriate treatment and algorithm at the DSP level (e.g., Charge Injection, Pedestal runs, Physics runs, etc).
+* **The EventID (24 bits or 32 bits Extended EventID)**: this counter is incremented by the Level 1 Accept signal and reset by the EvCntRes signal. It uniquely identifies an event during a run.
+
+The TTC FPGA has also some VME registers to configure the way the ROD is triggered. Three modes are available:
+
+* **VME Trigger**: test mode for debugging purposes. The trigger is generated from VME and the TTC information (BCID, EventID and Trigger Type) should be written by the ROD controller in the appropriate register (e.g., random triggers, triggers from TTCpr [4]).
+* **LOCAL Trigger**: test mode used with an injector card. The trigger signals come in LVDS from a local connector in the board. The needed signals are the TTC clock, Level 1 Accept, Event Counter Reset, Bunch Counter Reset and Flush Buffer. The bunch cross and event counters are internally generated with a trigger clock and a Level 1 Accept signals respectively.
+* **TTC Trigger**: this is the normal trigger mode for LHC. The trigger signals come from the Central Trigger Processor through the TTC partition crate to the ROD crate through the TBM and the P3 backplane as shown before.
+
+Another important feature of the TTC FPGA is to provide the clock source to be selected by VME. This clock source is distributed to all ROD motherboard devices through dedicated Zero-Delay clock buffers. There are two possible clock sources:
+
+* **VME/LOCAL**: local clock oscillator installed in the motherboard or external clock coming from the connector in LOCAL mode. It must be selected with a jumper.
+* **40.08 MHz TTC clock from TTCrx (Clock40Desl)**. When the TTC clock disappears for any reason, the system is able to automatically turn to use the local clock oscillator, and change back when TTC clock becomes present again.
+
+#### The Processing Unit
+
+There are 4 Processing Units (PU) per ROD. The PU is a mezzanine board which allows flexibility for future upgrades related with exponential advances in processor capabilities versus time (Moore's law [17]).
+
+There are two types of Processing Units developed for the ROD motherboard:
+
+* **FPGA based PU**: simple implementation for debugging and tests.
+* **DSP based PU**: more ambitious implementation with 2 DSPs and 3 FPGAs for signal reconstruction and to be used with the final ATLAS detector.
+
+#### 3.2.2.2 The FPGA Based Processing Unit
+
+The FPGA PU is a simple board based on a single FPGA and 2 output FIFOS. The purpose of this card is to test the ROD motherboard in absence of final DSP PU while exploiting the FPGA functionalities. There are up 4 FPGA PU daughter boards per ROD. This board is responsible to:
+
+* **To receive FEB data** from the Staging FPGA (2 FEBs in Normal Mode or 4 FEBs in Staging Mode) in "Transparent Mode. This mode sends an event fragment with raw data and ATLAS-TDAQ data format [15].
+* **To receive and deserialize the TTC broadcast data** coming from the TTC FPGA (manages a TTCrx chip in the motherboard).
+* **To synchronize FEB and TTC data**, prepare standard TDAQ data format and buffer the event fragment in FIFOs.
+* **To send the data** stored in the FIFOs to the Output Controller FPGA (4 OC in ROD MB). The OC manages formatted data and sends them to VME for monitoring purposes or to S-Link LSC.
+
+A VME core which provides the following functionalities:
+
+* Read/Write configuration and status registers.
+* Read event in Internal FIFOs (debug).
+* Write registers with TDAQ data format parameters to have them online reconfigurable from ROD Crate Controller.
+
+All this functionality is implemented in the core firmware of this FPGA[18].
+
+Figure 11: Schematic diagram of the dual DSP based Processing Unit.
+
+#### 3.2.2.2 The DSP Based Processing Unit
+
+The DSP PU [19] is a mezzanine (120*85 mm) board able to handle up to 96 calorimeter channels (2 FEBs) in Normal Mode (4 PUs per ROD) and 192 channels (4 FEBs) in Staging Mode (2 PUs per ROD).
+
+The PU is equipped with two Input FPGA (InFPGA), two TMS320C6414(@720MHz DSP (5760 MIPS) from Texas Instruments [20] and two Output FIFOs. All these dual devices are used to get double processing power in a single PU and they are responsible for I/O dataflow and digital signal reconstruction. An Output FPGA (OutFPGA) for control and configuration implements the VME and TTC interfaces with the ROD motherboard as shown in Figure 11.
+
+The input FEB data enter into the InFPGA (from the Staging FPGA) where they are formatted and checked as needed for the DSP algorithms. When an event is ready, an interrupt is sent to the DSP which launches a DMA to read the data with the 64-bit EMIFA bus. After the DSP finishes processing an event, it writes the results in the output FIFO through the 16-bit EMIFB bus.
+
+The TTC data are received in the OutFPGA (from the TTC FPGA) and sent to each DSP via 2 serial ports. One serial port is used for the Trigger Type (McBSPI) while the other is used for the BCID and EventID (McBSP0).
+
+The OutFPGA allows the control of the PU board by the ROD controller through the VME layer and implements the following functionalities:
+
+* **Write DSP the code for booting** at initialization and **read histograms** through the 16-bits Host Port Interface (**HPI**) of the DSP.
+* **Full duplex communication** via multi-channel buffered serial port (**McBSP2**) with each DSP (write run number, DSP commands, status read)
+* **Write the configuration register of the InFPGA** (number of samples, number of gains, mode...) and read the **status register** through a serial line.
+* **Boots the code of InFPGA**. The device allows dynamic online configuration without system shutdown.
+
+The DSP add PU functionalities over the FPGA PU, such as:
+
+* **Error detection and staging mode implementation** at \(100\) KHz L1A (Input FPGA). This is done inside Altera Cyclone Input FPGA.
+* **Data Processing** with online reconstruction algorithms to work at \(100\) KHz L1A trigger rate (\(10\)\(\mu\)s). Due to DSP highest performance capabilities. The DSP clock cycle is 1,38ns and it has 8 parallel and independent Arithmetic and Logic Units (ALU).
+
+#### Transition Module
+
+The Transition Module (TM) [21] boards are placed just behind each ROD module in the rear part of the crate. Each TM can hold up to 4 S-Link LSC [22] mezzanine cards (Link Source Cards). The ROD module sends the data through the backplane P2/J2 and P3/J3 to the TM, which transmits them via optical fibers to the next step in the ATLAS TDAQ read-out chain. Due to the limited number of pins in the P2 and custom P3 backplanes, serializers and deserializers are located in the ROD and in the TM respectively. The standard logic used for the high speed serial link is LVDS.
+
+Additional TM functionalities include:
+
+* **FIFO buffering**. A small FIFO controlled by a PLD (Programmable Logic Device) has the function to avoid the loss of data between the Output Controller and the S-Link, since the serializer (ROD side) and deserializer (TM side) introduce a latency of 5 to 6 cycles and the S-Link specifications requires a buffer of 2 words before the S-Link activates the Link Full Flag to stop accepting data.
+* **Flow control of output data**. When the ROBin [23] has filled its buffers, it sends (through S-Link LSC-LDC standard) a XOFF signal to stop data transmission from the ROD towards the ROS. In such case the S-Link LSC mounted in the TM stops data taking from the TM FIFO although the ROD may continue writing on it until it is half filled. If this is the case, an XOFF signal is sent to the ROD OC to stop sending data to the FIFO. Note that after the ROS releases the XOFF signal the acquisition may though continue. If the Processing Unit output buffers are filled due to this delay, a Busy signal will be asserted to stop the Level 1 trigger generation for the current partition.
+* **S-Link LSC control**: Through the Transition Module the ROD OC can put the HOLA LSC in reset mode, test mode and monitor the Link Down signal to get the status of the optical link with the ROS.
+* **JTAG chain** for programming the Altera PLDs [24].
+
+#### 3.2.2.4 Trigger and Busy Module
+
+The trigger signals coming from the Central Trigger Processor (CTP) are managed by a TTC crate. They are received and distributed to the RODs with a TBM (Trigger and Busy Module, [25]) through a dedicated optical link. The TBM distributes the trigger and clock signals over a custom P3 backplane. This backplane also distributes the Busy signals generated by the ROD modules to the TBM, where they are treated to form an OR combinatorial function to get a crate/partition Busy and manage the detector dead time.
+
+The TBM has a dedicated FPGA with a VME core implemented to control, configure and read the status of the board. The main functions of the TBM include to monitor the Trigger and Busy signals. The TBM also features an interface between the VME bus and the Transition Module (through CP3) in order to read the serial numbers of the TM modules. Therefore one may get access to these VMEbus-isolated modules in the rear part of the crate.
+
+According to the architecture of the custom P3 backplane (CP3), the TBM must be placed in slot number 5, serves point to point LVDS TTC information and recollects the LVTTIL Busy signals from the RODs in slots 6 to 21.
+
+#### 3.2.2.5 P3 Backplane
+
+The CP3 [26] is a custom passive P3 backplane specifically designed to accommodate the following functionalities:
+
+* **To connect the ROD and the TM** to send output data to the S-Links.
+* **To collect the Busy signals** per ROD (slots 6 to 21) and to route them to the TBM placed in slot 5.
+* **To distribute the TTC signals** from the TBM to each ROD.
+* **To connect the TBM to the TM** to read the board identifier.
+
+The board is equipped with switches which provide a unique identifier for a ROD crate. The CP3 also has an external 48 volts connection to provide power supply to the DC/DC converter of the TM.
+
+The CP3 PCB has 14 layers and most of the lines are 50 \(\Omega\) strip-lines.
+
+#### 3.2.2.6 ROD Controller
+
+The ROD crate is controlled by a CPU which performs several tasks such as initialization of modules, monitoring, VME data transfer support and other activities. The local databases, configuration files and booting codes are stored in a workstation. The workstation performs also the monitoring tasks and analyses of calibration data. The present ATLAS standard CPU is based on the CT VP-110 [27]. This CPU is, basically, an Intel processor with a Tundra Universe VME bridge. The operating system boots from network and it is based on Linux. Additional ROD controller functionalities include:
+
+* To download software from an ATLAS general database repository through VME (DSP code, calibration coefficients, Optimal Filter reconstruction parameters, etc.).
+* Monitoring data flow through VME to exchange the control flow. A total of 1-5% of the dataflow is expected for spy monitoring and 100% for special triggers (calibration).
+
+#### 3.2.3 Input/Output Data Distribution
+
+The ROD motherboard has been designed for full modularity and flexibility depending on the input and output dataflow requirements. Intercommunication buses where placed between the upper input neighbor pairs of Staging FPGA and its associated Output Controller FPGAs. The same occurs for the lower neighbor FPGAs. This divides the ROD motherboard into two customizable readout blocks:
+
+* **The upper half of the ROD**: G-Links (1 to 4), Staging FPGA 1 and 2, PU 1 and 2, OC 1 and 2.
+* **The lower half of the ROD**: G-Links (5 to 8), Staging FPGA 3 and 3, PU 3 and 4, OC 3 and 4.
+
+This flexibility allows to use the desired configuration depending on the input data bandwidth, the output data bandwidth and the required processing power to fulfill the requirements of the TileCal detector readout without paying an extra cost for the unnecessary Processing Units and S-Link LSC cards. There is also the possibility to double the processing power of an eventual upgrade system to be used in high luminosity runs since the PUs and link cards are pluggable daughterboards.
+
+The processing power would not only be doubled by the use of 4 PU instead of 2, but could also be increased by using next generation DSPs according to the Texas Instruments DSP roadmap [43].
+
+There are two operation modes to configure the ROD input/output data distribution:
+
+* **Normal Mode** (or Full Mode).
+* **Staging Mode**, with two additional sub-modes: Input Staging Mode and Output Staging Mode.
+
+#### 3.2.3.1 Normal Mode
+
+In Normal Mode the common data bus between the neighbor Staging FPGA and neighbor the Output Controller is not used. In this mode, the ROD should be fully equipped with Processing Units and the I/O bandwidth is fully exploited. Figure 12 shows a diagram of the dataflow distribution into the different ROD devices from the input (front panel ORx) to the output (HOLA LSC mounted in the Transition Module).
+
+Table 3 summarizes the ROD device configuration and the resources used in Normal Mode configuration for the case of the readout of a central barrel super-drawer (45 channels). Note that, as shown in Section 2.3, there could be an unbalanced number of channels per Processing Unit depending on the partitioning scheme and the front-end fiber mapping.
+
+Figure 12: ROD motherboard dataflow operating in I/O Normal Mode.
+
+[MISSING_PAGE_FAIL:28]
+
+[MISSING_PAGE_EMPTY:29]
+
+#### Clock Distribution
+
+The ROD may operate with two different clock VME sources selected by the TTC FPGA: the local clock or the TTC clock. The selected clock source is distributed to the whole motherboard devices through a PLL-based (Phase Lock Loop) zero delay clock buffer CY2308 and CY2309 [28] with point to point connections. The PLL circuits help to smooth and reject undesired variations in the distributed TTC clock. Figure 15 shows a schematic diagram of the clock distribution in the ROD motherboard.
+
+## 4 TileCal ROD Motherboard Based on the High Density Option
+
+The ROD based on a high density board with 8 integrated front-panel input links and the outputs links placed in a Transition Module is the preferred TileCal hardware solution as it decreases the number of ROD boards to be built from 64 to 32. In TileCal we select in addition the Staging Mode (see Section 3.2.3) as the starting operation mode as it reduces the number of Processing Units to be used to the half while keeping enough resources to apply digital signal reconstruction at a 100 KHz L1A trigger rate. This solution allows also for a possible upgrade of the system for later LHC high luminosity requirements (see Section 6). The high density motherboard offers a fully VME controllable system with compatible ATLAS trigger inputs and enough input and output bandwidth as well as processing power for an Optimal Filtering (OF) reconstruction algorithm to be used at the DSP level [29][3]. The use of this ROD motherboard keeps also the hardware compatibility between the ATLAS calorimeter RODs.
+
+Figure 14: ROD motherboard dataflow operating in InputOutput Staging Mode.\(\it{C}\)
+
+Figure 15: Clock distribution schematic diagram for the ROD.
+
+The advantages of this option can be summarized as:
+
+* **Price**. The ordering of large quantities of boards and components implies lower prices (a total of 250 boards including spares have to be ordered: 38 for TileCal + 212 for LiArg).
+* **Maintainability**. The use of the same design provides a reliable product to solve eventual common problems in the installation, commissioning and maintenance during the LHC operation.
+* **Number of RODs**. TileCal reduces the number of RODs from 64 to 32, thus strongly decreasing the project total cost.
+* **Upgradeable solution**. The processing power and output bandwidth could be doubled by working in Normal Mode (Section 3.2.3.1). With 32 RODs only one single fiber is read-out per drawer, which is the TDR specification. Nevertheless, the interface links are produced and designed with a double optical transmitter. This decreases the probability of errors in sending the same data fragment by a factor of \(\sqrt{2}\). In case of radiation problems with the links in a future high luminosity environment more RODs could be added to readout this larger fiber multiplicity (32 more RODs) or just sensible and/or more important channels.
+* **Hardware implementation**. Only minor hardware modifications are needed for TileCal at the input stage of the board (see Section 4.1.2). The rest of the board is kept with the original design except for the use of two Processing Units and two Output Controllers plus SDRAM data storage (see Section 4.1.1).
+* **Software implementation**. If the same hardware is used, only flexible software modifications are required speccifically for TileCal. The blocks which need specific TileCal modifications are the Staging FPGA, the Processing Unit (input FPGA and DSP) and the VME libraries (as a consequence of different register mapping). The Staging FPGA must be able to manage the TileCal input data and control words and send them to the PU. The input FPGA of the PU must reorganize the TileCal data mapping and send them to the DSP to run custom Optimal Filtering algorithms implemented for the number of samples, bits/sample and output data format of the TileCal detector. The blocks which do not need specific TileCal modifications are the Output Controller FPGAs, the TTC and the VME FPGAs.
+
+#### Hardware Dataflow Yield
+
+Note that the LiArg system needs more processing power per link than the TileCal, as it processes 128 channels per link, while the TileCal can not send more than 48 channels per link due to the FEB super-drawer mechanical constraints. The real number of channels per link is 45 for the half of the central barrel and 32 for the extended barrels. Table 6 summarizes a comparison between the readout requirements of both ATLAS calorimeters.
+
+In this Section it is shown how to use the Staging Mode (2 PUs, 2 S-Link LSCs) for the TileCal dataflow needs as shown in Figure 13.
+
+#### 4.1.1.1 Input Bandwidth
+
+The maximum available input data bandwidth of each link for a typical TileCal physic event is 449 Mbps [30]. Four drawers would correspond, therefore, to 1,75 Gbps. If we take into account the total input bandwidth of the Processing Unit which is 2,5 Gbps (32bits@80MHz or 64bits@40MHz, see Table 6), a single PU has enough input bandwidth for the readout of 4 FEB. This still provides a free 30% flexibility of the total input bandwidth to work at a 100 KHz trigger rate. This allows room enough to change several parameters like the different number of samples or any other small upgrade. Figure 16 shows, for example, the input bandwidth required as a function of the number of samples per photomultiplier channel. The input stage of the ROD may thus support up to 9 samples per channel at a 100 KHz Level 1 trigger rate. Of course, decreasing the trigger frequency we treat more than seven samples per channel.
+
+#### 4.1.1.2 Processing Power
+
+The ROD should process up to 180 channels (four drawers) in two TMS320C6414(@720MHz DSPs [20]. Each one of these units may perform 5760 MIPS. This DSP has the same core as the TMS320C6202(@250MHz, which is the one used for the ROD Demo tests working with at 2000 MIPS [31]. Additional improvements in the new DSP include the number of registers and the presence of an enhanced DMA unit for a two level cache memory architecture. With this unit one could process, using the Optimal Filtering reconstruction algorithm, up to 45 channels in about 5,5 \(\upmu\)s if it is programmed in assembler, and 15,5 \(\upmu\)s if programmed in C code [32]. Potentially, one could process up to 180 channels with the new PU in \(\sim\)3,8 \(\upmu\)s (assembler) or around \(\sim\)10 \(\upmu\)s (C code). Assuming improvements in the C compiler from Texas Instruments, the final system could be programmed, in a better maintainable C code, with only 2 Processing Unit mezzanine cards installed in the motherboard while still keeping below the upper rate limit of 10 \(\upmu\)s or 100 KHz rate.
+
+The LiArg electromagnetic calorimeter uses a total of 128 channels per link while the TileCal uses only 45 channels per link. In Normal Mode the LiArg has thus 256 channels per PU while the TileCal, working in Staging Mode uses up to 180 channels per PU. Both calorimeters use the Optimal Filtering reconstruction algorithm as the standard digital signal reconstruction algorithm to be implemented at the DSP level. This algorithm reconstructs energy and time using the equations:
+
+\[E=\sum_{i=1}^{n}\sum_{i=1}^{samples}a_{i}\cdot s_{i}\hskip 42.679134ptE\cdot \tau=\sum_{i=1}^{n-samples}b_{i}\cdot s_{i}\]
+
+where the OF weights \(a_{i}\) and \(b_{i}\) are 16-bit signed integers7[33] while the samples \(s_{i}\) are 10-bits wide for the TileCal and 12-bits wide for the LiArg. The MAC instructions in the DSP use 16-bit operands and thus the different size of the samples has no impact in the algorithm performance although they will affect the number of samples to be used, which is 5 samples8 per channel for the LiArg and 7 samples per channel for the TileCal.
+
+Footnote 7: It is still possible to use 32-bit signed weights in order to improve resolution [33].
+
+Footnote 8: These are the expected samplings for final ATLAS conditions in LHC based on technical design reports of the sub-detectors.
+
+Table 7 shows a comparison of the processing power per PU for both the LiArg and the TileCal ROD operation modes. The processing load for the final ROD Processing Unit is thus well equilibrated between the LiArg Normal Mode and the TileCal Staging Mode configurations.
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline TileCal MAC instruction lead/channel & **7** \\ \hline LArg MAC instruction lead/channel & **5** \\ \hline Number of channels per PU thread & **180** \\ \hline Number of channels per PU thread & **256** \\ \hline Total MAC lead/PU thread & **1260** \\ \hline Total MAC lead/PU thread & **1280** \\ \hline LArg/TileCal Processing Power ratio per PU & **1,015** \\ \hline \end{tabular}
+\end{table}
+Table 7: LiArg (Normal Mode) and TileCal (Staging Mode) processing power usage comparison per PU.
+
+#### Output Bandwidth
+
+The typical out bandwidth for 154 channels (four drawers, 2 from the central barrel and 2 from the extended barrel) corresponds to 656 Mbps based on a preliminary output data format proposal of the TileCal detector [30]. The final output data format will be established as DSP firmware is being developed and updated. At present we estimate an output bandwidth for 180 channels to be \(\sim\)860 Mbps. An Output Controller FPGA of 1,28 Gbps (32(@40MHz) would thus suffice to provide enough bandwidth for the output of each Processing Unit (which results in a \(\sim\)33% free output bandwidth). Two Output Controllers with two LSC mezzanine cards mounted in the Transition Module will suffice for this configuration operating in Staging Mode.
+
+#### Hardware Modifications over the LiArg ROD Design
+
+Only minor hardware changes are needed to make the LiArg design compatible with the TileCal readout system. The layout and design of the PCB motherboard is not changed. The required hardware modifications on the original ROD motherboard to be used for the TileCal detector are summarized below:
+
+1. **From the FEB Interface Cards one needs** to disable the _enhanced simplex mode_ (pin ESMPXENB=0) in the HDMP1032 [13] chip as the HDMP1024 [12] chip mounted in the ROD motherboard is not compatible with this enhanced mode transmission, which is only available for the CMOS HDMP103x devices. This is possible as this pin is controlled by an APEX FPGA [10][24].
+2. **From the High Density LiArg ROD motherboard design one needs**: * Due to the different FE protocols between the TileCal and LiArg, **the CAV line** of the HDMP1024 chip (which is not used by LiArg) needs to be connected to the Staging FPGA in order to receive control words (Ileaders, Trailers). Figure 18 shows this line highlighted in **RED color**. * While LiArg uses the HDMP1024 FLAG bit to mark the even and odd 16-bit fragments, the TileCal uses this bit to mark the global CRC word and uses the CAV line (control bit) to mark the start of transmission and count for the even and odd 16-bit fragments. In order to use the HDMP1024 FLAG bit as an additional data bit (for CRC checks), one needs to **connect the FLAGSEL line** of the HDMP1024 chip into the Staging FPGA in order to set it high and keep compatibility (the FLAGSEL line is kept low for the case of the LiArg). Figure 18 shows a schematic diagram of the HDMP1024 pin layout with the FLAGSEL line highlighted in **RED color**. * The connection of **FDIS, ACTIVE, LOOPEN** and **STAT1** lines are compatible between LiArg and TileCal as they are all standard as seen in _Figure 17 (page 33)_ of the _HDMP1024 datasheet_[12]. The configuration is "_Simplex method III_". * Due to the different clocking of the G-Links associated to the LiArg and TileCal detector FEBs, **the LiArg 80 MHz clock must be replaced with a TileCal 40 MHz clock**. Both clock models (JAUCH 50ppm crystal oscillators) are pin-out compatible which assures the right reference clock for the G-Link receivers (see Figure 17).
+
+In Section 4.1.3.1.2 of this document is described the _TTC addressing scheme_ of the TileCal sub-system. The TTCrx chip may be configured from an EEPROM**,** controlled by and FPGA, or hard-wired where the ID address pins are manually set with switches mounted in the ROD motherboard. Basically, the final schema chosen to provide a unique TTCrx ID address is the use of manual switches mounted in the ROD motherboard. This way provides flexibility **to set the right address in the ROD board for the TTCrx chip**.
+* While the LiArg ROD motherboard is used with the **DIV1** and **DIV0** lines of the HDMP1024 chip set to ground (DIV1=0, DIV0=0), which corresponds to the clock frequency range of **[43-75]** MHz, the TileCal needs to **connect the DIV1** and **DIV0** lines to a CPLD (Complex Programmable Logic Device) like the Staging FPGA in order to select the parallel word rate in the range **[22,7-46,3]** MHz (DIV1=0, DIV0=1). The LiArg settings (DIV1=0, DIV0=0) have been tested in the first TileCal motherboard prototype and the deserializer was unable to lock the clock from the incoming data. For a proper G-Link clock lock TileCal needs thus a 40.00 MHz clock of 50ppm as the one mounted in the Interface Card [10] but with different phase, which is achieved by using the local G-Link clock mounted in the motherboard.
+* The ROD motherboard should be able to select between **3 different clock sources** as the **G-Link reference clock** (see appendix A.1 for more details). These are: 1. **A dedicated clock oscillator of 40.00 MHz** (JAUCH 50ppm VX3MH-4000) soldered in the motherboard. 2. **A general 40 MHz clock** of the ROD motherboard (see Section 3.2.4) selected with **0 Ohm resistors**, and which comes from: 1. **The local motherboard clock**: 40.00 MHz or 40.08 MHz depending on the crystal mounted (local clock to work in the case the TTC clock is absent). To use it as reference for G-link the local clock must be 40.00 MHz. 3. **The TTC clock (from the TTCrx)**, which is a 40.08 MHz (LHC clock) and which would not work as the G-Link clock since the Interface Card serializer HDMP1032 uses a local 40 MHz quartz crystal to send the data.
+
+Appendix A shows specific detailed instructions on how to proceed with the specific TileCal hardware modifications for the ROD motherboard.
+
+Figure 17: Schematic of the pin connections for the 40 MHz clock chip (TileCal, JAUCH 50 ppm VX3MH-4000) and 80 MHz clock chip (LiArg) mounted in the ROD motherboard.
+
+The different tests needed to be done in order to verify these changes during production are summarized below:
+
+* We assume that the HDMP1032 TX of the TileCal Interface Links (which does not use the enhanced mode, see Section 4.1.2) is compatible with the HDMP1024 G-Link RX chip. This is correct according to the datasheet information of the manufacturer (Agilent) and validated at different testbeams at CERN and at dedicated system tests in the laboratory.
+* The Optical Transceiver of the TileCal Interface Link is also compatible with the Optical Receiver of the ROD boards and validated also at the same system tests as before.
+* The LiArg system has to build a water cooling system for the HDMP1024 chips clocked at 80 MHz in order to keep the G-Link temperature below 35 \({}^{\circ}\)C and fulfill the expected BER [34]. The chip power consumption should decrease with a lower switching frequency9 and thus one should check whether heat dissipation is still required by TileCal in terms of water cooling or the use of common heat sinks would be enough. According to the Agilent datasheet [12], the bipolar G-Link chip HDMP1024 is designed to work at a case temperature of Tc = 0\({}^{\circ}\)C to +85\({}^{\circ}\)C for a V\({}_{\rm CC}\) = 4.5 V to 5.5 V for a maximum clock frequency rate of 75 MHz. This implies that TileCal (f\({}_{\rm Clock}\)=40 MHz ) is working under manufacturer specifications. The G-Link operating temperatures have been measured to be of the order of Tc = \(\sim\)50\({}^{\circ}\)C for a single ROD mounted in a standard VME air cooled 9U crate [36]. This chip has also been proved to work at such frequency in a S-Link LDC built at CERN and clocked at 40 MHz without cooling [37]. Therefore the use of a 40.00 MHz 50ppm clock with a proper layout may not require this complicated and expensive cooling system. Footnote 9: The power dissipation of a semiconductor [35] is proportional to the frequency according to the expression P=P\({}_{0}\)+(P\({}_{\rm St}\)+P\({}_{\rm C}\)+P\({}_{\rm C}\)+P\({}_{\rm C}\))\(\cdot\)N where P\({}_{0}\) is the quiescent power dissipation, P\({}_{\rm S}\) is the power dissipation resulting from current spikes when output switches, t\({}_{\rm S}\) is the duration of the current spike, P\({}_{\rm C}\) is the power dissipation whenapacitance, \(\tau\) is the signal propagation time on the bus, P\({}_{\rm C}\) is the power dissipation during bus criterion, t\({}_{\rm C}\) is the duration of bus contention, f is the frequency and N is the number of outputs at which bus contention occurs.
+* \(\Lambda\) CRC check of the input data must also be implemented. In principle it is preferred that the staging FPGA routes only data (_Allen ACEX 1k50 484 FineLineBGA [24]_), and data rearrangement and check done inside the input FPGA of the PU (two more powerful _Allen Cyclone 1EDG [24]_). Since the CRC check takes several cells inside the FPGA, some simulations must be done in order to test whether the program may be synthesized inside one of these FPGAs.
+
+#### Software and Configurable Specific Requirements
+
+There are several "non-hardwired" configurable options which must be implemented at the ROD motherboard in order to adapt it to the TileCal readout. Some of these options are related with switches although the most relevant ones are those related with firmware and software changes for the FPGA and DSP devices. A short description of these options is shown in the next sections.
+
+#### 4.1.3.1 Jumpers and Switches
+
+##### 4.1.3.1 Rod id
+
+A ROD will be uniquely identified with a serial number. This is implemented in the ROD motherboard through 8 zero Ohm resistors that could be soldered or not configuring an 8 bit ID number (See Appendix A.2 for more details). This ROD ID number will be reflected in some part of the ATLAS labels glued to each component (Figure 19).
+
+Figure 19: Example of an ATLAS Label.
+
+Figure 18: Proposed input G-Link configuration for TileCal and LiArg compatibility. Red lines are needed by TileCal to be configured from a PLD (Programmable Logic Device like the Staging FPGA).
+
+#### 4.1.3.1.2 TTC ID: TTC Addressing
+
+Each TTCrx chip [38] on a DAQ partition is addressed from the same TTCvi module and must have a unique 14-bit address. This address is the only way to send messages to a single chip and thus to a single ROD module [4].
+
+For TileCal the TTC system is foreseen to be used for:
+
+* The 3-in-1 motherboards: 1 TTCrx chip per super-drawer.
+* The digitizer system: 8 TTCrx chips per super-drawer.
+* The RODs: 1 TTCrx chip per ROD module.
+
+The TTCrx addressing scheme for the above devices is given by a 14-bit word as follows:
+
+* Digitizers: **01** xxxx xxxx xxxx (where **x** is either **0** or **1** but not both zero).
+* 3-in-1: **11** xxxx xxxx xxxx.
+* RODs: **10** xxxx xxxx xxxx.
+* Others: **00** xxxx xxxx xxxx.
+
+Each unique 14-bit channel identification number (ID) is readout after every reset either from a serial PROM or by a hard-wired ID mechanism. The readout is done from the ID\(<\)15:0\(>\) bus at startup (which shares its pins with the SubAddr\(<\)7:0\(>\) and Dout\(<\)7:0\(>\) bus) [38]. TileCal RODs TTCrx IDs will be readout from switches placed on the ROD motherboard (see Section 4.1.2) as shown in Figure 20.
+
+Figure 20: TTCrx configurable addresses at the ROD motherboard.
+
+#### Software and Firmware
+
+The main differences between the LiArg ROD and the TileCal ROD are at the firmware implementation (\(\mathrm{FPGA}\) and DSP programming) and software level (ROD library, Graphic User Interfaces and Online Software implementation). The functionality of all these devices has been specifically developed for the TileCal due to the different data handling, data types and data formats.
+
+This firmware [18] and software [39] have been developed by the IFIC-Valencia TileCal group [40] and the current versions of the firmware tested at laboratory system tests and at the ATLAS Combined Testbeam at CERN.
+
+Following, a brief description of the different firmware and software used at the ROD level is given:
+
+* Firmware compatible with LiArg:
+* TM firmware.
+* TTC FPGA firmware.
+* OC FPGA firmware.
+* Firmware specific for TileCal [18], developed in hierarchical VHDL, C and assembler programming languages:
+* ROD Injector FPGA.
+* FPGA PU.
+* Staging FPGA.
+* DSP PU Inf FPGA.
+* DSP Code.
+* Software specific for TileCal developed in \(\mathrm{C/C++}\)[41] and managed through the CMT (Configuration Management Tool) compilation policy:
+* Tilecal ROD library, [39].
+* GUI to test and configure ROD modules and other auxiliary VME boards (XTestROD, [41]).
+* GUI for standalone ROD mode operation with the FILAR cards at laboratory system tests (XFILAR, [41]).
+
+## 5 Test Results for the Final ROD Prototype
+
+### ROD System Tests
+
+The ROD was exercised and tested at specific IFIC-Valencia and CERN system tests. The set-up for these tests was based on a ROD final architecture as shown in Figure 21.
+
+Figure 21 also shows the firmware and software developed and used for the ROD motherboard with the modifications proposed in this document. The ROD was exercised with static and dynamic tests with data coming from a ROD Injector board holding up to two Interface Cards. The data was then checked for consistency, CRC16 tests, parity, etc.
+
+The system was exercised with test runs of 3 GEvents with zero errors. This number give us an estimation of a Bit Error Rate (BER) better than 6\(\times\)10-14 [18]. These results were obtained with a standard VME fan air cooling system with the G-Links working at a temperature of 50\({}^{o}\)C and at a 40 MHz rate, which is under the specifications given by Agilent for the HDMP1024 [12]. The test is though not complete, as only two ROD prototypes where used to validate the results. The preproduction boards will provide the possibility to fully populate a crate with 8 RODs to emulate the final conditions in ATLAS. They will allow also to validate a standard ATLAS crate cooling system instead of the water cooling system used by LiArg [34].
+
+Figure 21: ROD Set-up for lab tests.
+
+### Atlas Combined Testbeam 2004
+
+The TileCal testbeam readout has been implemented with the so called ROD emulator boards until 2003, which provided a software solution based on commercial VME CPUs (the RIO2). In 2003 a ROD Demonstrator setup based on the ROD Demo board [32] was installed with Digital Signal Processors (DSP) which added the possibility to perform online signal reconstruction. Several algorithms were implemented and tested (e.g. Optimal Filtering, Flat Filtering and Maximum Sample). Both systems coexisted together and the acquisition was done in parallel.
+
+At the 2004 ATLAS Combined Test Beam (CTB) [42] all the sub-detectors of ATLAS were configured to use the same SPS beam in H8 in order to perform a common data acquisition at the level of the TDAQ and the offline software integration. During the summer 2004 CTB period, the ROD final prototype was installed. The ROD was equipped with three FPGA_PUs, each one reading two FE links, and three HOLAs LSC.
+
+The main features of this set-up are:
+
+* **CTB trigger system**: Rates up to \(\sim\)4 KHz. Interface with the Trigger and Busy Module or standalone.
+* **CTB TDAQ system**: interface with ROS (FILAR based) via the Transition Module (TM).
+* **Transparent Mode**: to send raw data with flexible data format to be compliant with all options and formatted with the standard ATLAS format.
+* **TTC synchronization** was not checked online.
+
+The installation of the ROD on the combined ATLAS data acquisition was very successful reporting zero lost/corrupted events (checking CRC-CCITT16).
+
+## 6 Upgrades
+
+The ROD motherboard has been designed to provide high modularity for future upgrades such an eventual LHC high luminosity upgrade. There are some improvements and upgrades which could be done in different areas which are detailed below:
+
+* **Software**: The ROD library follows a hierarchical design based on C++ classes, with a _CRATE class_ which contains objects like the _ROD class_, or the _TBM class_ with methods to access to particular module registers. Any particular module may be added in an auxiliary _AUX class_ and defined to work with the same skeleton based on a ROD crate. Furthermore, the SBC ROD controller processes are in continuous development and they can be programmed in any language since it runs a Linux OS.
+* **Firmware**: All firmware facilities (FPGAs and DSPs) may be upgraded by designing new firmware versions and programming them in the FPGAs (JTAG and/or VME configurable). Usually all PLD devices are dimensioned to have enough free logic resources to implement an occasionally update.
+* **Input Bandwidth**: In principle, the input bandwidth is fixed and runs with a 40.00 MHz clock. To upgrade it, one should have to increase the data rate in the FEB and the ROD towork at 80 MHz. The ROD could work with input at 80MHz as LAr with water cooling, but will be difficult to reach 80MHz for data sending in the Interface Cards since they use APEX devices \(0\) with low speed grade "-3" (EP20K160EQC208-3) [10]. Probably this option will have deeper impacts in FEB behavior should be carefully studied if needed in the future.
+* **Processing Power**: There are two options to upgrade the processing capabilities using Normal Mode. We must think that the disadvantage to use the Normal Mode is that we will have the information of a FEB (Tile Module) per DSP instead of 2 FEB/DSP and then reducing spectrum of doing physics reconstruction inside these processors.
+* _Upgrade to Normal Mode producing another batch of the same PU_s. See Section 3.2.3.1. With this option one would double total processing capabilities of the system.
+* _Upgrade to Normal Mode designing a new daughterboard_. One would be able to design a new mechanical compatible and electrical (LVTII. I/O) mezzanine with the next generation DSPs. Considering the Texas Instrument's DSP roadmap [43] we should be able to increase by a larger factor the processing power.
+* **Output Bandwidth**: There are several options which are, though, not considered at present:
+* Update to Full Mode: 4 S-Link HOLAs LSC per ROD 'Transition Module.' This is shown in Section 3.2.3.
+* Change the TX frequency of the HOLAs LSC (40MHZ(@32 bits) in both the HOLAs LSC and ROBins.
+* Use a potentially new S-Link LSC mezzanine card to be designed in the future.
+
+We can conclude that there are two very important parameters which could be upgraded in conjunction or independently: The impact on the data acquisition chain is different and is commented below:
+
+* _Processing Power_: to implement more complex algorithms. No interference with FEB or ROS architecture.
+* _Output Bandwidth_: to send more data information to the ROS. This will have a very important impact as at the ROD level the number of S-Link HOLAs LSC should be doubled, and at the TDAQ level the number of ROBin inputs should be doubled too. This will though induce problems with component availability for the HOLA physical layer serializer protocol chip and ROBin components. Perhaps redesigning both modules could be the unique solution for an eventual future upgrade.
+
+Acknowledgements
+
+Jose Castelo wants to acknowledge:
+
+_My more since gratefulness to all those that have helped me in the Liquid Argon and TileCal communities. Thanks to Luc Poggioli, Imma Rius, Oleg Solovianor, Richard Teuscher, Horst Oberlake and Rupert Leitner for the brainstorming sessions to find the best solution for having a common motherboard for the \(\mathcal{ATL}AS\) achorimeters. Thanks to Louis Fayani, Arno Straessner, Daniel Lamara, Annu Leger, Pierre Matiron and Julie Prast for the help and continuous feedback in technical details. Thanks to Carmen for her explanations about physics and detectors and specially for supporting me every day of our life._
+
+## 8 Acronyms
+
+\begin{tabular}{l l}
+**BCID** & : Bunch Cross Identification number \\
+**BW** & : Bandwidth \\
+**CB** & : Central barrel \\
+**CP3** & : Custom P3 Backplane \\
+**CPLD** & : Complex Programmable Logic Device \\
+**CRC** & : Cyclic redundancy checking \\
+**CTP** & : Central Trigger Processor \\
+**CTPDI** & : CTP-to-Detector Interface \\
+**DAQ** & : Data Acquisition (system) \\
+**DCS** & : Detector Control System \\
+**DCTPI** & : Detector-to-CTP Interface \\
+**DIG** & : Detector Interface Group \\
+**DSP** & : Digital signal Processor \\
+**EB** & : Extended barrel \\
+**FEB** & : Front end boards \\
+**FIFO** & : First Input First Output (memory) \\
+**FPGA** & : Field programmable gate array \\
+**HOLA** & : High-speed Optical Link for \(\Lambda\)TLAS \\
+**HW** & : Hardware \\
+**LIA** & : Level-1 Accept (Signal) \\
+**LIID** & : Level 1 Identification Number \\
+**LAN** & : Local Area Network \\
+**LDC** & : Link destination card \\
+**LHC** & : Large Hadron Collider (accelerator) \\
+**LiArg** & : Liquid Argon (calorimeter) \\
+**LSC** & : Link source card \\ \end{tabular}
+
+**LTP**: : Local trigger processor
+**LVDS**: : Low voltage differential signal
+**LVPECL**: : Low Voltage Positive Emitter Coupled Logic
+**MB**: : MotherBoard
+**MIP**: : Million Instructions per Second
+**MUX**: : Multiplexer (data)
+**OC**: : Output controller (fPGA)
+**ODIN**: : Optical Dual G-LINK
+**PCB**: : Printed circuit board
+**PLD**: : Programmable Logic Device
+**PU**: : Processing unit
+**RCC**: : ROD Crate Controller
+**ROB**: : Read-out Buffer
+**ROL**: : Read Out Link
+**RX**: : Link Receiver
+**SBC**: : Single Board Computer
+**SDRAM**: : Synchronous Dynamic Random Allocation Memory
+**SW**: : Software
+**TBM**: : Trigger and Busy Module
+**TDR**: : Technical design report
+**TM**: : Transition Module
+**TTC**: : Timing, Trigger and Control (System)
+**TTCex**: :TTC encoder/transmitter
+**TTCrx**: :TTC receiver (chip)
+**TTCvi**: :TTC-VMEbus INTERFACE
+**TX**: : Link Transmitter
+**VMEbus**: : Versa Modular Eurocard bus
+
+## 9 References
+
+* [1]**Tile Calorimeter TDR**, ATLAS/Tile Calorimeter collaboration, CERN-LHCC9642.
+* [2]**Trigger and DAQ Interfaces with FE systems: Requirement document. Version 2.0**, ATLAS Trigger and DAQ steering group, DAQ-NO-103, 1998.
+* [3]**Optimal Filtering in the ATLAS Hadronic Tile Calorimeter**, E. Fullana et al., ATLAS-TILECAL-2005-001.
+* Timing, Trigger and Control (TTC) Systems for LHC Detectors**. [http://ttc.web.cern.ch/TIC/intro.html](http://ttc.web.cern.ch/TIC/intro.html).
+* [5]**Software Facilities for the TileCal ROD Development System**, Roldan, J; Romance, J B, ATL-COM-TILECAL-2000-005.
+* [6]**ROD Set-up for the TileCal Testbeam 2003 period. Results and Future Plans**, J.Castelo et al., Proceedings of the 9th Workshop on Electronics for LHC Experiments, ISBN 92-9083-216-9.
+* [7]**The ROD Motherboard for the ATLAS Liquid Argon Calorimeter**, A. Blondel et al., ATL-AL-EN-0055.
+* [8]**The ROD Demo for the LArgon Calorimeter, The LiArg ROD working group, ATLAS-COM-LARG-99-011.
+* [9]**ATLAS TileCal Digitizer Test System and Quality Control**, Bohm, C et al., ATLAS-TILECAL-2004-009.
+* [10]**ATLAS Tile Calorimeter Interface Card**, K. Anderson et al., proceedings of the 8th Workshop on Electronics for LHC Experiments, ISBN 92-9083-202-9.
+* [11]**LArg Front-End Optical Links, [http://atlas.web.cern.ch/Atlas/GROUPS/FRONTEND/larg_links/Agilent](http://atlas.web.cern.ch/Atlas/GROUPS/FRONTEND/larg_links/Agilent), G-Link. LAr Front-End Optical Link Selection** (from Jingbo YE www page): Dual G-LINK. [http://www.physics.smu.edu/~yejb/atlas/documents/link_selection_docs/dual_glink_final.doc](http://www.physics.smu.edu/~yejb/atlas/documents/link_selection_docs/dual_glink_final.doc) Single G-LINK. [http://www.physics.smu.edu/~yejb/atlas/documents/link_selection_docs/single_glink_final.doc](http://www.physics.smu.edu/~yejb/atlas/documents/link_selection_docs/single_glink_final.doc)
+* [12]**HDMP-1024/22 Low Cost Gigabit Rate Receiver/Transmitter Chip with TTL I/Os**, [http://cp.littcrature.agilent.com/litweb/pdf/5989-0352EN.pdf](http://cp.littcrature.agilent.com/litweb/pdf/5989-0352EN.pdf)
+* [13]**Agilent HDMP-1032A/1034A Transmitter/Receiver Chip Set**, [http://cp.littcrature.agilent.com/litweb/pdf/5988-3852EN.pdf](http://cp.littcrature.agilent.com/litweb/pdf/5988-3852EN.pdf)
+* [14]**Description of the OC (Output Controller) FPGA of the LiArg ROD Board**, D. LaMarra, ATL-AL-EN-0056.

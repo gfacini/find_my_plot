@@ -1,0 +1,377 @@
+[MISSING_PAGE_EMPTY:1]
+
+## 1 Introduction
+
+### Purpose of the document
+
+This document summarises, within the context of the DataFlow system in ATLAS DAQ/EF prototype -1 [1], the performance of the DAQ-Unit. This document fulfils the ATLAS DAQ/ EF prototype -1 milestone of March '99.
+
+### Overview of the document
+
+This document consists of six sections. In section 2 the context of the DAQ-Unit is presented and a brief description of the logical model is also given. The initial implementation of the DAQ-Unit is presented in section 3. The performance of the current implementation is presented in section 4. Section 5 summarises the document and gives an indication of the direction that further studies could take. Section 6 presents the conclusions.
+
+### 2 The DAQ-Unit
+
+### Background
+
+This section puts the DAQ-Unit into context. It is not meant to be a complete discussion. More details can be found in the references indicated.
+
+The DAQ/EF prototype -1 has been organised into four major subsystems: _DataFlow_[2], _Back-End_[3], _Event Filter_[4]_and Detector Interface_[5]. The DataFlow is the hardware and software elements responsible for: receiving, buffering, distributing event data; providing event data for monitoring; and storing event data from the detector. These functions are provided by: the _Front-End DAQ_ for the collection, buffering and forwarding of data fragments from the detector; the _Event Builder_ for the merging of event fragments into full events; the _Sub-Farm DAQ_ for the sending to and retrieving of events from the Event Filter and for sending events to mass storage.
+
+The Front-End DAQ consists of Read-Out Crates (ROCs). A ROC supports the read-out from one or more detector segments and has one or more connections to the Event Builder. ROCs work concurrently and independently of each other. The ROC consists of two elements: the _LDAQ_[6] and the _DAQ-Unit_[7]. The latter implements the flow of the event data in the ROC. Similarly, the Sub-Farm DAQ consists of Sub-Farm Crates (SFCs) which consist of an LDAQ and DAQ-Unit.
+
+A major component of the DAQ-Unit is the IOMs. These are elements located at the boundaries with other systems or sub-systems _(e.g._ the trigger system and Event Builder respectively) and provide the means to input, buffer and output data and data control messages. Specific instances of an IOM are the: Read-Out Buffer (ROB), Trigger interface (TRG), Event Builder InterFace (EBIF), Sub-Farm Input (SFI) and Sub-Farm Output (SFO).
+
+Referring to Figure 1 (a), the TRG sends messages to the ROBs and EBIF. In the former case the messages are of two types: those that inform the ROBs to reject one or more ROB fragments (L2R) and those that inform the ROBs to forward data to the Level 2 trigger system (ROI). The message sent to the EBIF, Level 2 Accept (L2A), leads to the Data Collection process. On completion of the latter, a message is sent to the ROBs from the EBIF (Discard). This message causes the ROBs to discard the ROB fragment that was subject to Data Collection. The messages that are exchanged between the different instances of the IOMs fall into two categories: _data control messages_ (L2A, L2R and ROI) and _data_ (Data Collection). The former are small, O(24bytes), while the latter is of O(1 Kbyte) per ROB.
+
+The main flow of data into, within and out of the SFC is handled by two IOMs: the SFI and SFO, see Figure 1 (b). The SFI receives and buffers data from the Event Building sub-system, _i.e._ the crate fragments sent by one or more EBIFs, and makes them available to the sub-farm Event Handler. The SFO receives and buffers full event data from the sub-farm Event Handler and sends them to a mass storage device.
+
+### Logical model
+
+The different instances of the IOMs receive data and or data control messages from one or more I/O channels. Data is buffered and subsequently forwarded to other IOMs or to other (sub-) systems. This common, core functionality is provided by a component called the Generic IOM (GIOM), it also defines the structure of the IOMs [8]. Therefore, the different instances of the IOMs consist of a generic core, the GIOM, and a number of tasks. The latter being the elements which define the specific instance of the IOM. A task performs a specific function, typically an I/O or processing request and, at run time, has an associated Poll and Action function. The result of the Poll function determines whether or not an action, as defined by the Action function, must be performed. The IOMs are data driven and the tasks are executed sequentially. The scheduling of an IOM's Action functions is performed by the scheduler component of the GIOM. The scheduler uses the Poll functions to determine whether an Action function should be scheduled.
+
+Figure 1: A functional view of the (a) Read-Out Crate and (b) Sub-Farm Crate DAQ-Unit.
+
+#### The tasks of the TRG
+
+The TRG receives and buffers data control messages from the external trigger systems or alternatively, for development and debugging, is itself the source of these messages. According to their type, the messages are sent to the ROBs or EBIF. The TRG has two main logical tasks:
+
+1. _Input_: This is the task which inputs and buffers the data control messages from the external trigger systems. The polling condition for this task indicates that one or more data control messages have been or must be transferred, depending on the implementation, from an I/O interface to an internal buffer.
+2. _Dispatching_: This task processes the data control messages placed in an internal buffer by the Input task. The data control messages are identified as those which must be sent to the ROBs or those which must be sent to the EBIF. They may be temporarily grouped, according to their type, prior to being dispatched to the ROBs or EBIF _i.e._ a group of ten L2R may be sent by the TRG to the ROBs as a single data control message.
+
+#### The tasks of the EBIF
+
+The EBIF builds crate fragments and subsequently sends these fragments to the Event Building sub-system. The building of a crate fragment is started via the reception of a L2A data control message. The EBIF has three main logical tasks:
+
+1. _Input_: This is the task which receives the L2A data control messages from the TRG A message indicates that an event has been accepted by the Level 1 or 2 trigger system. The event identifier is decoded from the L2A message and stored in a data structure shared with the Data Collection task (see below). This task polls on the reception of L2A data control messages.
+2. _Data Collection_: This task performs the collection of ROB fragments, within a ROC, to form a crate fragment. The event identifier of the ROB fragments to be collected is retrieved from a data structure shared with the Input task. The task also performs the event formatting required for a crate fragment [9]. Data collection may proceed in two ways: a shared memory or a message passing model. This task polls on the availability of event identifiers in the data structure shared with the Input task. The event identifiers of the built crate fragments are stored in a data structure shared between this task and the EB source task (see below).
+3. _EB source_: This task is responsible for the output, from the ROC, of crate fragments. The event identifier of the crate fragments is obtained from a data structure shared between this task and the Data Collection task. This task polls on the availability of event identifiers in the data structure shared with the Data Collection task.
+
+#### The tasks of the ROB
+
+The ROB receives and buffers ROD fragments [9] from the Read-Out Link (ROL). These fragments must be: copied to an external trigger system; accessed via the EBIF for data collection; and removed from the buffering system. The ROB must also format the event fragments to form a ROB fragment. The ROB has three main logical tasks:1. _Input_: This task receives and buffers the ROB fragments coming from the ROL. In the absence of a ROL _i.e._ for development and testing purposes, it is also the source of ROB fragments. The polling condition for this task indicates that a ROD fragment has, or must be, transferred to the buffer. In the latter case, this task may have to set-up and perform the transfer and handle the ROL protocol. This task also performs the formatting necessary to create ROB fragments.
+2. _Communications with the TRG_: This task receives and processes data control messages from the TRG. Two types of data control messages are received from the TRG: a ROI type indicating that ROB fragments must be forwarded to the Level 2 trigger system and a L2R type indicating that ROB fragments must be removed from the buffer. This task polls on the arrival of data control messages from the TRG
+3. _Communications with the EBIF_: This task receives a data control message from the EBIF whose type, Discard, indicates that a ROB fragment must be discarded from the buffer. The event identifier of the ROB fragment to be discarded, is decoded from the received data control message. This task polls on the arrival of data control messages from the EBIF.
+
+#### 2.2.4 The SFI
+
+The SFI receives and buffers crate fragments and sends and receives data control messages to and from the Event Building sub-system. When all crate fragments for an event have been received, they are assembled in a specified order and event formatting is performed so as to create events conforming to the data format specified in [9]. The events are then sent to the sub-farm event handling system. The SFI has two main logical tasks:
+
+1. _Destination_: This task receives crate fragments from the Event Building sub-system and builds and buffers events. The identifier of a built event is stored in a data structure shared between this task and the Output task (see below). The Poll function of this task polls on the reception of crate fragments from the event building I/O interface.
+2. _Output_: This task puts built events into the sub-farm Event Handler. The event identifier of built events is retrieved from a data structure shared between this task and the Destination task. The polling condition for this task is that a complete event has been built by the Destination task and that the Sub-farm Event handler is ready to receive an event.
+
+#### 2.2.5 The SFO
+
+The SFO receives and buffers filtered events from the sub-farm Event Handler. These events are subsequently sent to a mass storage system. The SFO has two main logical tasks:
+
+1. _Input_: This task receives and buffers the filtered events. In the absence of a Sub-Farm Event Handler _e.g._ for testing purposes, this task generates the events. The polling condition of this task is the availability of events.
+2. _Output_: This task sends the buffered events to a mass storage system and frees the corresponding buffer space after a successful send. Additionally, the consistency and integrity of the event format may be checked.
+
+### Design issues
+
+The IOMs are, in light of the performance requirements, implemented as single threaded processes. Requests for I/O, including data control message passing, are served via polling and not by interrupts and I/O drivers. In addition, to reduce portability issues, the use of operating system calls is avoided, particularly at run-time.
+
+For the EBIF, SFI and SFO the constraints mentioned above have been relaxed due to the less demanding rate requirements. More specifically, standard networking I/O has been used with the Event Building sub-system and Sub-farm Event Handler.
+
+## 3 Implementation
+
+### General
+
+The initial implementation of the IOMs is based on VMEbus Single Board Computers (SBCs), specifically the CES RIO 806x [10] and the MOTOROLA MVME2xxx [11], running the LynxOS operating system and a secondary bus supporting broadcast functionality. To date, only the PCI Vertical InterConnect [12] has been used as a secondary bus.
+
+### Missing functionality
+
+The initial implementations of the ROC and SFC do not provide all the functionality foreseen by the high-level design, section 2.2. External data producers and consumers _e.g._ the ROD and the trigger systems have not been implemented. Consequently external data input and output are emulated in different ways. In addition and more specifically:
+
+* in the TRG data control messages are generated internally.
+* the ROBs generate event fragments internally and do not transfer any ROB fragments to an external trigger system. The ROI data control messages received by the ROB do not trigger any data transfers.
+* the EBIF performs data collection over VMEbus but does not transfer any event data to the Event Builder sub-system. Data collection is based on a shared memory model.
+* the SFI, via the Event Handler API, transfers events via a dummy Event Handler, to the SFO. The Event Handler performs no processing, it simple receives and forwards events.
+* the SFO does not output events to a mass storage system.
+
+## 4 Performance measurements
+
+### Introduction
+
+The performance measurements presented in this section have been made at the level of the IOM tasks and are not intended to be a detailed study down to the level of the supporting libraries. As presented in section 2.2, the different IOMs exchange data control messages. The performance of intra-IOM message passing has been documented elsewhere [13] and its results are only referred to here.
+
+The performance is presented in terms of the time spent executing the Poll and Action functions of the tasks specific to an IOM. Where appropriate, specific functionality within Action functions of tasks has also been analysed. The timing method used is discussed in section 4.2. The measurements are not intended to present absolute numbers, rather to provide an understanding of the shape of the processing time distributions and the relative processing time of specific functionalities.
+
+All code, unless explicitly stated, has been compiled with version 2.7-96q1 of the gcc compiler and at least compiler optimisation option -O has been used.
+
+### Time stamping
+
+The timing measurements have been made using the Time Base (TB) registers of the PowerPC CPU [14]. The frequency at which the time base is running is implementation dependent. On the SBCs used, this frequency is 16 MHz.
+
+The execution delays of the functions to be benchmarked can be short, O(1 \(\upmu\)s). It is therefore essential for the performance analysis, to know the effect that the time stamping has on the application code. Figure 2 shows the distribution of the overhead implied by using the time stamping function. It has been measured by calling the time stamping function 10000 times, back-to-back. The observed distribution is non-Gaussian and has an average value of 250 ns, but fluctuations up to 1.2 \(\upmu\)s can be observed. For measurements above a few micro-seconds, the overhead is not significant. However, for measurements obtained in the micro-second range, these fluctuations must be considered when interpreting the results.
+
+The observed fluctuations may be due to the super scalar architecture of the PowerPC, which allows the execution of different parts of the time stamping function concurrently with its five execution units. A correction of 250 ns may be applied to account for the time stamping overhead.
+
+The average value obtained only applies under certain circumstances and depends on the cache hit rate. The benchmarking method described above maximises the cache hit frequency as the
+
+Figure 2: The distribution of the time taken to execute the time stamping function.
+
+time stamping is performed in a tight loop resulting in the number of instructions being less than the instruction cache of the PowerPC CPU (16 Kbytes). In real applications however, there may be many instructions executed in between two time stamps, reducing the cache hit frequency. Even though the time stamping instructions are small, it may still take of the order of a micro-second to fetch from DRAM. It is not possible to know whether there was a cache hit, therefore, a well defined overhead, due to caching effects, cannot be defined.
+
+No effects on the time stamping resolution or the shape of the distribution have been observed, as a function of the on-board temperature, within a temperature range of 28 to 41\({}^{\mathrm{o}}\)C.
+
+### Scheduler Performance
+
+The IOM scheduler [15], schedules the tasks associated to an IOM. A task is scheduled if the polling condition, as embodied by the Poll function, associated to the task is successful. The performance of the scheduler has been analysed by measuring the transition time between: exiting the Poll function and entering the associated Action function; and exiting an Action function and entering the next Poll function. These times are, to first order, independent of IOM instance and task.
+
+Figure 3 (a) shows the distribution of time taken to exit a Poll function and enter the associated Action function given a successful polling condition. An average, corrected for the time stamp overhead, of 0.2 us is observed. In Figure 3 (b), the distribution of time taken to exit an Action function and enter the next Poll function is shown. An average of 0.3 us is observed.
+
+### Trg
+
+#### 4.4.1 Pre-amble
+
+The implemented tasks of the TRG are: _Task1_ and _Task2_. The former task implements the functionality of the Input logical task and Task2 implements the logical Dispatching task, see section 2.2.1.
+
+Figure 3: The distribution of the time taken to (a) exit a Poll function and enter the corresponding Action function and (b) exit an Action function and enter the next Poll function.
+
+These measurements were obtained with a configuration of a TRG, EBIF and 4 ROBs, implemented on RIO 8062s, and inter-IOM message passing implemented on VMEbus. The applications and supporting libraries were not compiled with the compiler option -O.
+
+#### 4.4.2 Detailed analysis
+
+The time stamp sequence for the first 2 ms of the TRG is shown in Figure 4. The meaning of the time stamp IDs is given in Table 1. The time stamps were placed at the entry and exit of the Poll and Action functions and, for _Task2_, around the code segments which handle the L2A, L2R and ROI data control messages.
+
+Figure 4 gives a graphical overview of the processing sequence within the TRG and represents the processing steps performed by the TRG for a block of 111 data control messages generated in the ratio 1:100:10 for the L2A, L2R and ROI respectively. All messages are generated at initialisation time: the dominant feature is the time spent in the Action function of _Task2_ which in turn is characterised by phases of handling each type of data control message.
+
+The TRG groups L2Rs and sends them as a single data control message: each L2R is moved, via a memory copy, to a stack and subsequently the complete stack sent as a single data control message. This is shown from left to right at time stamp ID 5. The first "point" represents the
+
+\begin{table}
+\begin{tabular}{|c|l|} \hline
+**Time stamp ID** & **Meaning** \\ \hline \hline
+**0** & _Task1 Poll: Enter \& Exit_ \\ \hline
+**1** & _Task1 Action: Enter \& Exit_ \\ \hline
+**2** & _Task2 Poll: Enter \& Exit_ \\ \hline
+**3** & _Task2 Action: Enter \& Exit_ \\ \hline
+**4** & _Handle L2A messages: Start \& Stop_ \\ \hline
+**5** & _Handle L2R messages: Start \& Stop_ \\ \hline
+**6** & _Handle ROI messages: Start \& Stop_ \\ \hline \end{tabular}
+\end{table}
+Table 1: TRG time stamp IDs and meaning.
+
+Figure 4: A TRG time stamp sequence diagram.
+
+moving, to the stack, of each L2R and the second point represents the end of the send of the complete stack via inter-IOM message passing.
+
+The distribution of the time spent in the Poll and Action functions for each task is shown in Figure 5. These measurements were obtained by placing time stamps only at the entry and exit points of these functions.
+
+Figure 5 (a) and (b) show that these functions perform very few actions, as they are dummy. Typically they update local variables and read from or write to a software FIFO [16]. The polling function of _Task2_ not only reads a software fifo and updates local variables, but also verifies that the ROBs and EBIF are able to accept further data control messages. The distribution of the time spent in the Action function of _Task2_ is shown in Figure 5 (d). Two distinct peaks, separated by 200 \(\upmu\)s, at \(\sim\)1780 and 1950 \(\upmu\)s can be observed. The peak at \(\sim\)1950 \(\upmu\)s (25 % of the total) can be attributed to contention on the VMEbus _i.e._ the control messages, sent during each call to the Action function, take longer to send.
+
+Figure 5: Distribution of the time spent in the Poll and Action function for (a), (b) Task1 and (c), (d) Task2.
+
+The time spent within the _Task2_ Action function handling the different types of data control messages (L2A, L2R and ROI) is shown in Figure 6. The time distribution for handling a L2A data control message is shown in Figure 6 (a) and is the time to send a data control message to the EBIF.
+
+Figure 6 (c) is the time to send the ROI data control message to each ROB.
+
+A group of ten L2Rs is sent as a single data control message to each ROB: each L2R is moved to a stack until the stack is full. This can be seen in Figure 6 (b), the peak at ~15 us due to the moving of each L2R onto the stack, a memory copy, and the remaining part of the distribution reflects the sending of the subsequent group of ten L2Rs to each ROB.
+
+Figure 6: Distributions of times in the Action function of Task2 handling (a) L2A (b) L2R and (c) ROI.
+
+[MISSING_PAGE_FAIL:12]
+
+This figure gives a graphical overview of the processing sequence within the EBIF and represents the processing steps performed by the EBIF for a Level 2 accepted event. It can be seen that the dominant feature is the time spent in the Action function of _Task2_ and that this time is divided into three distinct phases: locate ROB fragments (time stamp ID 4); collect ROB fragments (time stamp ID 5); and the sending of the discard data control message to the ROBs (transition between time stamp IDs 5 and 3).
+
+The distribution of the time spent in the Poll and Action functions for each task is shown in Figure 8. These measurements were obtained by placing time stamps only at the entry and exit points of these functions.
+
+The Poll condition of _Task1_ consists of the sequential verification of two conditions using local variables: firstly the arrival of L2A message from the TRG and secondly that there is space within a software FIFO to buffer the event ID decoded from the incoming message. If the first condition fails the second condition is not verified. This counts for the structure in Figure 8 (a). A similar explanation accounts for the structure in Figure 8 (c). In this case three conditions are verified sequentially. The peak at \(\sim\)0.5 \(\upmu\)s indicates the premature termination of the Poll func
+
+Figure 8: Distribution of the time spent in the Poll and Action function for (a), (b) Task1 and (c), (d) Task2.
+
+tion as there are no event IDs pending in the software FIFO, filled by the Action function of _Task1 i.e._ no L2A message has been received by _Task1_. If there is an event ID within the software FIFO, the next step in the Poll function is to verify that there will be space within the Event Manager to buffer the resulting built event. This condition is always true, therefore, there is no peak, in Figure 8 (c), due to the premature termination of the Poll function due to this condition. The peak at ~0.7 \(\upmu\)s indicates a successful Poll of _Task2 i.e._ all conditions fulfilled.
+
+The time distribution shown in Figure 8 (b) for the Action function of _Task1_ is simply the time taken to receive a L2A message, via a memory copy, using the intra-IOM message passing system and buffer the event ID, obtained from this message, in a software FIFO.
+
+The Action function of _Task2_ performs the main functionality of the EBIF, Data Collection. This function consists of, predominantly, locating the ROB event fragments and collecting the ROB event fragments. To understand the structure shown in Figure 8 (d) time stamps were also placed around the code segments which locate and collect the ROB fragments. The distribution of the time spent performing these functions is shown in Figure 9. It can be seen that the structure in Figure 8 (d) can be associated with the time distribution spent collecting the ROB event fragments. This structure is in turn related to the time spent performing chained DMA transfer of the ROB event fragments from the ROBs to the EBIF. The three different peaks are associated to the three different ROB event fragment sizes, 512, 768 and 2560 bytes, generated by the ROBs.
+
+The percentage distribution of the time spent in the _Task2_ Action function locating and collecting the ROB fragments, per event, is shown in Figure 10. It can be seen that the percentage of time spent locating four ROB fragments varies between ~2-12 %. This operation involves at least one VMEbus single cycle per ROB. It can also be seen that between 40-78 % of the time is spent transferring the ROB event fragments and depends on the size of the transfers. The remaining time is spent sending the Discard data control message.
+
+The time spent locating ROB fragments and sending the Discard data control message is more sensitive to the number of ROBs in the system as these operations are performed using VME
+
+Figure 9: Distribution of the time spent (a) Locating and (b) Collecting ROB fragments.
+
+bus single cycles and hence involve more bus arbitration cycles compared to the collection phase. The latter is more sensitive to the size of the data to be collected.
+
+### 4.6 Rob
+
+#### 4.6.1 Pre-amble
+
+The implemented tasks of the ROB are: _IN, TRG_ and _DC_. These tasks map to the three logical tasks discussed in section 2.2.3.
+
+The ROB measurements have been performed in a configuration consisting of a TRG, EBIF and two ROBs. Data control messages are transmitted via VMEbus only, which has the consequence that the global system performance is determined by the TRG [13]. The alternative of using PVIC has no influence on the performance of the ROB, as it is only the receiver of messages. Whether these flow into the system memory of the ROB via VMEbus or PVIC has a minor affect the operation of the ROB [17].
+
+The event manager [18] was setup to have 200 pages of 1024 bytes and a hash table size of sixteen elements. The event fragments were generated with sizes of 512 and 768 bytes in the ratio 1:3. This means that the events are all contained within a single page and that the average number of events per class is twelve. Searching for an event based on its ID, therefore involves scanning of a list with twelve elements. However, since data control messages and events are generated with sequential IDs and events are added to the end of the class list, the events searched for are the first ones in the list and the search time is therefore minimal.
+
+The ROB only receives data control messages and the operation of reading a message is local [17]: the messages are written into the system memory of the ROB by the senders of messages. The ROB performs I/O, as a bus master, only when executing the inter-IOM message passing protocol [17] and when generating TRG synchronisation messages [19].
+
+Figure 10: Percentage of the time spent in the Action function (a) Locating and (b) Collecting ROB fragments.
+
+The event rate in the ROB is about 190 kHz [13] corresponding to less than 6 \(\upmu\)s per event. Therefore, time stamping in the ROB tasks has to be employed with some care in order to avoid a significant degradation of the performance. The method of equipping all Poll and Action functions permanently with time stamps cannot be used. Instead, for each of the measurements performed, only those time stamps which are required for the measurement are implemented.
+
+Measurements in the micro-second range have been corrected for the time stamping overhead, see section 4.2 and have been confirmed using the technique of PCI bus time stamping using the VMetro PCI bus analyser [20].
+
+#### 4.6.2 ROB global measurement
+
+The overall time distribution of the ROB application is shown in Figure 11. This measurement was obtained by inserting one time stamp in the polling function of the _IN_ task. The first peak, at \(\sim\)2 \(\upmu\)s, corresponds to the "idle", loop in which only the four Poll functions of the four tasks are executed _i.e._ when no events are produced and no data control messages have arrived. Therefore, this value provides an indication that the polling function and scheduler overheads in the ROB are below 1 \(\upmu\)s. More detailed measurements are given in section 4.3 and will also be shown in the following sections.
+
+The entries in the histogram above 3 \(\upmu\)s correspond to the cases where one or more action functions are executed. The entries above 10 \(\upmu\)s correspond to the action function of the _TRG_ task receiving and processing a group of L2Rs as explained in more details below. The average value of the bins above 3 \(\upmu\)s is 5.8 \(\upmu\)s which corresponds to an average event rate of 190 kHz as previously measured [13].
+
+#### 4.6.3 The IN task
+
+Figure 12 (a) shows the distribution of the time spent in the Poll function and was obtained by only placing time stamps at the entry and the exit of the Poll function. The Poll function checks
+
+Figure 11: Time distribution of the four-task loop in the ROB application.
+
+whether there was space within the event manager for a new event. The average time spent in this Poll function, corrected for the time stamping overhead, is \(\sim\)200 ns.
+
+The time distribution obtained for the Action function is shown in Figure 12 (b). The Action function has the following main components: obtaining space for an event, generating a ROD header and a few data words, formatting the header of the event [9], and creating the event in the event manager. The average time is \(\sim\)2.5 \(\upmu\)s. As an example, the distribution for the event formatting is shown in Figure 13.
+
+#### 4.6.4 The TRG task
+
+The Poll function of the _TRG_ task checks if a data control message has arrived from the TRG. The time distributions for a non-successful and successful polling are shown in Figure 14 (a)
+
+Figure 12: Execution time spectrum of the (a) Poll and (b) Action function of the IN task.
+
+Figure 13: Time distribution of event formatting in the Action function of the IN task.
+
+and (b) respectively. The difference between the two distributions can be attributed to caching: when a message arrives, the local write pointer of the message queue is updated (written) via VMEbus, and the reading of the value by the local CPU therefore requires a cache update. This is not required in the case of a non-successful Poll, where the Read and Write pointers are in cache. In the case of a non-successful and successful Poll, the average value, corrected for the time stamping overhead, is ~300 ns and ~1 us respectively.
+
+The distribution of the time taken to execute the Action function of the _TRG_ task is shown in Figure 15. The first peak, at 1.8 us, corresponds to the analysis of a ROI message of length 56 bytes and is due to the time taken, 1.1 us, to receive the message (a memory copy). The second peak, at 11.1 us, corresponds to the receiving and handling of ten L2Rs. The reception of this message, the ten L2R, accounts for ~5 and the remaining time is mainly due to the deletion of the ten events from the event manager.
+
+Figure 14: The time distribution of a (a) non-successful and (b) successful Poll of the _TRG task._
+
+Figure 15: Execution time spectrum of the Action function of the TRG task.
+
+#### 4.6.5 The DC task
+
+The functionality of the _DC_ task is mainly a subset of that of the _TRG_ task. The poll function checks whether a discard data control message has been sent by the EBIF and the time distributions are, therefore, similar to that for the Poll function of _TRG_ task. Figure 16 shows the distribution of the execution time of the Action function. This function receives a Discard data control message of length 24 bytes from the EBIF and removes the corresponding event from the event manager. The average time for these operations is about 2.3 \(\upmu\)s.
+
+### 4.7 Sfi
+
+#### 4.7.1 Pre-amble
+
+The implemented tasks of the SFI are: _Receive Fragments_, _End of Event_ and _Output_. The former two tasks implement the functionality of the Destination logical task and the _Output_ task implements the logical Output task, see section 2.2.4.
+
+The _Receive Fragment_ task does not receive events from the Event Builder sub-system, it is the generator of events. The Sub-Farm Event Handler was implemented as a dummy process executing on a Sun workstation. This process was connected to the SFI via 10 Mbit ETHERNET. The Event Handler API [21], used by the SFI to inject events into the Sub-Farm Event Handler, was implemented on top of ILU [22], an implementation of CORBA [23].
+
+The Action function of the _Receive Fragment_ task generates crate fragments of 256 bytes. When two crate fragments have been generated it informs the _End of Event_ task via a software FIFO. The _End of Event_ task pols on the software FIFO and in its Action function it "builds" the event and completes the event header information. It subsequently writes the event identifier of the event into a software FIFO. The condition of this software FIFO is polled by the Poll function of the _Output_ task. If the poll condition indicates a non-empty FIFO and, via the Event Handler API, that the sub-farm Event Handler is ready to accept an event the Action function of the _Output_ task is scheduled.
+
+Figure 16: Execution time spectrum of the Action function of the DC task.
+
+#### 4.7.2 Overview
+
+A time stamp sequence, for the handling of two consecutive events, by the SFI is shown in Figure 17 (a). The generation, handling and injection of an event into the Event Handler takes ~8.5 ms: ~3.3 ms is taken by querying the readiness of the Event Handler to accept the event and ~4.9 ms for the injection of the event into the Event Handler. The generation of crate fragments and the building of the event takes ~300 \(\upmu\)s.
+
+Figure 17 (b) is an expansion of the time stamp sequence between 8.5 ms and 8.9 ms. The time sequence proceeds as follows: label (1) indicates the execution of the Poll function of the _Receive Fragment_ task. In the context of crate fragment generation, the result is always successful and leads to the subsequent execution of this task's Action function, label (2), and the first crate fragment is generated. Label (3) indicates the execution of the Poll function of the _End of Event_ task. This polling condition is non-successful as currently, only a single crate fragment has been generated. Next, the Poll function of the _Output_ task is executed, label (4), and also results in a non-successful polling as no events have yet been built by the Action function of the _End of Event_ task. The scheduler, having scheduled all tasks once, returns to the execution of the Poll function of the _Receive Fragment_ task, label (5). The successful polling condition leads to the Action function of this task to be executed, resulting in the generation of another crate fragment, label (6). The Poll function of the _End of Event_ task, is now executed, label (7), and is successful, as two crate fragments have been generated. The tasks corresponding Action function builds the two crate fragments into a single event and completes the event header information. The execution of the Poll function of the _Output_ task, label (9), is successful and the task's Action function is executed, not shown in the figure, which injects the built event into the Sub-Farm Event Handler. The sequence then restarts at label (1).
+
+Figure 17: A SFI time stamp sequence diagram showing (a) the generation and handling of two events and (b) the region relevant to the generation of crate fragments.
+
+#### 4.7.3 Detailed analysis
+
+As can be seen from Figure 17 (b), the time taken to execute the poll function of the _Receive Fragment_ task is much longer at label (1) than at label (5) which should not be the case as it represents the execution of the same function. This is also true for the execution time of the Action function of the same task, points (2) and (6).
+
+As can be seen in Figure 18, the distribution of the execution time of the Poll function of the _Receive Fragment_ task has two distinct peaks at \(\sim\)2 and 9 \(\upmu\)s. These peaks systematically correspond to the polling prior to the generation of the second and first crate fragments respectively. A similar behaviour can be seen in the Action function: the generation of the first event fragment takes \(\sim\)175 \(\upmu\)s, where as the generation of the second fragment takes \(\sim\)45 \(\upmu\)s. For the Poll function of the _End of Event_ task two peaks are also seen, but in the Action function there is a single peak.
+
+The distributions of the times spent in the _Output_ task Poll and Action functions are shown in in Figure 19. The distribution for a successful and non-successful polling are shown separately. The execution of a successful Poll takes on average 3.5 ms. While the Poll function is executed in \(\sim\)3 \(\upmu\)s in the case of a non-successful polling. In the latter case only local variables are used while in the case of the successful polling the Event Handler API is used and implies the use of
+
+Figure 18: Execution times of the Output task.
+
+ILU over TCP/IP. The injection of the event into the Event Handler also implies the use of ILU over TCP/IP and take \(\sim\)5 ms.
+
+The double peak structure observed, particularly in the Poll and Action functions of the _Receive Fragment_ task, can be attributed to context switching as the SFI uses standard networking I/O to put events into the Event Handler. Hence, the generation of a crate fragment following network I/O is characterised by a low cache hit frequency.
+
+The time distributions obtained by executing an SFI without an Event Handler _i.e._ no standard networking I/O, are shown in Figure 20. There are again two clear peaks, at \(\sim\)0.3 and 1 \(\upmu\)s, related to the generation of the second and the first event fragment, indicating that there are other caching effects. However, a clear rise in the cache hit frequency is seen with respect to the case where a dummy Event Handler is implemented. The corresponding action task now shows three narrow peaks at \(\sim\)30, 40 and 50 \(\upmu\)s, with the peak at \(\sim\) 30 \(\upmu\)s being associated to the
+
+Figure 19: Execution times of the Output task.
+
+generation of the second crate fragment and the generation of the first crate fragment taking either \(\sim\)40 or 50 \(\upmu\)s.
+
+The _Output_ task of the SFI puts all crate fragments associated to an event into contiguous memory prior to injecting them into the Sub Farm Event Handler. This functionality has two components: the operations necessary to locate the crate fragments and the associated memory copies. The operations necessary to locate crate fragments depends on the number of event
+
+Figure 20: Execution times of the Receive Fragment and End of Event tasks with no Event Handler.
+
+building sources and this dependency is shown in Figure 21. It can be seen that there is an overhead of ~11 \(\upmu\)s and an additional 500 ns per event building source.
+
+### 4.8 Sfo
+
+#### 4.8.1 Pre-amble
+
+The SFO has been implemented as two tasks which map directly onto the logical task discussed in section 2.2.5.
+
+In the measurements presented here, as for the SFI, the sub-farm Event Handler was implemented as a dummy process executing on a Sun workstation. This process was connected to the SFO via 10 Mbit ETHERNET. The Event Handler API [21], used by the SFO to receive events, was implemented with ILU [22], an implementation of CORBA [23]. The _Output_ task does not inject events into a mass storage system.
+
+#### 4.8.2 Analysis
+
+For each of these tasks time stamps were placed at the entry and exit of the Poll and Action functions. The time stamp sequence for the handling of a typical event is shown in Figure 22. It can be seen that the polling condition of the _Input_ task is successful after the third execution of the Poll function. The Action function of the _Input_ task is then executed and subsequently the Poll and Action function of the _Output_ task. The Action function of the _Output_ task simply
+
+Figure 21: The time taken to locate crate fragments verses the number of event building sources.
+
+releases the memory allocated to the event _i.e._ clears a status variable, thus discarding the event.
+
+The time spent in the Poll and Action function of the _Input_ task are, as for the SFI, determined by the use of the Event Handler API and subsequently ILU over TCP/IP. The average time of
+
+Figure 22: A SFO time stamp sequence showing (a) handling of one event and (b) a zoom out of the region around event completion.
+
+execution of a non-successful and successful polling condition is ~1.9 and 2.1 ms respectively, see Figure 23. The average time of execution of the Action function is ~3.1 ms.
+
+## 5 Summary
+
+This document has summarised the processing in the current implementation of the DAQ-Unit of the DataFlow system in the ATLAS DAQ/EF prototype -1. This has been done by time profiling the main functions of the different instances of the IOMs: TRG, EBIF, ROB, SFI and SFO.
+
+The profiling was performed using a time stamping technique based on the Time Base registers of the PowerPC. The average overhead of a time stamp is ~250 ns, but fluctuations up to 1 \(\upmu\)s may occur due to caching effects.
+
+The analysis confirms the results of other studies that the DAQ-Unit performance is dominated by I/O operations: inter-IOM and between the DAQ-Unit and other (sub-)systems in DAQ/EF -1 _e.g._ the Sub-Farm Event Handler.
+
+It has been shown that the Poll functions in the ROC DAQ-Unit take O(<1.5 \(\upmu\)s) as they use local variables _i.e._ they perform no I/O (by design). The SFC DAQ-Unit, due to the less demanding environment, does perform I/O within its Poll functions and therefore, these functions take on the order of a few milli-seconds to execute.
+
+Each instance of an IOM has 2-3 main tasks and typically the Action function of one of these tasks dominates the processing of the whole IOM application.
+
+Figure 23: Execution times of the Input and the Output tasks.
+
+For the TRG the dominant Action function is _Dispatching_ due to the use of inter-IOM communications. The processing in this function is proportional to the number of ROBs in the system due to a lack of broadcast functionality in the VMEbus implementation of the inter-IOM communications. The performance of the latter would have to improve by an order of magnitude before processing effects become apparent.
+
+The EBIF is dominated by the processing performed in the Action function of the Data Collection task. The data collection is implemented on a shared memory model, the memory being shared via VMEbus. Consequently, the use of DMA chained transfers over VMEbus is the dominating factor. Another scaling effect, in this task is that of locating the ROB fragments in each ROB. This takes ~7 \(\upmu\)s per ROB due to the use of VMEbus single cycles.
+
+The implementation of the ROB used for these measurements performed no I/O _i.e._ the distributions present non-I/O operations performed by the ROB tasks. These operations consist mainly of: Event management and ROB fragment formatting. No single task appears to dominate and an average processing time of 5.8 \(\upmu\)s per event has been measured, the Poll and Action functions per event take O(1-2 \(\upmu\)s). The performance of the ROB should be compared to that of the IOMs in the ROC which do perform some I/O, _e.g._ inter-IOM communications. It can be seen that the performances differ by an order of magnitude in the dominant Action functions.
+
+The SFC DAQ-Unit performance is dominated by the use of standard network I/O and therefore, average execution times are O(3 ms). In addition, the processing time of the SFI is proportional to the number of crate fragments which have to be built. This is because, prior to inputting the events into the Sub-Farm Event Handler, the crate fragments are copied to contiguous memory. The overhead per crate fragment for this operation is ~500 ns plus the time to perform a memory copy.
+
+## 6 Conclusions
+
+The analysis performed confirms that, in the current design and implementation of the DAQ-Unit, processing is not a bottleneck. The IOMs are dominated by I/O: between IOMs, with the Event Building sub-system and between the Sub-Farm DAQ and Event Handler.
+
+The performance levels obtained are a consequence of the design and implementation being based on a single process, no interrupts and no use of operating system functionality at run time.
+
+In these studies, the ROB performed very little I/O. Indeed, the operations performed by the ROB are typical of all IOMs: access to the Event manager, updating software FIFOs, receiving data control messages and event formatting. The ROB results show that these operations can be typically performed in O(1-2 \(\upmu\)s). The other IOMs do not perform orders of magnitude more non-I/O related processing than the ROB. Therefore, even a factor of ten improvement in I/O performance is not enough to make the processing a limiting factor. Given the present understanding of the road map for CPU power and I/O capabilities it is unlikely that processing in the IOMs, at the level and rates currently foreseen, will be a bottleneck.
+
+Scaling effects not related to internal and external I/O are apparent in the EBIF, due to Data collection, and the SFI, due to copying events into contiguous memory. Within the TRG scaling affects arise due to the implementation of inter-IOM communications over the VMEbus.
+
+Outstanding issues are the effects on processing when: using an SLINK input to the ROB; the use of one or more ROB-INs, realistic input to the TRG and a realistic EB source task for the EBIF to understand processing not related to I/O.
+
+## References
+
+* [1] G. Ambrosini et. al., The ATLAS DAQ and Event Filter Prototype "-1" Project, presented at Computing in High Energy Physics 1997, Berlin, Germany. [http://atddoc.cern.ch/Atlas/](http://atddoc.cern.ch/Atlas/) Conferences/CHEP/ID388/ID388.ps.
+* [2] The DataFlow for the ATLAS DAQ/EF Prototype -1, [http://atddoc.cern.ch/Atlas/Notes/](http://atddoc.cern.ch/Atlas/Notes/) 069/Note069-1.html
+* [3] The DAQ/EF prototype -1 Back-End, [http://atddoc.cern.ch/Atlas/DaqSoft/Welcome.html](http://atddoc.cern.ch/Atlas/DaqSoft/Welcome.html)
+* [4] The DAQ/EF prototype -1 Event Filter, [http://atddoc.cern.ch/Atlas/EventFilter/main.html](http://atddoc.cern.ch/Atlas/EventFilter/main.html)
+* [5] The Detector Interface Group, [http://atddoc.cern.ch/Atlas/Detfelf/Welcome.html](http://atddoc.cern.ch/Atlas/Detfelf/Welcome.html)
+* [6] The LDAQ ATLAS DAQ prototype -1, [http://atddoc.cern.ch/Atlas/Notes/040/Note040-1.html](http://atddoc.cern.ch/Atlas/Notes/040/Note040-1.html)
+* [7] The Read-Out Crate in ATLAS DAQ/EF prototype -1. _CERN-EP/99-xxx_, in preparation.
+* [8] D. Francis _et. al._, The generic I/O module in ATLAS DAQ prototype -1. [http://atddoc.cern.ch/Atlas/Notes/041/Note041-1.html](http://atddoc.cern.ch/Atlas/Notes/041/Note041-1.html)
+* [9] The Event Format in ATLAS DAQ/EF prototype -1, [http://atddoc.cern.ch/Atlas/Notes/](http://atddoc.cern.ch/Atlas/Notes/) 050/Note050-1.html
+* [10]RIO2 806x. Product catalogue, Creative Electronics Systems, Geneva, Suisse.
+* [11] MOTOROLA MVME2xxx, [http://www.mcg.mot.com](http://www.mcg.mot.com)
+* [12]PCI Vertical InterConnect (PVIC). Product catalogue, Creative Electronics Systems, Geneva, Suisse.
+* [13]Intra and inter-IOM communications summary document, ATL-COM-DAQ-99-003.
+* [14]The Time Stamping library, [http://atddoc.cern.ch/Atlas/Notes/124/Note124-1.html](http://atddoc.cern.ch/Atlas/Notes/124/Note124-1.html)
+* [15]The IOM scheduler, [http://atddoc.cern.ch/Atlas/Notes/018/Note018-1.html](http://atddoc.cern.ch/Atlas/Notes/018/Note018-1.html)
+* [16]Software FIFOs for the IOMs in the DAQ/EF prototype -1, [http://atddoc.cern.ch/Atlas/](http://atddoc.cern.ch/Atlas/) Notes/077/Note077-1.html
+* [17]The DAQ-unit Message Passing API, ATLAS DAQ Prototype -1 Technical Note # 91
+* [18]Event Manager API in ATLAS DAQ/EF prototype -1 DAQ-Unit, [http://atddoc.cern.ch/](http://atddoc.cern.ch/) Atlas/Notes/071/Note071-1.html
+* [19]The main data flow in the Read-Out Crate of ATLAS DAQ prototype -1, [http://atddoc.cern.ch/Atlas/Notes/047/Note047-1.html](http://atddoc.cern.ch/Atlas/Notes/047/Note047-1.html)
+* [20]PBTM-315 PMC Analyzer and the VBT-325 Advanced VMEbus tracer, VMETRO, Oslo, Norway.
+* [21]Event Handler API, [http://atddoc.cern.ch/Atlas/Notes/098/Note098-1.html](http://atddoc.cern.ch/Atlas/Notes/098/Note098-1.html)
+* [22]ILU is manufactured by PARC Xerox Co., [ftp://ftp.parc.xerox.com/pub/ilu/ilu.html](ftp://ftp.parc.xerox.com/pub/ilu/ilu.html)
+* [23]OMG CORBA, [http://www.omg.org/corba/](http://www.omg.org/corba/)

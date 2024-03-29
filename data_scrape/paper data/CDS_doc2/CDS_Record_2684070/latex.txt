@@ -1,0 +1,133 @@
+[MISSING_PAGE_EMPTY:1]
+
+## 1 Introduction
+
+Large datasets are required to achieve precision in Standard Model (SM) measurements and excellent sensitivity in searches for physics beyond the SM. In order to produce such datasets, the Large Hadron Collider (LHC) operates with a large instantaneous luminosity, resulting in many nearly simultaneous proton-proton collisions (pileup). Because typically only one collision is interesting (the _hard-scatter_), the other collisions are a source of noise. In the LHC Run 2 (2015-2018), the average number of collisions per bunch crossing, \(\langle\mu\rangle\), was \(\sim\)34 and the anticipated value for the High-Luminosity LHC is 140-200. Mitigating the impact of pileup is a key challenge for reconstructing hadronic final states. The purpose of this note is to study the impact of image-based pileup mitigation using convolutional neural networks on the missing transverse momentum (\(\vec{E}_{\mathrm{T}}^{\mathrm{miss}}\)) reconstruction with the ATLAS detector in Run 2 [1].
+
+ATLAS currently deploys multiple strategies to suppress pileup. At the lowest level, the calorimeter pulse shaping, calibration and noise thresholds naturally suppress pileup on average, and the excellent vertexing resolution can be used to assign charged particles to their production vertex. The pileup contribution to the energy of jets is corrected on average using an area-based approach [2, 3] with a residual correction [4]. Jets originating primarily from pileup are also removed based on track information and event topology [4, 5]. For particle-flow jets, the algorithm removes the contribution from charged-pileup particles to the jet energy [6]. A number of new techniques which can mitigate pileup at the level of jet constituents are also under study in ATLAS [7]. A benefit from constituent-level pileup mitigation techniques is that local fluctuations are reduced, resulting in corrections for jet substructure observables as well as any other event shapes. Methods in this category include SoftKiller (SK) [8], Constituent Subtraction (CS) [9, 10], Pileup Per Particle Identification (PUPPI) [11], cluster vertex fraction [7], and cluster area correction [7]. Jet-level pileup mitigation can also be accomplished with subjet removal via grooming [4, 8, 12, 13, 14, 15, 16] or otherwise [17].
+
+Deep learning provides a promising set of tools for improving reconstruction and calibration at the LHC. These machine learning methods have been studied for constituent-based pileup mitigation with two different approaches: classification [18] and regression with Pileup Mitigation with Machine Learning (PUMML) [19]. In the classification approach, constituents are tagged as originating from the hard-scatter or from a pileup collision (as in PUPPI) and the classifier output may be used to weight constituents' momenta. In the regression approach, the hard-scatter energy component of a constituent is predicted by the machine learning algorithm. In the limit that constituents are particles, these two approaches should have similar performance. When constituents have contributions from multiple particles, it may be beneficial to predict the hard-scatter energy, which is the approach studied in this note. Events are represented as multi-layer images [20, 21, 22] and convolutional neural networks are used for predicting the per-pixel hard-scatter energy.
+
+This note studies the performance of \(\vec{E}_{\mathrm{T}}^{\mathrm{miss}}\) reconstruction using deep convolutional neural networks acting on event images. The \(\vec{E}_{\mathrm{T}}^{\mathrm{miss}}\) is an important event quantity used for a variety of Standard Model measurements and Beyond the Standard Model searches and is particularly sensitive to pileup. The note is organized as follows. Sec. 2 describes the simulated samples used for training and testing. The construction of the event images and the neural network architecture is documented in Sec. 3. Section 4 presents the results and the note concludes with Sec. 5.
+
+## 2 Simulation Sample
+
+This study uses \(Z(\to\mu\mu)\)+jets events generated at next-to-leading order in perturbative quantum chromodynamics with Powheg-Box [23] (version v1r2856). The parton shower and underlying event are simulated by Pythia 8.186 [24] using the CTEQ6L1 PDF set [25] and using the AZNLO tuned parameter set [26]. All simulated events were passed through a full simulation of the ATLAS detector [27] implemented in Geant 4[28], which describes the interactions of particles with the detector and the subsequent digitization of analog signals. The effects of pileup were simulated with unbiased \(pp\) collisions using the Pythia 8.210 generator with the A3 [29] set of tuned parameters and the NNPDF23LO [30] PDF set; these events were overlaid on the nominal hard-scatter events. The level of pileup used in the simulation is comparable to the 2017 data-taking conditions.
+
+Only events with a reconstructed Z boson at detector level are used for this project.
+
+For these studies, detector-level Z bosons are reconstructed by requiring two opposite-charge muons with at least medium quality and a combined four-vector mass between \(66\,\mathrm{GeV}\) and \(116\,\mathrm{GeV}\). At detector-level, \(Z\) bosons are reconstructed by requiring two opposite charged primary muons with their combined mass between \(66\,\mathrm{GeV}\) and \(116\,\mathrm{GeV}\). In order to emulate events with significant nonzero \(E_{\mathrm{T}}^{\mathrm{miss}}\), the two muons with combined mass closest to the Z mass peak at \(91\,\mathrm{GeV}\) from the \(Z\) are removed from the event (both at detector-level in the \(E_{\mathrm{T}}^{\mathrm{miss}}\) calculation and at particle-level) to emulate missing momentum as would occur from neutrinos or other weakly interacting particles.
+
+## 3 Event images and Neural Network Architecture
+
+Events are represented as images and deep convolutional artificial neural networks are used to predict the hard scatter component. These images are 50 pixels in \(\eta\) and 64 bins in \(\varphi\) covering \(|\eta|<2.5\) and the full azimuth, approximately \(0.1\times 0.1\) rad\({}^{2}\) each. This corresponds to the finest single-layer granularity of the hadronic calorimeter. In principle, a finer binning would be possible, but this is practically challenging due to the large memory size of each event image. The pixel intensity is the \(p_{\mathrm{T}}\) deposited in that region of the detector, using a reconstructed objects such as calorimeter-cell clusters or charged-particle tracks (more details in Sec. 3.1).
+
+### Event images and network input
+
+In order to be as close as possible to the tracking detector acceptance, only constituents with \(p_{\mathrm{T}}>0.5\,\mathrm{GeV}\) and a \(|\eta|<2.5\) are used to populate the event images. To make the most of multiple detector channels and reconstruction techniques, multiple event images are constructed for input to the neural network. In particular, six detector-level images are constructed:
+
+The following event images are used as input:
+
+* _Clusters_[31]. Calorimeter-cell clusters at the EM-scale.
+* _SoftKiller_[8]. Calorimeter-cell clusters after the application of the SK algorithm, which removes all clusters below some threshold that is determined event-by-event.
+
+* _Constitment subtraction + SoftKiller (CSSK)_[9]. Calorimeter-cell clusters after the application of CS and SK. The CS procedure locally and dynamically subtracts momentum from each cluster based on the pileup density.
+* _Voronoi subtraction + SoftKiller (VorSK)_[7]. Calorimeter-cell clusters after the application of Voronoi subtraction and SK. Voronoi subtraction is a local area-based pileup subtraction techniques where the Voronoi areas are used to estimate the amount of momentum that should be locally subtracted.
+* _Primary tracks_. Charged-particle tracks matched to the primary vertex (the one with the highest \(\sum p_{\mathrm{T}}^{2}\)) via \(|(z_{0,\mathrm{track}}-z_{0\mathrm{vertex}})\sin\theta|<3\) mm. Such tracks are required to pass the loose quality criteria [32].
+* _Pileup tracks_. Same as above, but not matched to the primary vertex.
+
+Parameters for the SK, CSSK, and VorSK are the same as those used in Ref. [33]. In particular, SK and VorSK use \(\ell=0.6\) and CSSK additionally uses \(\Delta R_{\mathrm{max}}=0.25\).
+
+The designated output of the network is related to the hard scatter truth image1, so naturally these are also created as training output for the network. These images contain all hard-scatter stable (\(c\tau>10\) mm) particles except secondaries, neutrinos and muons. These do not have any further kinematic requirements and are not coarse-grained into images.
+
+Footnote 1: The particle-level image is used because one cannot unambiguously disentangle the hard-scatter energy from the calorimeter due to its non-linear response. Therefore, this learning is also learning to correct for the detector response (in contrast to the other methods mentioned in Sec. 4) which have no calibration applied. One subtly of this learning is that there is a dependence on the particle-level energy spectrum [34; 35].
+
+### Network architecture
+
+As stated above, this note uses a deep convolutional neural network. This network consists of four consecutive convolutional layers all having the same size as the input image to be theoretically able to keep positional information. Figure 1 illustrates this structure. In between every pair of convolutional layers, a dropout layer [36] is applied, which uniformly at random deactivates \(10\,\%\) of the intermediate connections during training. Table 1 records the networks specifications. Training is performed with Keras [37] using the Tensorflow backend [38].
+
+\begin{table}
+\begin{tabular}{l c c c c} \hline \hline Layer & Kernelsize & Filters & Activation & Parameters \\ \hline
+2D convolution & 9 & 15 & ReLU & 7305 \\ dropout & & & & \\
+2D convolution & 7 & 20 & ReLU & 14720 \\ dropout & & & & \\
+2D convolution & 5 & 25 & ReLU & 12525 \\ dropout & & & & \\
+2D convolution & 1 & 1 & ReLU & 26 \\ \hline Total & & & & 34576 \\ \hline \hline \end{tabular}
+\end{table}
+Table 1: Machine learning pileup mitigation network architecture. ReLU stands for Rectified Linear Unit [39].
+
+### Padding methods
+
+In order to model the geometry of the ATLAS detector, wrap padding is applied and described in the following. Naturally, the network does not know that the event images are continuous along the \(\varphi\) axis. In order to model this behaviour the array is artifically enhanced by half the kernel size of the corresponding convolutional layer on the top and the bottom of the \(\varphi\) scale. These extensions mirror the entries on the other side of the \(\varphi\) scale to imitate continuous behaviour.
+
+Along \(\eta\) so called zero padding is applied to keep the dimensions of the input image. This adds pixels with zero intensity on either side of the image so that the filters can be applied all the way to the end of the image. Setting these additional pixels to other values like the mean intensity of the original pixels have been studied and found to have a negligible impact.
+
+### Training process
+
+One of the most important choices when training a neural network is the choice of loss function. There is no unique choice and for pileup mitigation, the choice of loss can have a significant impact in the network behavior. As the goal of this note is to improve the \(E_{\mathrm{T}}^{\mathrm{miss}}\) performance, the loss function was constructed to directly target this quantity. In particular, a discretized version of \(E_{\mathrm{T}}^{\mathrm{miss}}\) is constructed as follows:
+
+Figure 1: Visualization of the pileup mitigation network architecture. Input event images are fed in from the left through four consecutive two-dimensional convolutional layers in order to predict an image with \(E_{\mathrm{T}}^{\mathrm{miss}}\) as close as possible to the hard-scatter particle-level \(E_{\mathrm{T}}^{\mathrm{miss,\,truth}}\). The image on the right of the diagram is the hard-scatter particle-level image. The images are 50 pixels in \(\eta\) and 64 bins in \(\varphi\) covering \(|\eta|<2.5\) and the full azimuth, approximately \(0.1\times 0.1\) rad\({}^{2}\) each. The numbers below each layer indicates the number of convolutional filters (e.g. 15 for the first layer). The numbers next to the blue boxes indicate the size of the filters (e.g. \(9\times 9\) for the first layer).
+
+\[\mathrm{E}_{\mathrm{T,binned}}^{\mathrm{miss,x}} =-\sum_{\eta}\sum_{\varphi}p_{\mathrm{T}}(\eta,\varphi)\cdot\cos\varphi \tag{1}\] \[\mathrm{E}_{\mathrm{T,binned}}^{\mathrm{miss,y}} =-\sum_{\eta}\sum_{\varphi}p_{\mathrm{T}}(\eta,\varphi)\cdot\sin\varphi \tag{2}\]
+
+and from this, the loss function is constructed as follows:
+
+\[\mathcal{L}=\left\langle\left(\mathrm{E}_{\mathrm{T,binned}}^{\mathrm{miss,x} }-\mathrm{E}_{\mathrm{T,binned,true}}^{\mathrm{miss,x}}\right)^{2}+\left( \mathrm{E}_{\mathrm{T,binned}}^{\mathrm{miss,y}}-\mathrm{E}_{\mathrm{T,binned,true }}^{\mathrm{miss,y}}\right)^{2}\right\rangle, \tag{3}\]
+
+where the pixel centers are the \(\eta,\varphi\) coordinates and the quantities with 'true' are calculated using particle-level inputs.
+
+The results and outputs shown here are produced by a network trained on a dataset with 1.4 million events. These are split into:
+
+* 0.8 million training samples
+* 0.2 million validation samples
+* 0.4 million test samples
+
+The training samples are used to actually train the weights during the training process, while the validation samples work as an independent measure of the training performance after each epoch. The networks performance is measured using the test samples, hence all plots shown here are generated from the test samples.
+
+### Network output
+
+As a global loss function is chosen, the network does not have any incentive to reconstruct the actual particle-level event image but tries to create an image with an \(\mathrm{E}_{\mathrm{T}}^{\mathrm{miss}}\) as close as possible to the truth level \(\mathrm{E}_{\mathrm{T}}^{\mathrm{miss,\ truth}}\). Some example outputs (predictions) are shown in the following Figure 2. Unfortunately, the global loss function described in Sec. 3.4 does not result in accurate per-pixel values. A local loss function that specifically penalizes pixel-level predictions may remedy this feature (see e.g. Ref. [19] for more details). While not an issue for \(\mathrm{E}_{\mathrm{T}}^{miss}\) prediction, this property of the global loss prevents the immediate application of this approach to other event features.
+
+Despite this feature, the results in the next section will show that the NN achieves a better resolution compared to established methods.
+
+Figure 2: Cluster image (top), hard-scatter track image (second-from-top), the corresponding network output (second-from-bottom), and hard-scatter particle-level image (bottom) for two exemplary events (left and right).
+
+## 4 Comparisons with Other Reconstruction Methods
+
+Figure 3 shows the distribution of \(E_{\mathrm{T}}^{\mathrm{miss}}\) and the corresponding resolution for various detector-level definitions. In all cases, the particle-level \(E_{\mathrm{T}}^{\mathrm{miss}}\) uses an unbinned calculation even though the NN uses a binned prediction. The baseline definition is the _tight_ track-soft-term (TST) \(E_{\mathrm{T}}^{\mathrm{miss}}\), which is currently the most widely used definition in ATLAS [1]. In order to make a closer comparison to the NN, a second baseline uses the tight TST \(E_{\mathrm{T}}^{\mathrm{miss}}\), but without jets beyond \(|\eta|=2.1\), since the neural network only is given inputs out to \(\eta=2.5\) (and thus jets out to \(|\eta|=2.1=2.5-R\)). Removing forward jets can naturally improve the \(E_{\mathrm{T}}^{\mathrm{miss}}\) for some topologies as tracking information cannot be used to directly reject forward pileup jets. The neural network is making non-trivial predictions and results in an sharper resolution compared with the TST \(E_{\mathrm{T}}^{\mathrm{miss}}\) as well as other studied definitions. Since the other constituent-level techniques do not directly use tracking information, it is not surprising that their performance is worse than both the TST and neural network (bottom row of Fig. 3).
+
+The performance of the various \(E_{\mathrm{T}}^{\mathrm{miss}}\) methods are quantified as a function of the level of pileup and event activity in Fig. 4. The pileup level is measured using \(\langle\mu\rangle\) as well as the number of reconstructed primary vertices. The latter quantity is closely related with the in-time pileup due to pileup events happening in the
+
+Figure 3: Top: The distribution of the \(E_{\mathrm{T}}^{\mathrm{miss}}\) distribution for various detector-level and particle-level definitions for the \(\eta\) direction (left) and \(\phi\) direction (right). Bottom: The distribution of the difference between the predicted and particle-level \(E_{\mathrm{T}}^{\mathrm{miss}}\) distribution for various detector-level definitions for the \(x\) direction (left) and \(y\) direction (right).
+
+same bunch crossing as the hard-scatter event. The pileup dependence of the neural network performance is more stable than for the TST and about 15% better at \(\langle\mu\rangle=30\).
+
+With any method, there is a bias-variance tradeoff. Figure 5 shows the bias ('linearity') of the average difference between the predicted and true \(\vec{E}_{\mathrm{T}}^{\mathrm{miss}}\), projected along the direction of the true \(\vec{E}_{\mathrm{T}}^{\mathrm{miss}}\). In all cases, the bias is negative with respect to the truth \(E_{\mathrm{T}}^{\mathrm{miss}}\) and is a bit more pronounced for the neural network compared with TST. The SK, VorSK, and CSSK algorithms are not calibrated and so are expected to exhibit a larger bias compared with the TST and NN approaches.
+
+Figure 4: Comparison of different pileup suppression methods, using the RMS of the difference between the predicted and true value as the figure of merit. The top row quantifies the performance as a function of \(\langle\mu\rangle\) while the bottom row shows the dependence on the number of reconstructed primary vertices. The plots on the left are for the \(x\) direction while the plots on the right are for the \(y\) direction. The underling distributions of the \(x\)-axis quantities in the test sample is shown in the upper panel of each plot.
+
+## 5 Conclusion
+
+This note documents the pileup dependence of the \(E_{\text{T}}^{\text{miss}}\) resolution using various constituent-level pileup mitigation techniques. A convolutional neural network makes use of low-level information in order to improve upon existing techniques. The resulting neural network performance is more independent of pileup than the default \(E_{\text{T}}^{\text{miss}}\) reconstruction. For \(\langle\mu\rangle=30\), the neural network \(E_{\text{T}}^{\text{miss}}\) resolution improves up on the default resolution by about 15%. Further improvements may be possible by using more information for training and performing a detailed hyper-parameter scan. The studies presented are using only a \(Z\)+jets topology - future work will involve studying the universality of the neural network as well as extending the algorithm to use input from beyond the tracking acceptance, \(|\eta|<2.5\). Given the importance of \(E_{\text{T}}^{\text{miss}}\) to the ATLAS physics program, the improvement presented here are promising developments and can be further validated and potentially improved with additional tests in simulation and ultimately with data.
+
+Figure 5: The \(E_{\text{T}}^{\text{miss}}\) scale by projecting the difference between true and predicted onto the truth \(\vec{E}_{\text{T}}^{\text{miss}}\) direction.
+
+## References
+
+* [1] ATLAS Collaboration, _Performance of missing transverse momentum reconstruction with the ATLAS detector using proton-proton collisions at \(\sqrt{s}\) = 13 TeV_, Eur. Phys. J. **C78** (2018) 903, arXiv: 1802.08168 [hep-ex] (cit. on pp. 2, 8).
+* [2] M. Cacciari and G. P. Salam, _Pileup subtraction using jet areas_, Phys. Lett. **B659** (2008) 119, arXiv: 0707.1378 [hep-ph] (cit. on p. 2).
+* [3] M. Cacciari, G. P. Salam and G. Soyez, _The Catchment Area of Jets_, JHEP **04** (2008) 005, arXiv: 0802.1188 [hep-ph] (cit. on p. 2).
+* [4] ATLAS Collaboration, _Performance of pile-up mitigation techniques for jets in pp collisions at \(\sqrt{s}=8\) TeV using the ATLAS detector_, Eur. Phys. J. **C76** (2016) 581, arXiv: 1510.03823 [hep-ex] (cit. on p. 2).
+* [5] ATLAS Collaboration, _Identification and rejection of pile-up jets at high pseudorapidity with the ATLAS detector_, Eur. Phys. J. **C77** (2017) 580, [Erratum: Eur. Phys. J.C77,no.10,712(2017)], arXiv: 1705.02211 [hep-ex] (cit. on p. 2).
+* [6] ATLAS Collaboration, _Jet reconstruction and performance using particle flow with the ATLAS Detector_, Eur. Phys. J. **C77** (2017) 466, arXiv: 1703.10485 [hep-ex] (cit. on p. 2).
+* [7] ATLAS Collaboration, _Constituent-level pile-up mitigation techniques in ATLAS_, ATLAS-CONF-2017-065, 2017, url: [https://cds.cern.ch/record/2281055](https://cds.cern.ch/record/2281055) (cit. on pp. 2, 4).
+* [8] M. Cacciari, G. P. Salam and G. Soyez, _SoftKiller, a particle-level pileup removal method_, Eur. Phys. J. **C75** (2015) 59, arXiv: 1407.0408 [hep-ph] (cit. on pp. 2, 3).
+* [9] P. Berta, M. Spousta, D. W. Miller and R. Leitner, _Particle-level pileup subtraction for jets and jet shapes_, JHEP **06** (2014) 092, arXiv: 1403.3108 [hep-ex] (cit. on pp. 2, 4).
+* [10] P. Berta, L. Masetti, D. W. Miller and M. Spousta, _Pileup and Underlying Event Mitigation with Iterative Constituent Subtraction_, (2019), arXiv: 1905.03470 [hep-ph] (cit. on p. 2).
+* [11] D. Bertolini, P. Harris, M. Low and N. Tran, _Pileup Per Particle Identification_, JHEP **10** (2014) 059, arXiv: 1407.6013 [hep-ph] (cit. on p. 2).
+* [12] J. M. Butterworth, A. R. Davison, M. Rubin and G. P. Salam, _Jet substructure as a new Higgs search channel at the LHC_, Phys. Rev. Lett. **100** (2008) 242001, arXiv: 0802.2470 [hep-ph] (cit. on p. 2).
+* [13] D. Krohn, J. Thaler and L.-T. Wang, _Jet Trimming_, JHEP **1002** (2010) 084 (cit. on p. 2).
+* [14] S. D. Ellis, C. K. Vermilion and J. R. Walsh, _Techniques for improved heavy particle searches with jet substructure_, Physical Review D **80** (2009) 051501 (cit. on p. 2).
+* [15] S. D. Ellis, C. K. Vermilion and J. R. Walsh, _Recombination algorithms and jet substructure: pruning as a tool for heavy particle searches_, Physical Review D **81** (2010) 094023 (cit. on p. 2).
+* [16] A. J. Larkoski, S. Marzani, G. Soyez and J. Thaler, _Soft Drop_, JHEP **05** (2014) 146, arXiv: 1402.2657 [hep-ph] (cit. on p. 2).
+* [17] D. Krohn, M. D. Schwartz, M. Low and L.-T. Wang, _Jet Cleansing: Pileup Removal at High Luminosity_, Phys. Rev. **D90** (2014) 065020, arXiv: 1309.4777 [hep-ph] (cit. on p. 2).
+* [18] J. Arjona Martinez, O. Cerri, M. Pierini, M. Spiropulu and J.-R. Vlimant, _Pileup mitigation at the Large Hadron Collider with Graph Neural Networks_, (2018), arXiv: 1810.07988 [hep-ph] (cit. on p. 2).

@@ -1,0 +1,320 @@
+**ATLAS Internal Note**
+
+**LARG-No-93**
+
+**24-03-98**
+
+**SPAC : Serial Protocol for the Atlas Calorimeter**
+
+R.Bernier, D.Breton, P.Cros (LAL ORSAY), A.Gara (NEVIS labs).
+
+_Version 1.0_
+
+January 26\({}^{\rm th}\) 1998
+
+The aim of this protocol is to provide the loading and reading of all registers and memories sitted on the calorimeter of the ATLAS detector. It has been studied to be fast (10Mbit/s), reliable (the error detection rate is high) and cheap. The slave interface fits in an unique circuit and offers several facilities ( SPAC -> VME transcoder to drive a VME bus thus allowing crate interconnections, JTAG outputs for on board FPGA programming,...). The SPAC bus can be PECL/BTL and uni/bidirectionnal. The user's software is written in C, and graphic interfaces are running on UNIX and MacIntosh. The SPAC bus induces very low noise and small power consumption. The protocol is simple and powerful, and allows a immediate understanding of data transfers with an oscilloscope.
+
+As the possibilities of the SPAC bus seem wide, it could also be used for many other applications.
+
+**SPAC general view**
+
+### 1.1 Main features
+
+The main points of this one-master n-slaves bus are described below. The following definitions allow any kind of transfer, including as many words as desired, in each direction between the master and the slaves. The specific adaptations for custom applications are left to the choice of the users. Nevertheless, some concrete propositions are made concerning the block mode transfers.
+
+Here are the main features of the SPAC bus :
+
+* The protocol requires only two bidirectionnal wires in BTL technology : SCL for clock/stroke, SDA for data. But it can be used identically with four unidirectionnal wires, in BTL or PECL technology. The master and slaves can either be considered as emitters or as receivers on the line.
+* There is no problem of master arbitration as this bus is single-mastered by definition. Nevertheless, to prevent the collisions from different slaves, the protocol forbids the broadcast reading command, except after a checksum error and only for reading the slave status register.
+* Each slave connected to the bus is addressable by a unique 7 bit address. One address is reserved for the global broadcast mode, which allows the addressing of all of the slaves. Moreover, 15 other addresses are reserved for local broadcast modes, which allow the addressing of various groups of slaves, defined by the users. These groups realise a partition of the totality of the slaves (each slave belongs to one group). The broadcast modes are only available for write commands coming from the master.
+* The data always travel in the same direction as the clock. Data is transfered at 10Mbit/s. The slaves use their local 40MHz clock to generate the 10MHz return data clock, so no additional clocks are needed. The slave interface clocks are internally resynchronized during each transfer from the master.
+* The data packets are 9bit long (see below) with always exactly one missing clock period between packets. This allows to separate clearly the packets for simplicity purpose and gives time for data transfer within the receiver (this will help to simplify the receiver electronics). The 9bit words are tranfered with LSB first (this allows the checksum to be calculated sequentially).
+* The SDA and SCL lines follow the start and stop conditions of the I2C protocol. Conversely, there will be no acknowledge from the slave during a data transfer as this is the limiting point for the bus speed. In a general way, all the timings are secure while several conditions about the board distances are respected. This makes this system very safe.
+* To prevent the collisions, the emitter always checks that the line is not busy before taking hand on it. Moreover the open collector structure protects the bus against any short.
+* The format of the response to a read request is the same as the format of the request except for the direction bit in the first word. This means that the data contained in thetwo first words is a copy of the one received from the master. This allows crosscheck and makes the control software more convenient.
+* The slave provides a JTAG output in order to program any other FPGA on the host board.
+
+The first word contains the board address and a bit to select the direction (1 for the master -> slave transfer and 0 for the other direction). The broadcast mode definition is included in the address field. The second contains the R/W bit and the internal subaddress.
+
+The number of additional data words is unspecified. The last word will transmit a checksum which allows the receivers to check for errors. The last bit 8 will be a flag for recognizing this checksum word.
+
+After any master -> slave transfer on the line, all the concerned slaves verify the validity of the checksum byte, and the correct reception of the frame. In case of error, the slave sends an interrupt back to the master. An interrupt can also be sent on an external request, that has to be managed by the user. The slave status register can inform the master if the interrupt comes from a bus error or an external command.
+
+The interrupt signal consists of pulling down both SDA and SCL lines during a normal 9bit command length. The master will then check the slave status register before taking a decision.
+
+[MISSING_PAGE_EMPTY:5]
+
+[MISSING_PAGE_EMPTY:6]
+
+### 1.3 About the collisions
+
+Concerning the collisions, all the slaves and the master are permanently spying the data transfers. They can't speak if the line is busy, even for sending an interrupt. The protocol is intended so that no collision is possible between data transfers. The only possible collision may be due to an interrupt crossing a master to slave data transfer. This can happen only in two cases : either there was a checksum error detected by an adressed slave, or an external interrupt was generated in a slave board. There are two different ways of dealing with such a occurrence :
+
+a) When the master has to emit, it waits for a back to back propagation delay on the line plus some extra time before sending a new command. Then it gives time to a possible interrupt due to a cheksum error to arrive and avoids collision.
+
+b) If the master doesn't wait between commands, or in case of an external interrupt, an occuring interrupt may destroy a current data transfer. The master detects the interrupt and immediatly stops the transfer. Parallely, all the slaves go back to idle state. Then the source of interruption is looked for through the broadcast read status command. The stopped transfer will resume later.
+
+In case of a broadcast write, a checksum error could be seen by several slaves, and generate the sent of several interrupts at the same time. Then the open collector structure prevents the short circuits, and the interrupt message is not modified by superposition.
+
+Moreover, if a broadcast read status is requested, each of the slaves will wait for a different delay (address \(\times\) 100 ns) after each transfer. So, if the user respects some distance conditions (less than 10 meters between any couple of slaves), no collision is possible. In this case, a software delay depending of the number of slaves and their addresses should be calculated for giving time to the master to wait for all slave replies.
+
+### 1.4 Distance conditions
+
+The maximum distance between any set of two slaves usable with the BTL level bus is 10 meters. The master should not be placed too far of the first slave for impedance adaptation reasons. In the case of a single master/single slave BTL implementation, the distance could go up to 30 meters.
+
+The safest way to use the bus over a long distance is to use the differential link with PECL levels and transceive the levels into BTL around the slave physical location.
+
+### 1.5 Error protection
+
+Since the error rate is low and the protocole allows the master to repeat a message on a slave request (interrupt), it is no use to correct the errors (a correction device is very heavy, and expensive). The major point is to be able to detect the errors, and flag them.
+
+[MISSING_PAGE_FAIL:8]
+
+For the test beam that will occur at CERN in 1998, the system will be used with the following hardware implementation :
+
+- 4 wire bus in the front-end crate.
+
+- BTL logic levels.
+
+- one repeater board in the crate which will be connected to the master with 4 differential PECL links.
+
+### 7 Performance considerations
+
+Let us assume that we have to load a configuration of 40 registers and a RAM of 50 kB for each front-end board, and that we have 15 front-end boards in the crate.
+
+#### Time to load the front-end boards
+
+To write a 16-bit register, we have to send a 5 word frame. For all the registers, 200 (40\(\times\)5) words are necessary. If we load the RAM with 10 kB accesses for example, we have to load once the NTA (5 words), and 5 times ten kilobyte (10000+3 words).
+
+The whole loading of a board requires 200+5+50015 = 50220 words. As we can write all the boards in broadcast mode, and that one word corresponds to one \(\upmu\)s, the time required to load the whole crate is : t\({}_{\text{write}}\) = 50.2 ms.
+
+#### Time to read the front-end board
+
+To read a 16-bit register, we must send a read request (4 words) and read the slave reply (5 words). To read the RAM with 10 kB accesses, we have to load once the NTA (5 words), to send 5 reading requests (5\(\times\)5 words), and to read 5 replies (5\(\times\)(10000+3) words). The total is : 40\(\times\)(4+5)+5\(\times\)(5+10003) = 50400 words.
+
+As the broadcast reading is not possible, we have to exchange 15\(\times\)50400 = 756000 words. The time to read the crate is : t\({}_{\text{\tiny read}}\) = 756.0 ms.
+
+#### Time to write and read the front-end board
+
+For this operation, we have to exchange 50220+756000 = 806220 words. The time to write and read is : t\({}_{\text{\tiny werd}}\) = 806.2 ms.
+
+## Chapter 2 Hardware user's guide
+
+### 2.1 The SPAC master board
+
+The SPAC master board is intended to be put in a VME crate, and driven by the VME bus.
+
+#### 2.1.1 The architecture
+
+Architecture of the SPAC bus master* _Identifier_ returns A110 in hexadecimal (16 bits)
+* _Master status_ is a 16 bit register : 
+
+_Run_ : one bit register allowing the master to emitt. _Ready to send message_ is set to one if : _-Emitter FIFO empty_\(=\)0 (means that EmitterFIFO is not empty) _-Receiver FIFO full_\(=\)0 (to prevent data crashing) - the bit 2\({}^{8}\) of the last word loaded in the EmitterFIFO is one (last word of a message) _Ready to receive message_ is set to one if : _- Receiver FIFO empty_\(=\)0 - the bit 2\({}^{8}\) of the last word loaded in the ReceiverFIFO is one _Interrupt_ is set to one when an interrupt signal has been transmitted from a slave. This flag cannot appear with any other data transfer. No information is loaded in the ReceiverFIFO.
+
+_Timeout_ occurs when a slave has received a deficient message from the master. The ReceiverFIFO contains a one word message which contains the address of the complaining slave. _Master checksum error_ occurs when the master has received a deficient message from a slave. ReceiverFIFO contains the whole message. Its first word is the (supposed!) address of the complaining slave.
+* _Reset_ : resets the board during the access.
+* _Run_ : this bit controls the activity of the master. If Run is set to one, the master will begin to emitt as soon as the internal flag _Ready to send message_ goes to one.
+* _Clear alarms_ resets Interrupt, Timeout and Master checksum error. Otherwise, these flags are never cleared!
+* _Reload emitter FIFO_ : moves the reading pointer of the Emitter FIFO to the first word. Thus, the FIFO is ready to be read again. A very careful use of this function should be made.
+
+### The SPAC slave installation
+
+The SPAC slave FPGA will be implemented on the user's board.
+
+#### The structure
+
+Architecture of the SPAC bus slave
+
+#### The Slave SPAC accesses
+
+* _Address_ defines a slave seen from the SPAC bus. _Address_ is generated with a 7-bit switche on the host board. The _address_\(<\)_6.0\(>\)_ range is not wholly available : 
+
+* _Local broadcast address_ defines the broadcast group of a slave. 15 different groups can be chosen, using a 4-bit switch on the host board.
+
+* _Subadd_ defines an object that the slave corresponding to _address_ can access. The _subadd_ array is structured as shown : 3F
+
+free
+
+03
+
+02.2.3.How to build a message
+
+The general form of the message to transfer through VME is the following one (remember that the checksum word exists in the data transfers through the SPAC bus, but is not transfered through VME) :
+
+* The _direction_ bit is set to 1 for a master to slave transfer, so the user will always give the value 1 to _direction_.
+* _R/W_ is set to1 for a reading request, 0 for a writing one.
+
+The transfer is always big endian, that is to say that the first byte sent is the less significant, and the last one the most, in a 16 to 32-bit register. This rule applies for the NTA (16 bits), the wordcount (16 bits), and any register bigger than 1 byte.
+
+In case of a write command (R/W=0), the data will be sent to the object pointed by _subadd_.
+
+In case of a read command (R/W=1), the data will be sent to the 16-bit wordcount register. As the transfer is big endian, and the wordcount is set to $0001 before any loading, it is possible to send only one data word in a read command, if the wordcount is below $0FF. Indeed, the most significant byte of the wordcount will be 0 by default.
+
+Two other special cases should be noticed. In a command for NTA reading, it is no use to load a value into the wordcount. The size of the NTA register (2 bytes) is internally known. And in a command for FIFO reading, the user can either load a value (n\(\leq\)FFFF) to the wordcount, in order to read n bytes from the FIFO, or not load any data. Then, the whole FIFO will be read (until reception of a FIFO empty flag).
+
+#### How to read a slave reply
+
+The message brought back through VME appears as below. The slaves can only reply to the master, so _direction_\(=0\), and _R/W_\(=\)1. _Address_ contains the address of the slave which is talking. _Subadd_ gives the address of the object being read.
+
+\begin{tabular}{|c||c|c|c|c|c|c|c|c|} \hline
+**bit \#** & **S** & **7** & **6** & **5** & **4** & **3** & **2** & **1** & **0** \\ \hline
+1st & 0 & 0 & a & d & d & r & e & s & s \\ word & & (direction) & & & & & & & \\ \hline
+2nd & 0 & 1 & s & u & b & a & d & d & r \\ word* & & (R/W) & & & & & & & \\ \hline
+3rd & 0 & & & d & a & t & a & & \\ word* & & & & & & & & & \\ \hline
+4th & 0 & & & d & a & t & a & & \\ word* & & & & & & & & \\ \hline... & 0 & & & d & a & t & a & & \\ * & & & & & & & & \\ \hline
+**last** & 1 & & & d & a & t & a & & \\ word & & & & & & & & \\ \hline \end{tabular}
+
+*:optional words
+
+In case of an interrupt, the message is empty, but the _interrupt_ flag of the master status register is set to 1.
+
+#### The slave state machine
+
+The slave is composed of one module, which is integrated within an FPGA. It can address FIFOs, RAMs, registers up to 32 bits and other memories.
+
+Whatever the type of your memory, the slave generates 2 buses, which will be used or not :
+
+- Byte number which gives the number of the byte of a pointed register
+
+- Next address register (NTA) which gives the RAM address pointed
+
+In case of a read command, the number of bytes to read is loaded in an internal 16-bit register, Wordcount. This register is special because it doesn't have any address, is written by a special protocol, and cannot be read (which anyway is no use). $0001 is loaded by default.
+
+In case of a RAM access, data will be sent to the internal address loaded in the 16-bit next transfer address register (NTA). Any access to a RAM (read & write) implies a previous loading of the board's NTA.
+
+Seen from the slave, the general protocol is desribed below:
+
+\begin{tabular}{|c|c|c|} \cline{3-4} \multicolumn{1}{c|}{} & \multicolumn{2}{c|}{Slave actions} \\ \hline \multirow{3}{*}{write} & \multirow{3}{*}{received} & \multicolumn{2}{c|}{(NTA already loaded in case of a RAM access)} \\  & & \multicolumn{2}{c|}{byte number = 1} \\  & & & \multicolumn{2}{c|}{loop:} \\  & & & next data byte -\(>\) memory \\  & & & byte-number incremented (1 to 4) \\  & & & NTA incremented (0 to SFFFF) \\  & & & goto Loop \\ \hline \multirow{3}{*}{read} & \multirow{3}{*}{received} & no data byte -\(>\) (wordcount = 1 by default) \\  & & & or 1 data byte -\(>\) wordcount (= 1 to SFF) \\  & & & or 2 data bytes -\(>\) wordcount (= 1 to SFFFF) \\ \cline{3-4}  & & & (NTA already loaded in case of a RAM access) \\  & & & byte number = 1 \\  & & & Loop: \\  & & & memory -\(>\) next bytes read \\  & & & byte-number incremented (1 to 4) \\  & & & NTA incremented (0 to SFFFF) \\  & & & Wordcount decremented \\  & & & Loop until Wordcount = 0 \\ \hline \multirow{3}{*}{replied} & \multicolumn{2}{c|}{memory} \\  & & & pointed with subadd \\ \cline{3-4}  & & & \\ \end{tabular}
+
+[MISSING_PAGE_EMPTY:18]
+
+[MISSING_PAGE_EMPTY:20]
+
+#### The implementation of the slave on its host board
+
+See the spac_kit.ps file on the web.
+
+[MISSING_PAGE_EMPTY:23]
+
+#### 2.3.1.BTL technology
+
+* For the bidirectional solution, the connector type is a differential Lemo : 
+
+A shielded 2 wire cable is required.
+
+* For the unidirectionnal bus, a 10 pin connector is used (male HE-10, 2*5 pins) : 
+
+A flat 10 wire cable is required.
+
+#### 2.3.2.PECL technology
+
+* A PECL link can only be unidirectionnal. A 10 pin connector is used (the same as above) : 
+
+A 10 wire cable, with twisted pairs is required.
+
+### 3.1 The SPAC library of functions : spac.h
+
+The SPAC library is a set of functions to manage the communications of the SPAC bus. This library allows a simple use of the SPAC bus, with functions optimized for speed. All the usual applications of the SPAC bus can be managed by the library. However, the vme library may be useful for special applications (debugging,...). In any case, the vme library is used by the SPAC library, and has to be adapted to the VME controller. Conversely, the SPAC library is universal.
+
+The type SPACMaster is a transparent structure that is wholly defined SPACDeclareBoard().
+
+SPACMaster* SPACDeclareBoard(u_short CrateNumber, u_short AddressModifier, u_short BoardAddress); SPACDeclareBoard defines and initializes a SPAC board. CrateNumber depends on the VME crate. The accepted values of AddressModifier are 0x39 and 0x3D. BoardAddress is the VME address of the Master card. The returned pointer ought to be declared as SPACMaster* because it points to a structure. _run_ is set to one.
+
+void SPACWriteRegister (SPACMaster* Card, u_char Address, u_char SubAddress, u_long Data, u_char Size); SPACWriteRegister writes Data in the Size byte(s) register pointed by SubAddress, on the slave board Address, and from Card. Size must be 1, 2, 3 or 4. Address set to 0 produces a broadcast write.
+
+u_long SPACReadRegister (SPACMaster* Card, u_char Address, u_char SubAddress, u_char Size); SPACReadRegister returns the value of the Size byte(s) register pointed by SubAddress on the slave board Address, and from Card. Size must be 1, 2, 3 or 4. This function does not support broadcast, so 0 is not a valid value for Address.
+
+void SPACWriteFIFO (SPACmaster* Card, u_char Address, u_char SubAddress, u_char* Data, u_short Size); SPACWriteFIFO writes Size byte(s) of the buffer Data in the FIFO pointed by SubAddress, on the slave board Address, and from Card. Size must be different to 0. Address set to 0 produces a broadcast write.
+
+u_char* SPACReadFIFO (SPACMaster* Card, u_char Address, u_char SubAddress, u_short Size); SPACReadFIFO returns an allocated buffer, resulting of the Size byte(s) read from the FIFO pointed by SubAddress, on the slave board Address, and from Card. Size must be different to 0. This function does not support a broadcast read,so 0 is a forbidden address.
+
+void SPACWriteRAM (SPACMaster* Card, u_char Address, u_char SubAddress, u_char* Data, u_short Size, u_short RAMStartAddress); SPACWriteRAM writes Size byte(s) of the buffer Data from RAMStartAddress to RAMStartAddress+Size-l in the RAM pointed by SubAddress, on the slave board Address, and from Card. Size must be different to 0. Address set to 0 produces a broadcast write.
+
+u_char*SPACReadRAM(SPACMaster*Card,u_charAddress,u_charSubAddress,u_shortSize,u_shortRAMStartAddress);SPACReadRAMreturnsan allocated buffer, resulting of the Size byte(s) read from the RAM pointed by SubAddress, from the RAM address RAMStartAddress to RAMStartAddress+Size-1, on the slave board Address, and from Card. Size must be different to 0. This function does not support a broadcast read,so 0 is a forbidden address.
+
+ voidSPACRun(SPACMaster*Card,u_charState);SPACRun modifies the run bit of Card. State can be :
+
+* OFF: to stop the emission.
+
+* ON: to allow the emission.
+
+ voidSPACReset(SPACMaster*Card);SPACReset resets the Card.
+
+ u_shortSPACIdentifier(SPACMaster*Card);SPACIdentifierreturns the identifier of Card. Its value : 0xAll0.
+
+ u_charSPACMasterStatus(SPACMaster*Card);SPACMasterStatus returns the Master status value. The result may be used as follow :
+
+* (result & RUN)!= 0 : the master can emitt.
+* (result & EMITTER_FIFO_FULL)!= 0 : Emitter FIFO is full
+* (result & EMITTER_FIFO_EMPTY)!= 0 : Emitter FIFO is empty
+* (result & RECEIVER_FIFO_FULL)!= 0 : Receiver FIFO is full
+* (result & RECEIVER_FIFO_EMPTY)!= 0 : Receiver FIFO is empty
+* (result & READY_TO_SEND)!= 0 : the Master is ready to send
+* (result & READY_TO_RECEIVE)!= 0 : the Master is ready to receive
+* (result & INTERRUPT)!= 0 :an interrupt signal has been transmitted from a slave
+* (result & TIMEOUT)!= 0 : a Timeout has occurred
+* (result & MASTER_CHECKSUM_ERROR)!= 0 : a Master Checksum error has occurred
+
+ voidSPACReloadEmitterFIFO(SPACMaster*Card);SPACReloadEmitterFIFO moves the reading pointer of the Emitter FIFO to the first word. The FIFO is ready to be read again. This function should be used carefully.
+
+ voidSPACClearAlarms(SPACMaster*Card)SPACClearAlarms resets InterruptTimeout and Master checksum error.
+
+### The implicit VME Library : vme.h
+
+This library is composed of 5 functions :
+
+ voidVMEInitialize(SPACMaster*Card);VMEInitialize(Card) defines a reserved system address to realise the VME accesses.
+
+ voidVMEWrite(u_short*Address,u_shortValue);VMEWrite(Address,Value) writes Value at the VME addressAddress.
+
+ u_shortVMERead(u_short*Address);VMERead(Address) returns the value read at Address.
+
+void VMEWriteBlock (u_short* Address, u_short* Buffer, u_short Size); VMEWriteBlock (Address, Buffer, Size) writes the block Buffer of Size word(s) to the offset Address. void VMEReadBlock (u_short* Address, u_short* Buffer, u_short Size); VMEReadBlock (Address, Buffer, Size) reads a block of Size word(s) from the base address Address into Buffer.
+
+In order to adapt the SPAC Library to an other platform, 3 functions must be changed:
+
+* void VMEInitialize (SPACMaster* Card)
+* void VMEWriteBlock (u_short* Address, u_short* Buffer, u_short Size)
+* void VMEReadBlock (u_short* Address, u_short* Buffer, u_short Size)
+
+The initialization of the VME requires 3 values :
+
+* VME Base address = BoardAddress \(<<\) 16
+* AddressModifier = 0x39 or 0x3D
+* CrateNumber
+
+### The constants
+
+The VME offsets of the SPAC master board : IDENTIFIER = 0x1000 MASTER_STATUS = 0x1200 EMITTER_FIFO = 0x1E00 RECEIVER_FIFO = 0x1800 SPAC_RESET = 0x1000 RUN_ADD = 0x1200 CLEAR_ALARMS = 0x1400 RELOAD_EMITTER_FIFO = 0x1C00
+
+The state called by SPACRun ON = 1 OFF = 0 The bits of the status register : MASTER_CHECKSUM_ERROR = 0x0200 TIMEOUT = 0x0100 INTERRUPT = 0x0080 READY_TO_RECEIVE_MESSAGE= 0x0040 READY_TO_SEND_MESSAGE = 0x0020 RECEIVER_FIFO_EMPTY = 0x0010 RECEIVER_FIFO_FULL = 0x008 EMITTER_FIFO_EMPTY = 0x004 EMITTER_FIFO_FULL = 0x002 RUN = 0x001
+
+### 3.4 Glossary
+
+```
+voidSPACClearAlarmsSPACMaster*SPACDeclareBoard(u_shortCrateNumber,u_shortAddressModifier,u_shortBoardAddress); u_shortSPACIdentifier(SPACMaster*Card); u_shortSPACMasterStatus(SPACMaster*Card); u_char*SPACReadAFIO(SPACMaster*Card,u_charAddress,u_shortSize); u_char*SPACReadRAM(SPACMaster*Card,u_charAddress,u_charSubAddress,u_shortSize,u_shortRAMStartAddress); u_longSPACReadRegister(SPACMaster*Card,u_charAddress,u_charSubAddress,u_charSize); voidSPACReloadEmitterFIFO(SPACMaster*Card); voidSPACReset(SPACMaster*Card); voidSPACRun(SPACMaster*Card,u_charState); voidSPACWriteFIFO(SPACmaster*Card,u_charAddress,u_charSubAddress,u_char*Data,u_shortSize); voidSPACWriteRAM(SPACMaster*Card,u_charAddress,u_charSubAddress,u_char*Data,u_shortSize,u_shortRAMStartAddress); voidSPACWriteRegister(SPACMaster*Card,u_charAddress,u_charSubAddress,u_longData,u_shortSize); u_shortVMERead(SPACMaster*Card,u_shortAddress,u_short*Buffer,u_shortSize);
+```
+
+### 3.5 A typical program
+
+```
+#include"stdio.h"
+#include"stdlib.h"
+#include"spac.h"
+#defineCRATE_NUM0x0
+#defineAM0x39
+#defineCARD_ADD0x01
+#definePAGE_NUM15
+#defineSLAVE_ADD0x15
+#defineNTA_SUBADD0x00
+#defineFIFO_SUBADD0x02
+#defineRAM_SUBADD0x03
+``` voidmain(){ u_longregGet,regPut=0xBABA; u_char*fifoPut,fifoGet,ramPut,ramGet; u_longi,size=0x50; SPACMaster*Master; fifeOut=(u_char*)calloc(size,sizeof(u_char)); fifeGet=(u_char*)calloc(size,sizeof(u_char)); ramPut=(u_char*)calloc(size,sizeof(u_char)); ramGet=(u_char*)calloc(size,sizeof(u_char));Master = SPACDeclareBoard (CRATE_NUM, AM, CARD_ADD);  SPACInitialize(Master);
+
+ SPACWriteRegister(Master,SLAVE_ADD, NTA_SUBADD, regPut, 2);  regGet = SPACReadRegister(Master, SLAVE_ADD, NTA_SUBADD, 2);  printf("NTA = 0x%x\n", regGet);
+
+ for (i=0:i<size:i++)  fifoPut[i]= (u_char) i;  SPACWriteFIFO (Master, SLAVE_ADD, FIFO_SUBADD, fifoPut, size);  fifoGet=SPACReadFIFO (Master, SLAVE_ADD, FIFO_SUBADD, size);
+
+ SPACWriteRAM (Master, SLAVE_ADD, RAM_SUBADD, ramPut, size, 0x0000);  printf("ecrite= ");  for (i=0:i<size:i++)  {  ramPut[i]= (u_char) i;  printf("%X ",ramPut[i]);  }  printf("\n");  ramGet=SPACReadRAM (Master, SLAVE_ADD, RAM_SUBADD, size, 0x0000);  printf("reule= ");  for (i=0:i<size:i++)  if (ramPut[i]=ramGet[i])  printf("%X ", ramGet[i]);  else  printf("**%X" ",ramGet[i]);  printf("\n");
+
+[MISSING_PAGE_EMPTY:31]

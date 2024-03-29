@@ -1,0 +1,319 @@
+A muon trigger algorithm for Level-2 feature extraction
+
+A. Di Mattia, S. Falciano, C. Luci, A. Nisati,
+
+F. Petrucci, S. Robins, L. Zanello
+
+University of Rome, 'La Sapienza'
+
+April 2000
+
+Abstract
+
+An algorithm is presented to perform muon feature extraction on Muon Spectrometer data in the barrel region ( \(|\,\eta\,|<\)1) as part of the ATLAS Level-2 trigger. This algorithm is designed to be both conceptually simple and fast so as to readily be implemented in the demanding online environment in which the ATLAS Level-2 code will run.
+
+The algorithm confirms Level-1 muon triggers with a precise muon momentum measurement, and rejects fake Level-1 trigger induced by physics background. The performance of the algorithm has been confirmed by studies of background in the Muon Spectrometer. This has entailed the development of a novel technique to add a realistic simulation of background hits from overlapping events to prompt muon data. Both the performance and timing of the algorithm are seen to be robust in the presence of such background.
+
+The algorithm is seen to measure \(p_{\mathrm{T}}\) of prompt muons with a resolution of 5.5% at 6 GeV, and 4% at 20 GeV, and with an efficiency of -90% above the required trigger threshold. Relative to the output rate of the Level-1 muon trigger the algorithm reduces the trigger rate by a factor 2 at low-\(p_{\mathrm{T}}\), and a factor 10 at high-\(p_{\mathrm{T}}\). The timing of the algorithm has been measured and processing of each Rol is seen to require -2 ms on a 10 SpecInt95 machine.
+
+The code has been developed in C++ and integrated into the ATLAS ATRIG trigger simulation framework.
+
+## 1 Introduction
+
+The ATLAS Level-2 trigger confirms triggers passed to it from the Level-1 system, and reduces further the rate of accepted events through the rejection of fake triggers. The output rate of the Level-1 trigger is limited (by the front-end detector electronics) to 100 kHz, and the global Level-2 trigger is further expected to reduce this by a factor \(\sim\)100.
+
+The ATLAS trigger system uses a Region-of-Interest (RoI) approach, the Level-1 trigger identifying interesting physics and passing pointers to data for use by the Level-2 trigger. At Level-2 each RoI is examined in the detector system from which it originated for confirmation as a valid object. For the muon system, Level-1 triggers formed using information from the fast muon trigger chambers (RPCs and TGCs) are confirmed using data from the precision chambers, the Monitored Drift Tubes (MDTs).
+
+The purpose of the Level-2 muon trigger is the identification of muon tracks, and the accurate calculation of their position and transverse momentum in the muon spectrometer (feature extraction). Level-2 muon trigger objects will also be extrapolated for combination with Inner Detector and Calorimeter information.
+
+The high background environment in the MDT chambers demands that any algorithm must be capable of rejecting background hits due to chamber activity accompanying the muon track and due to cavern background. For this reason hits from the fast detectors of the Level-1 muon trigger chambers (RPCs in the barrel region), which have very low occupancy, are used to initiate the pattern recognition.
+
+The feature extraction procedure in the Level-2 muon trigger algorithm described here is confined at present to the barrel region of the detector, \(\mid\eta\mid<\)1. Feature extraction is performed in three sequential steps:
+
+* Pattern recognition is performed using information from the fast muon trigger chambers (RPCs) to define a road of variable width around the muon trajectory. MDT tubes lying within the road are selected and a contiguity algorithm applied to remove background hits not associated with the muon trajectory.
+* For the selected hit tubes, a straight line track fit is made using drift time measurements which are performed independently for each MDT station, and giving spacepoints for the superpoint calculation.
+* From a sagitta measurement a fast \(p_{\mathrm{T}}\) estimate is made using a look-up table (LUT). This ensures that the time taken by the processing is short, with no need for time consuming fit procedures.
+
+The output of the algorithm is a measurement of \(\eta\), \(\phi\) and an estimate of the muon \(p_{\mathrm{T}}\) (the muon features). The algorithm is coded in C++ and implemented in the standard ATLAS trigger simulation package ATRIG [1].
+
+## 2 Muon data at Level-2
+
+The Level-2 trigger is steered by the RoI from Level-1. The Level-1 RoI is 0.1 x 0.1 rads in \(\Delta\eta\) x \(\Delta\phi\), where this corresponds to the pixel size of the intersection of the Level-1 coincidence matrices within a trigger PAD [2]. The Level-1 RoI data is passed to the Level-2 trigger, where this data consists of the RoI position in the spectrometer, and a high- or low-\(p_{\mathrm{T}}\) flag. (On average we expect one muon RoI per event.) The Level-2 trigger uses the passed RoI to find the RPCstrips that have fired the trigger. In the current algorithm these raw data are passed directly by the Level-1. In the future a more accurate implementation of the Level-1/Level-2 interface will be made.
+
+The RoI identifies the ROB that stores MDT data from a trigger tower, where this is an object pointing to the interaction region containing data from an \(\eta\)-\(\phi\) region in all three MDT stations [3]. In a standard sector the trigger tower is 2 MDT chambers wide in z. The data is then collected from three ROBs for each RoI, corresponding the trigger tower containing the Level-1 RoI, and the two neighbouring towers. This allows for the treatment of muons passing through more than one tower and maps those which may cross more than a single tower onto an appropriately sized road.
+
+Alternatively, to reduce the data volume to be moved to the Level-2 processor, some data preprocessing has to be performed at the ROB level. Data consist of the TDC number, and the drift time measurement. These data are converted to position information using geometrical data structures held in memory.
+
+With the exception of the RPC data, this data representation is reproduced in the current ATRIG algorithm code and will be identically implemented in the stand-alone feature extraction algorithm. Both versions will follow the evolution of the raw data format.
+
+## 3 The method of track identification and reconstruction
+
+### Pattern recognition
+
+The first stage of the algorithm is the use of the Level-1 information to define regions in the MDT chambers ('muon roads') to begin the track finding procedure. Tubes in the MDT chambers are then selected and a contiguity algorithm applied.
+
+Using the RPC hits and the output RoI from the Level-1 trigger the muon trajectory is computed in two orthogonal planes; i.e. the primary bending plane, r-z, and the non-bending plane, r-\(\phi\).
+
+In the bending plane the path of the muon is fit with the arc of a circle to describe the muon path in the field region at high radius, and a straight line tangent to this circle to describe the muon path in the non-bending, low radius region. (The details of the circle fit can be found in Appendix 0.I.) The boundary between these two regions is taken to be the outer limit of the calorimeter at a radius of 423 cm. This is shown, together with a schematic of the paths of both high- and low-\(p_{\mathrm{T}}\) muons, in Figure 1. For high-\(p_{\mathrm{T}}\) candidates two points are used in this fit, one in each of the inner- and outer-most stations of RPC chambers, in addition to the nominal interaction point. For low-\(p_{\mathrm{T}}\) candidates two points from the two inner stations of RPCs together with the nominal vertex point are used. Each point is obtained by taking the mean position of all RPC hits in all layers of a given RPC station.
+
+In the non-bending plane independent straight line fits are made to the outer station and the nominal interaction point, and to the inner station and the interaction point. The mean direction of these two fits is taken as an estimate of the muon trajectory. The trajectory in the non-bending plane is used in the calculation of the drift time for the MDT hits.
+
+The resulting trajectory is used to define muon roads in the MDT chambers. Roads are defined around this trajectory in each MDT station by constructing the chords of the arcs formed by the intersection of the circular trajectory with the muon chambers. This is done for inner, middle and outer chambers and used for the calculation of residuals, as shown in Figure 2. The residuals are defined as the distance of the hit tube centre (the nominal wire position) from the chord of the intersecting trajectory arc. A hit tube is selected if its residual is smaller than a distance defined by a road which includes 96% of muon hits. Roads are calculated for the high- and low- algorithms, and for each type of chamber (large, small, special) using simulated
+
+muons.A contiguity algorithm is then applied to remove background hits that are not associated with the muon trajectory, but that lie within the muon road. This is an iterative process in
+
+Figure 1: The geometric model used to define muon trajectories using information from the Level-1 Region-of-Interest, and hits in the RPC chambers.
+
+Figure 2: The application of the muon road in the precision chambers. The dashed line represents the initial trajectory calculated using only the RPC data. The distance from each hit MDT tube (represented by filled circles) to this line represents the residual. Hits lying outside the road (represented by cross-hatched circles) are excluded from the reconstructed muon track.
+
+which the MDT hit with the highest residual is removed from the track and a new mean trajectory calculated. The process is repeated until only a single hit in each layer is left. At the end of this procedure a muon track is defined with a maximum of eight hits in each MDT station.
+
+### Track Fit
+
+Using the drift time measurement, a track fit is made to the set of hit MDT tubes selected within each MDT station (Inner, Middle, Outer) by the contiguity algorithm, using the drift time measurement. This results in the measurement of three superpoints, one per station, to used to determine the track sagitta.
+
+Drift time measurements are used to fit the best straight line crossing all hit MDT tubes in a station, see Figure 3. This is a good approximation given that the sagitta of a 20 GeV \(p_{\mathrm{T}}\) muon within a station is typically 120 \(\upmu\)m. A linear time-distance relation is used (the same as that used to digitise muon hits in the Monte Carlo) in which the Lorentz effect is neglected, this approximation resulting in a maximum spatial shift of a few hundred microns. The time-of-flight and propagation time along the wire are subtracted. These are calculated using the measurements given by the corresponding hit in the RPC system, in the r-\(\phi\) plane. Whilst this scheme works well for a single muon, the multi-hit environment of a true event will demand a more sophisticated approach to the presence of more than one such hit. The resulting fitted track yields a super-point, Figure 3, in the centre of each MDT chamber. The straight line trajectory in the MDT system between the Inner and Outer fitted super-points is calculated. The sagitta is then given by the distance to this line from the fitted super-point in the Middle MDT station. Typically a 20 GeV \(p_{\mathrm{T}}\) muon has sagitta of the order 2-3 cm in the Muon Spectrometer.
+
+### \(p_{\mathrm{T}}\) estimate
+
+An estimate of the track \(p_{\mathrm{T}}\) is found using a look-up table (LUT) and the inverse linear relationship between sagitta and \(p_{\mathrm{T}}\) to convert the track sagitta and position in the muon spectrometer into a \(p_{\mathrm{T}}\) measurement.
+
+Figure 3: The fit made to the hit MDT tubes considering the drift time for each hit. The calculated super-point is shown in the centre of the chamber.
+
+The LUT is used to define the relationship between the sagitta, s, and \(p_{\mathrm{T}}\), i.e. s= \(f(\eta,\,\phi,\,p_{\mathrm{T}})\). The function \(f\) is mapped into the LUT by dividing the geometrical region in which the algorithm operates into many bins in \(\eta\) and \(\phi\), and calculating the sagitta-\(p_{\mathrm{T}}\) relationship for each bin. The linear relationship between the measured sagitta and \(p_{\mathrm{T}}\) for a track originating at the nominal interaction point, i.e:
+
+\[\frac{1}{\mathrm{s}}\ =\ \mathrm{a}\times\mathrm{p}_{\mathrm{T}}+\mathrm{b}\]
+
+(for a given \(\eta\) and \(\phi\) direction) allows the entire procedure to be performed using only two arrays to describe the sagitta-\(p_{\mathrm{T}}\) relationship, at two different values of \(p_{\mathrm{T}}\).
+
+The technique is shown pictorially in Figure 4. The region in which the algorithm is applied (\(\,|\,\eta\,|<\)1) is divided into \(\eta\)\(\rightarrow\)\(\phi\) cells. For the studies made here 30 cells in \(\phi\) and 60 cells in \(\eta\) were used. A track is assigned to a given \(\eta\)\(\rightarrow\)\(\phi\) cell according to its position in the muon spectrometer at the first super-point, i.e. in the middle of the Inner MDT station. For each cell the sagitta distribution is plotted for simulated muons of 6 and 40 GeV, an example being shown in Figure 5 for two typical cells. The width of this distribution arises from the contributions from the MDT resolution, the vertex spread, multiple scattering and energy loss fluctuations. The last two dominate, and at lower \(p_{\mathrm{T}}\) (i.e. \(p_{\mathrm{T}}\) - 6 GeV) the contribution from energy losses is the most important.
+
+In order to extract the typical sagitta-\(p_{\mathrm{T}}\) relationship, events in the far low tail of the sagitta distribution are neglected through the application of a cut to exclude those tracks more than three standard deviations from the mean, as shown in Figure 5. The mean is then recalculated.
+
+The linear relationship between the truncated mean sagitta for each \(\eta\)\(\rightarrow\)\(\phi\) cell and transverse momentum is then used to extract the two variables, \(a\) and \(b\) in the equation of Section 3.3, for
+
+Figure 4: A schematic diagram of the technique used to describe the sagitta-\(p_{\mathrm{T}}\) relationship.
+
+each \(\eta\)-\(\phi\) cell. These two variables are stored, one pair for each cell in the \(\eta\)-\(\phi\) array, in a LUT. This then allows the calculation of \(p_{\rm T}\) from sagitta for any value of \(p_{\rm T}\), anywhere in the region of the LUT calculation.
+
+The advantage of this approach is that, whilst a separate LUT is required for each type of MDT chamber in the muon spectrometer (i.e. large, small, special), the total amount of LUT data needed to be stored and accessed by the processors of the Level-2 trigger is small. The total data volume of the LUTs necessary for a complete analysis is -130 kBytes.
+
+The binning of the LUT structure is in principle a limit on the quality of the resolution achievable, but the finite size of the arrays used can be rendered less important through the use of an interpolation procedure. This procedure is used for all these studies, and whilst it does improve the resolution achieved by the technique with the binning used, it does not offer a dramatic change in performance.
+
+Figure 5: An example of the procedure used to extract the truncated mean from the sagitta distribution in a single \(\eta\)-\(\phi\) cell for the look-up table. Here are shown sagitta measurements in two typical cells of the \(\eta\)-\(\phi\) matrix, in the large and small chambers at 6 and 40 GeV \(p_{\rm T}\) respectively. The dashed line show the 3\(\sigma\) cuts which exclude the tails in the calculation of the truncated mean.
+
+## 4 The program structure
+
+The program is written in C++ and runs within the ATRIG framework. Program flow is split into an initialization phase and a run phase. In the initialization phase (run only once at program start-up), all data structures required by the Level-2 algorithm are built in memory. The geometry of the muon spectrometer is built from the AMDB Simrec database [4], and the LUT is read from an ASCII file. The run phase is performed independently for each RoI arriving from the Level-1 algorithm. Firstly the MDT data are organised to reproduce the way they will be stored in the Read-Out Buffer (ROB) (i.e. following the trigger tower scheme proposed in [3]), and are written in memory in a format close to that used for the online data (the main difference is that the online data will be bit-wise encoded - this encoding is not yet implemented in this software.) The Level-2 algorithm then runs on these data.
+
+Figure 6: Measured sagitta values from the algorithm, for 6 and 40 GeV negative muons. The sagitta is calculated independently for the large and small MDT chambers.
+
+The 'trigger processor's designed in an object oriented way and is composed of three objects of Level 2 muon trigger algorithm in the ATRIG framework
+
+Trigger' type, each performing a specific task: Pattern Recognition, Feature Extraction and Monitoring. Each trigger object contains constituent processes (the 'Process' type) that encapsulate the procedures of the algorithm. The full scheme is shown in Figure 7. In this approach each constituent process can be substituted for another process of the same type, encapsulating a
+
+Figure 7: The Level-2 feature extraction algorithm in the ATRIG framework.
+
+different implementation of the Level-2 procedure. This allows a great flexibility in the developing and testing the individual procedures. The constituent processes are executed in chain and ultimately produce a structure in which the features of the RoI are stored.
+
+## 5 The data structure
+
+In the program there are two data structures, one with the geometry information needed for decoding the data and one for the detector data itself.
+
+In order to save processing time both in the ATRIG and online environments, in the data decoding procedure, the geometry of the barrel system and the MDT grouping in TDC modules is fully defined: for each muon station the program builds in memory a structured element (see Figure 8) that contains information on chamber geometry (dimension and position in space) which is linked to RPC and MDT chamber elements. The MDT elements contain the geometry description of the two multi layers and is linked to the TDC elements. Each TDC element gives information on the tubes connected to that TDC; for each tube the nominal wire position and layer number are reported. A TDC is connected to up to 24 individual tubes and up to 9 TDCs are needed to cover an MDT multi layer. 18 links available in the muon station structural element connect it directly to the TDC structures.
+
+The digits produced by the detector simulation program are organized in the 'ROB data structure', following the towering scheme reported in [3]. A ROB for a given sector (Small, Large) contains the data from 6 chambers: 2 contiguous chambers for each chamber type (Inner, Middle, Outer). In total there are three ROBs for each standard sector for each half barrel. Each ROB points to 6 independent elements, the MDT chambers, that are linked to up to 18 TDCs where the drift time value is stored. In the current version of the program the ROB structure is set only for the ROB belonging to the RoI indicated by the Level-1 muon, plus the preceding and the following ROB in the same sector.
+
+The current algorithm is implemented only for standard sectors, and it is expected that the incorporation of the special sectors in an similar way will follow shortly - the data organisation for the special sectors being in development.
+
+## 6 Physics performance
+
+The aim of the Level-2 muon feature extraction is to reject fake muons accepted by the Level-1 trigger, to perform a measurement of the transverse momentum of muon candidates, and to exclude those tracks with a momentum below threshold. Additionally the algorithm provides a measurement of the position of muon tracks in the detector in terms of \(\eta\), \(\phi\) co-ordinates. (These coordinates being provided at the position of the innermost muon station.) The physics performance indicators for the algorithm are thus primarily the track finding efficiency relative to the Level-1 output, and the resolution with which the algorithm reconstructs the muon \(p_{\mathrm{T}}\). Since this code will have to run in an online environment within strict time constraints the timing of the algorithm has also been investigated.
+
+In typical running conditions the majority of the hits found in the muon spectrometer will arise not from prompt muons of interest for physics analysis, but from background in the ATLAS cavern. Since the presence of such hits are the dominant contribution to the difficulty of performing pattern recognition in the muon system, the hits must be considered when demon 
+
+[MISSING_PAGE_EMPTY:11]
+
+### Simulating background in the muon spectrometer
+
+The process of considering muon spectrometer background hits and adding them to the event under consideration is conceptually simple, but technically rather complicated.
+
+A model of background rates has been developed using the FLUKA program [8]. This program makes predictions of particle fluxes in the ATLAS muon system. Using the FLUKA flux predictions for charged and neutral particles, background has been generated as single particles in the muon system and passed through the ATLAS simulation and reconstruction chain. The resulting muon spectrometer digits are then merged with those from the prompt single muons to give files corresponding to the occupancy that will be seen in the LHC. The normalisation, in terms of the number of such background tracks that are added to each single prompt muon, must be carefully controlled, and is of course different in high- and low-\(p_{\mathrm{T}}\) running. Changing this normalisation also allows the consideration of'safety factors', in which the total background rates are scaled by given factors to allow for potential under-estimation of such fluxes in the model under consideration.
+
+The timing of the background has also been considered. Whilst beam crossings are separated by 50 ns in the LHC, the maximum drift time of the MDT chambers is ~750 ns. Thus for each Level-1 trigger received, background corresponding to 15 beam crossings is added to simulate the nominal background. This background is simulated in a way that yields a distribution that is flat and continuous across the entire MDT drift time window.
+
+The technical details of this procedure are discussed in some detail in [7]. Here the procedure is used to demonstrate the performance of the Level-2 muon trigger algorithm in the presence of background at the nominal rate (as predicted by FLUKA) and with this rate multiplied by safety-factors of 5 and 10.
+
+### Track finding efficiency
+
+The track finding efficiency of the algorithm relative to the input Level-1 RoI is determined by the hit selection efficiency of the roads in which MDT hits are selected (Section 3.1), and by the geometrical coverage of the chambers. The former is tunable to some extent and roads are currently constructed, independently for low- and high-\(p_{\mathrm{T}}\) RoIs from Level-1, to include 96% of all hits arising from the prompt muon at 6 and 20 GeV respectively.
+
+Figure 9 shows the efficiency of the roads as a function of the road width, for individual stations of the muon system. Figure 10 shows the resulting pattern recognition efficiency, excluding effects arising from a lack of geometrical acceptance, from the application of various roads in individual stations. The net track finding efficiency is shown as a function of the imposed efficiency of the road. The geometrical acceptance contributes approximately 3% to the total inefficiency at 6 GeV \(p_{\mathrm{T}}\) and 1% at 20 GeV \(p_{\mathrm{T}}\).
+
+### \(p_{\mathrm{T}}\) resolution
+
+The \(p_{\mathrm{T}}\) resolution of the algorithm has been measured with and without cavern background, at the two nominal \(p_{\mathrm{T}}\) trigger thresholds of 6 GeV (low luminosity, \(10^{33}\) cm\({}^{-2}\)s\({}^{-1}\)) and 20 GeV (high luminosity, \(10^{34}\) cm\({}^{-2}\)s\({}^{-1}\)).
+
+Figure 11 shows the resolution at 6 and 20 GeV and Figure 12 shows the \(p_{\mathrm{T}}\) resolution as a function of \(p_{\mathrm{T}}\). In this figure, the solid histogram shows prompt muons with no cavern backgroundsimulated, whilst the dashed histogram shows the same set of prompt muons with background superimposed. The \(p_{\mathrm{T}}\) resolution with _no_ cavern background at 6 GeV \(p_{\mathrm{T}}\) is \(\sigma(p_{\mathrm{T}})/p_{\mathrm{T}}=5.5\%\), and at 20 GeV 4%. The resolution tail, visible largely in the 20 GeV \(p_{\mathrm{T}}\) resolution plot, arises from events with large Coulomb scattering, or from poor reconstruction induced by \(\delta\)-rays emitted by the muon. The tail of the resolution distribution can potentially affect the rejection of muons with \(p_{\mathrm{T}}\) below the given selection threshold.
+
+The addition of background at a level ten times that expected (i.e. using a safety factor of 10) is seen to degrade the resolution at 6 GeV \(p_{\mathrm{T}}\) from -5.5% to 5.8%, and at 20 GeV from 4.0% to 5.7%. The small, additional tails induced by the presence of this background are visible in Figure 11. At 6 GeV \(p_{\mathrm{T}}\) the size of tails beyond 3\(\sigma\) are increased by 10%, and at 20 GeV \(p_{\mathrm{T}}\) by 36%.
+
+Figure 9: The efficiency of track-finding in individual muon stations as a function of the applied road width. Here shown for the 6 GeV low-\(p_{\mathrm{T}}\) threshold for the small and large chambers.
+
+Figure 11: The \(p_{\rm T}\) resolution of the algorithm for (left) 6 GeV \(p_{\rm T}\) muons, and (right) 20 GeV \(p_{\rm T}\) muons. The histogram shows the result in the absence of cavern background, and the dashed line the resolution with the cavern background applied at 10x the nominal rate. The fit shown is a Gaussian fit to the distribution without background.
+
+Figure 10: The extracted track-finding efficiency, excluding the geometrical acceptance, as a function of the individual station efficiency from the application of roads.
+
+### Selection efficiency
+
+The algorithm is optimised to yield a feature extraction efficiency for prompt muons of approximately 90% at threshold. This is achieved by making cuts on \(p_{\mathrm{T}}\), where the position of the cut is extracted from the resolution at the required \(p_{\mathrm{T}}\) threshold. The efficiency of the algorithm for prompt muons, relative to the Level-1 trigger, is shown for both 6 and 20 GeV \(p_{\mathrm{T}}\) thresholds in Figure 14.
+
+For muon \(p_{\mathrm{T}}\) far below threshold, the efficiency is very low. In this case high statistics are required to make an evaluation of efficiency.
+
+The efficiency to muons arising from the decay of K and \(\pi\) mesons is shown in Figure 14.
+
+The efficiency is similar to that for prompt muons, but the 'kink' of the meson decay results in a smearing of the applied threshold. This arises since the assumption of an origin at the nominal vertex position is not true for K/\(\pi\) decays.
+
+A comparison between the thresholds in the barrel region of the Level-1 trigger, and that seen from FAST are shown in Figure 15.
+
+### Trigger rates
+
+The non-prompt muon background is composed largely of muons produced in the decay of K and \(\pi\) mesons. Trigger rates are calculated by convolving the relevant efficiencies withcross-sections extracted from Monte Carlo programs. The DPMJET program is used to describe the expected K/\(\pi\) cross-sections; if the PYTHIA model is used the rates are seen to decrease by a factor 2. PYTHIA is used to describe the prompt muon cross-sections from semi-leptonic b and c decays. Rates from W, Z and top decays have been calculated and found to be negligible. Cavern background contributes to the Level-1 rate, largely through charged particles of momentum -100 MeV. Limits have been put on the Level-2 acceptance to such backgrounds, and the probability of such particles giving a trigger is seen to be less than 10\({}^{-2}\), sufficient to make them negligible. Such background is discussed in detail with respect to the Level-1 trigger in [5]. Such background has here been simulated using the techniques discussed in Section 5.1.
+
+A summary of trigger rates, at Level-1 and at Level-2 using the \(\mu\)FAST algorithm are shown in Table 6-1.
+
+At the low-\(p_{\mathrm{T}}\), 6 GeV threshold the global level of background passing the Level-1
+
+\begin{table}
+\begin{tabular}{l c c c c} \hline  & \multicolumn{4}{c}{**rate, kHz**} \\  & \multicolumn{2}{c}{**low-\(p_{\mathrm{T}}\), 6 GeV**} & \multicolumn{2}{c}{**high-\(p_{\mathrm{T}}\), 20 GeV**} \\  & \multicolumn{2}{c}{\(\mu\)**FAST**} & \multicolumn{2}{c}{\(\mu\)**FAST**} \\  & **Level-1 (\(|\eta|<\)1.)** & (\(|\eta|<\)1.) & **Level-1 (\(|\eta|<\)1.)** & (\(|\eta|<\)1.) \\ \hline K/\(\pi\) decays & 7.9 & 3.1 & 1.1 & 0.06 \\ b decays & 1.7 & 1.0 & 0.8 & 0.09 \\ c decays & 1.0 & 0.5 & 0.4 & 0.04 \\ W decays & \multicolumn{2}{c}{negligible} & 0.06 & 0.05 \\ Total & 10.6 & 4.6 & 2.4 & 0.24 \\ \hline \end{tabular}
+\end{table}
+Table 6-1: Total output rates of the Level-1 muon trigger, and the Level-2 muon trigger with the low-\(p_{\mathrm{T}}\) 6 GeV threshold at low luminosity (10\({}^{33}\) cm\({}^{-2}\)g-1) and 20 GeV high-\(p_{\mathrm{T}}\) threshold at nominal luminosity (10\({}^{34}\) cm\({}^{-2}\)g-1), after application of the \(\mu\)FAST algorithm.
+
+Figure 15: A comparison of the net efficiencies for prompt muons at Level-1 and Level-2 using the \(\mu\)FAST algorithm. The Level-2 efficiency is calculated by convoluting the efficiency relative to Level-1 with that from Level-1.
+
+trigger is reduced by a factor \(>\)2, with the Level-2 algorithm, and at the high-\(p_{\mathrm{T}}\), 20 GeV threshold by a factor \(\sim\)10. The corresponding rates seen using the bmc_trig algorithm [9], and comparison with \(\mu\)FAST, are presented in Appendix I.
+
+The reduction factors achieved with the \(\mu\)FAST algorithm are seen to be \(\sim\)2 at low-\(p_{\mathrm{T}}\) and \(\sim\)10 at high-\(p_{\mathrm{T}}\).
+
+## 7 Code optimization and processing time
+
+It is imperative that any algorithm developed to perform feature extraction at Level-2 must satisfy the strong constraints enforced by the Level-2 environment. This demands that the whole Level-2 system must deliver a trigger with a latency below 10 ms. This clearly sets the scale for the component triggers of the Level-2 system which must perform at or below the ms level with the processors that will ultimately be used to build the trigger.
+
+Bench marking studies have been made of the Level-2 muon feature extraction algorithm using currently accessible processors. The processor used here corresponded to 10 SPECINT95 units. These studies indicate that the current algorithm takes \(\sim\)2 ms for a RoI containing a prompt muon, where hits from background have been added assuming the background seen at nominal luminosity. There is little difference between the time needed for 6 and 20 GeV \(p_{\mathrm{T}}\) muons. The distribution of processing times is shown in Figure 16. Whilst some optimization has been performed to maximise the speed of the algorithm, additional optimization of the code for an online environment is likely to significantly increase the speed of execution further. It should also be borne in mind, that the processors that will be used in the Level-2 trigger will be those commercially available towards the beginning of ATLAS running, at least 4 years from now. Ultimately, the benefits arising from increase in processor speed and the more fixed overheads of data transfer and memory management will determine what speed the algorithm can achieve.
+
+## 8 Conclusions
+
+An algorithm has been presented to use information from both the RPC trigger chambers and the precise muon chambers of the MDTs, to reject fake muons and make precise \(p_{\mathrm{T}}\) measurements at Level-2. The algorithm has been coded in C++ in the ATRIG framework. It has been benchmarked and seen to take \(\sim\)2 ms per RoI on a 10 SPECINT95 processor.
+
+The algorithm is seen to reduce rates from Level-1 by a factor 2 at low-\(p_{\mathrm{T}}\), 6 GeV threshold, and a factor 10 at high- \(p_{\mathrm{T}}\), 20 GeV threshold.
+
+## Acknowledgements
+
+P. Bagnaia kindly allowed us to use the pattern recognition developed for the test beam analysis as the basis for the track-fitting discussed here.
+
+We would like to thank S. Baranov, Dept. of Physics, Roma II for his substantial assistance with the technical details of the incorporation of the background into prompt muon events.
+
+Thanks are due to Prof. C. Bianchi, Dept, of Mathematics, University of Rome, 'La Saplenza', for discussions of the problems of the circle fit in the RPCs, and rigorous proofs of the formalism used.
+
+We would also like to thank F. Marzano and E. Pasqualucci for their assistance with many computing aspects of this work.
+
+O. Palamara and S. Petrera initiated the early studies of the pattern recognition for Level-2, and provided the foundation upon which others built on.
+
+Figure 16: Processing time of the algorithm (see text), for 6 GeV and 20 GeV prompt muons with appropriate background simulation.
+
+## References
+
+* ATLAS trigger simulation, version 1.00, user's guide. [http://atlas.web.cern.ch/Atlas/GROUPS/DAQTRIG/ATRIG/](http://atlas.web.cern.ch/Atlas/GROUPS/DAQTRIG/ATRIG/)
+* [2] ATLAS _Level-1 Technical Design Report_, CERN/LHCC/98-14, ATLAS TDR 12, 24 June 1998.
+* [3] P. Clark et al., Detector and read-out specification, and buffer-RoI relations, for Level-2 studies, ATL-DAQ-99-014. (Sept. 1999)
+* [4] L. Chevalier et al., _AMDB_SIMREC: A Structured data base for the ATLAS SpectrometerSimulation Program_, ATL-MUON-NO-148 (1997).
+* [5] ATLAS Level-1 Muon Trigger Group, _Improvements to the Level-1 muon trigger giving increased robustness against backgrounds_, ATL-DAQ-99-008 (April 1999)
+* [6][http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/DOCUMENTS/ATLSIM/atlsim.html](http://atlasinfo.cern.ch/Atlas/GROUPS/SOFTWARE/DOCUMENTS/ATLSIM/atlsim.html)
+* [7] A. Di Mattia, A. Nisati, _Simulating cavern backgrounds in the Atlas muon system_, ATLAS Internal Note (in preparation)
+* [8] A. Fasso et al., _FLUKA: Present status and future developments_, Proc. 4th International Conference on Calorimetry in High-energy physics. La Biodola, Elba, Italy:19-25 Sept. 1993, ed. A. Menzione and A. Scribano.
+* [9] N. Baytch et al., _A Method for a Level 2 Muon Trigger for ATLAS_, ATL-DAQ-99-003 (December 1998).
+
+[MISSING_PAGE_FAIL:20]
+
+## Appendix II: The circle fit to the trigger chamber data
+
+The circle fit to the three points found in the RPC system, discussed in Section 3.2 is here shown in more detail.
+
+### Circle algorithm
+
+The problem of track-fitting to the three points found in the RPC system is here presented in a general way, as the solution for a circle fit to any such three points. Given three points (x,y); the fit aims to find the centre and radius of a circle through them.
+
+Consider points \(p_{i}(x_{i},y_{i})\), i=1,3. Transforming to a system with the origin at \(p_{i}\), and setting:
+
+\[\xi_{2}\,=\,x_{2}\,-\,x_{1}\qquad\qquad\xi_{3}\,=\,x_{3}\,-\,x_{1}\qquad\qquad \eta_{2}\,=\,y_{2}\,-\,y_{1}\qquad\qquad\eta_{3}\,=\,y_{3}\,-\,y_{1}\]
+
+the required system becomes;
+
+\[a\xi_{2}+b\eta_{2}+\xi_{2}^{2}+\eta_{2}^{2}\,=\,0\]
+
+\[a\xi_{3}+b\eta_{3}+\xi_{3}^{2}+\eta_{3}^{2}\,=\,0\]
+
+if:
+
+\[D_{a} =\,-(\xi_{2}^{2}+\eta_{2}^{2})\eta_{3}+(\xi_{3}^{2}+\eta_{3}^{2}) \eta_{2}\] \[D_{b} =\,-(\xi_{3}^{2}+\eta_{3}^{2})\xi_{2}+(\xi_{2}^{2}+\eta_{2}^{2}) \xi_{3}\] \[D =\,\xi_{2}\eta_{3}-\xi_{3}\eta_{2}\] \[a\,=\,\frac{D_{a}}{D}\qquad\qquad b\,=\,\frac{D_{b}}{D}\]
+
+we get for the circle parameters:
+
+\[x_{0}\,=\,\frac{-a}{2}\qquad y_{0}\,=\,\frac{-b}{2}\qquad\qquad r\,=\,\sqrt{x _{0}^{2}+y_{0}^{2}}\]
+
+and, in the original reference system:
+
+\[X_{0}\,=\,x_{0}\,+\,x_{1}\qquad\qquad Y_{0}\,=\,y_{0}\,+\,y_{1}\qquad\qquad R \,=\,r\]
+
+### Intersection with chambers
+
+We now calculate the x-coordinate of the intersection of the circle so found, with the chamber planes at \(y_{c}\,=\,y_{1}(i\,=\,1,\,6)\), corresponding to the initial and final plane for the three stations.
+
+If \(\eta_{0}\,=\,y_{c}\,-\,y_{1}\), then the required x-co-ordinate is a solution of the equation:
+
+\[\xi^{2}+\alpha\xi+\eta_{0}^{2}+\beta\eta_{0}\,=\,0\]
+
+\[\xi\,=\,\frac{-\alpha\pm\sqrt{\alpha^{2}-4(\eta_{0}^{2}+\beta\eta_{0})}}{2}\]The required solution is the one with the smallest absolute value, so if \(-\frac{\alpha}{2}>0\Rightarrow-\mathrm{sign}\), and if \(-\frac{\alpha}{2}<0\Rightarrow\mathrm{sign}\) ; so the correct sign is \(\mathrm{sign}(\alpha)\).
+
+From the solution \(\xi_{1},...\xi_{6}\) we get the x co-ordinates by adding the value of \(x_{1}\). From the 6 points (\(\xi_{1}+x_{1},y_{1}),....(\xi_{6}+x_{1},y_{6})\) we get three pairs, each pair defining a road axis in one of three stations.
+
+### Low-\(p_{\mathrm{T}}\) case
+
+In the low-\(p_{\mathrm{T}}\) system there may be no RPC point in the outer chamber. So, the nominal vertex position is used, making the assumption that the track is a straight line from the origin to the plane y=y0 (the region in which bending is slight).
+
+In this case the aim of the fit is to find the circle through two given points p1(x1,y1) and p2(x2,y2) and the straight line such that the line is tangent to the circle at a point of given y co-ordinate, y0; and to find the x-co-ordinate x0 of this point.
+
+Given the points p1,j=0,1,2, a circle through the given points is given by the following equation:
+
+\[\mathrm{det}\begin{bmatrix}x^{2}+y^{2}&x&y&1\\ x_{0}^{2}+y_{0}^{2}&x_{0}&y_{0}&1\\ x_{1}^{2}+y_{1}^{2}&x_{1}&y_{1}&1\\ x_{2}^{2}+y_{2}^{2}&x_{2}&y_{2}&1\end{bmatrix}=\;0\]
+
+Substituting the first row with the vector (2xx0 + 2yy0, x+x0, y+y0, 2) we get the equation of the tangent to the circle in p0. For x=y=0, we force the tangent to pass through the origin.
+
+So we get:
+
+\[\mathrm{det}\begin{bmatrix}0&x_{0}&y_{0}&2\\ x_{0}^{2}+y_{0}^{2}&x_{0}&y_{0}&1\\ x_{1}^{2}+y_{1}^{2}&x_{1}&y_{1}&1\\ x_{2}^{2}+y_{2}^{2}&x_{2}&y_{2}&1\end{bmatrix}=\;0\]
+
+i.e. P(x0) = 0, where P is the 3rd order polynomial;
+
+\[\mathrm{Ax}_{0}^{3}+\mathrm{Bx}_{0}^{2}+\mathrm{Cx}+\mathrm{D}\]
+
+and:
+
+A = y2-y1 B = x1(y0-2y2)+x2(2y1-y0) C = x12y2-x2y1-(y2y1-y0)(y2-y1) D = -y0(x12x2-x1x2-x(y2-y2)+x2(y1-y2))\;.
+
+At this point we have analysed the problem so as to determine which of the three roots of the 3rd degree equation represents the solution to our physical problem, and applied a fast numerical method for the determination of its value.
+
+Two different procedures are available, and should be tested for speed in a realistic situation:
+
+* we can calculate two values (x\({}_{\text{min}}\), x\({}_{\text{max}}\)) such that the interval they define always includes the required solution; we then apply a bisection method.
+* we can apply Newton's method, using the iterative relation: \[\text{x}_{\text{n}}=\text{x}_{\text{n}-1}-\frac{\text{P}(\text{x}_{\text{n}-1}) }{\text{P}^{\prime}(\text{x}_{\text{n}-1})}\] where P' is the first derivative of P.
+
+This second approach requires a good starting point to ensure convergence. It can be proven that the value x\({}_{\text{0}}\) = -B/3A satisfies this condition.
+
+### Conclusions
+
+The above detailed analysis of the algorithm for muon road parameter calculation shows that a very limited number of simple operations is required, and allows planning of optimization procedures to be used in a real-time environment. The corresponding timing can be derived according to the architecture and speed of the processors used.
+
+A muon trigger algorithm for Level-2 feature extraction
+
+Rome Level-2 muon trigger group

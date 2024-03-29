@@ -1,0 +1,238 @@
+Optimisation of ROB mapping for SCT and Pixel detectors
+
+**Authors**: **S. Wheeler**
+
+Keywords: : ROB mapping, SCT, Pixels
+
+_Abstract_
+
+_A simple object-oriented program has been written to simulate the SCT and Pixel detectors in order to determine the suitability of various ROB mapping schemes in the context of the Level 2 trigger. Layer and tower mappings have been investigated separately for the SCT barrel and endcap and for the Pixel barrel and endcap. Events containing one RoI were fired at each detector part and the number of ROBs hit determined. As a result, plots of ROB output data rates and ROB hit frequency as a function of ROB ID were obtained. In general it was found that layer mapping schemes might result in unacceptably high data rates and frequencies. This result would have to be confirmed with more detailed modelling. The tower mappings investigated, in general produced acceptable rates._
+
+NoteNumber:
+
+Version: 1.0
+
+Date: 25 June 1999
+
+Reference:
+
+## 1 Introduction
+
+A study [1] was made some time ago to determine the optimal way of grouping SCT modules into readout buffers (ROBs) assuming that there was absolute flexibility at the module level. Due to the vast number of possible combinations, simulated annealing methods were used in the optimisation. It is now clear that such flexibility in the readout will not be available in practise, furthermore, the number of detector modules assigned to each ROB is now up to 3 times higher. For the study described in this note the minimum unit of readout (MUR) is now taken to be 6 modules for both the SCT and Pixel detector [2]. A maximum of 8 MURs can be attached to a ROB, resulting in a maximum number of 48 modules that can be read out by a single ROB. Although the total number of possible combinations of such MURs into ROBs is still very large, a small number of "common-sense" mappings can be devised which fall roughly into two categories representing the two possible extremes:
+
+* tower mappings, where MURs are connected together into projective "towers" of approximately equal \(\eta\) and \(\phi\) thus helping to optimise the readout by minimising the number of ROBs which need to be accessed per RoI.
+* layer mappings, where MURs in a particular physical layer of the detector are connected together, resulting in ROBs which cover large regions of \(\eta\) and \(\phi\) but may be more efficient when considering the practicalities of how the detector is to be cabled up.
+
+The main purpose of the study was to compare these two types of mapping and look at their influence on data flow rates and ROB access frequencies in the context of the Level 2 trigger. In addition the effects of selecting data from within a ROB have been studied. That is the difference in data rates when only the data from modules actually intersected by an RoI (as opposed to data from the whole ROB) are transferred.
+
+A simple program has been written which can simulate either the SCT or Pixel detector. Detector modules are grouped into MURs and MURs into ROBs by means of mapping files. The program fires RoIs of varying sizes, with random \(\eta\) and \(\phi\) at the detector and determines which ROBs are hit and therefore have to be read out. In addition to finding optimal mapping schemes, the study was carried out to see if certain mappings resulted in unacceptably high ROB data rates and hit frequencies. The following sections describe the program and the results obtained.
+
+## 2 OO Simulation Program
+
+An object-oriented program has been written in C++ (compiled with egcs-1.1.1 and running on the ATLAS WGS) to simulate the SCT and Pixel detectors. The object model used in the program is shown in Figure 1. As indicated on the figure the model splits into two main parts. The first part describes the detector geometry, the second describes the readout configuration. A brief description of each class follows:
+
+### part
+
+A part is a major sub-division of a detector. For this study it is either an SCT or Pixel half-barrel or an SCT or Pixel endcap.
+
+### ring
+
+A part is subdivided into a number of rings. A ring is a single ring of modules at a single value of r and z. It was decided to split the detector into such rings to allow the barrel and endcap to be described using the same object model.
+
+### modbarrel, modendcap and module
+
+Each ring consists of a number of modules. When considering whether or not an RoI intersects a module only the \(\eta\) and \(\phi\) range of the module is required, no further geometrical information is needed. However, in order to calculate these ranges the shape and orientation of the module needs to be known and this is different for barrel and endcap modules. Therefore, three module classes are included in the object model. The module class is the base class from which modbarrel and modendcap inherit. A ring is therefore made up of either barrel or endcap modules.
+
+The above statement is only true for RoIs which do not take into account the uncertainty in z of the interaction point. When the object model was first created this was the case. However, the z extent has now been taken onto account and therefore the actual position of the module in space needs to be known. Extra methods have been added to the module class to allow this. For example, a module can ask its ring parent to find its space coordinates. It should be noted that the object model for modules as it stands may now not be optimal.
+
+Figure 1: Object Model used in simulation program.
+
+### Mu
+
+A MUR is a grouping of 6 modules. For the readout there is no need to make any distinction between barrel and endcap modules. In one instance, as indicated later, a MUR is taken to be a grouping of 7 modules.
+
+### Rob
+
+A ROB is a grouping of up to 8 MURs.
+
+### Readout
+
+The readout consists of a number of ROBs. The number of ROBs is dependent on the size of the detector part being modelled e.g. the Pixel half-barrel. A readout object is capable of answering the question whether or not it has been intersected by a particular RoI. It does this by asking each of its ROBs the same question, each ROB asks each MUR which in turn asks each module. The answer is in the affirmative for a ROB if at least one module of that ROB is intersected by the RoI. The reply then travels back up the tree to the readout object which gives the final response in the form of a list of ROBs which contain at least one intersected module. If no ROBs have been intersected this list will be empty. The readout object is also capable of answering other questions e.g. for a given intersected ROB how many modules within that ROB are actually intersected. The reply is used in the calculation of data rates with selection.
+
+### RoI
+
+An RoI is a region of interest as defined by a central \(\phi\) and \(\eta\) and a certain \(\Delta\phi\)-\(\Delta\eta\) range around the central values. An RoI may or may not intersect the readout for a particular detector part. No attempt has been made to simulate different shapes of RoI for different particle/jet types. However, the uncertainty in the position of the interaction point in z has been taken into account in the size calculation. In the r-z plane, the RoI is simply taken to be a truncated cone as shown in Figure 2 for the barrel and endcap regions. For the barrel region the z extent of the RoI, as seen by a given module at r\({}_{\text{mod}}\), is \(z_{\text{min}}\) to z\({}_{\text{max}}\) (see Figure 2). For the endcap region the r extent of the RoI, as seen by a given module at z\({}_{\text{mod}}\) is r\({}_{\text{min}}\) to r\({}_{\text{max}}\) (see Figure 2). The barrel region is assumed to be for RoIs with a central \(\eta\) value less than or equal to 1.43. The endcap region is assumed to be for RoIs with a central \(\eta\) value greater than 1.43.
+
+## 3 Reading and verifying the configuration
+
+When the program is started the configuration of the detector is read from the relevant geometry file. Detector objects (part, rings, modules) are then created and connected to one another. After this, every module knows its \(\eta\) and \(\phi\) range. The readout configuration is then read in. There are two mapping files. The first maps individual modules into MURs. The second maps MURs into ROBs. MUR and ROB objects are created accordingly. Now every module knows which MUR and consequently which ROB it is associated with. For information, the formats of the 3 types of configuration file are given in section 8.
+
+Before proceeding with the analysis it was important to check that the detector geometry file and the subsequent calculations made from it were correct. This verification was done visually. Every object in the detector part of the object model is provided with a method to draw itself.
+
+[MISSING_PAGE_FAIL:5]
+
+0.3*0.3, 0.6*0.6 and 0.8*0.8. No attempt has been made to simulate realistic events with multiple RoIs corresponding to physical particles and jets. Although the RoI shape used, described in section 2.7, corresponds roughly to an electromagnetic RoI, the RoIs generated for this study should be considered generic. A more detailed description of event structure and RoI shapes was considered beyond the scope of the study.
+
+The results from the program were used to calculate the quantities described in the following sections. The plots for each detector part are presented separately. It should be borne in mind that when discussing the results, the plots are critically dependent on the assumptions made in estimating detector occupancies, trigger rate and number of RoIs per event.
+
+All plots presented in this document can also be found on the Web at:
+
+[http://home.cern.ch/](http://home.cern.ch/)\(\sim\)wheeler/ROBresults.html
+
+### ROBs hit per RoI
+
+For each RoI (event) the number of ROBs intersected is calculated and histogrammed. The histogram is normalised to the total number of simulated events. The contents of a particular bin gives the probability that the given number of ROBs are intersected in an event. Note that the sum of the bins for a particular RoI size is always less than 1. This is because many of the generated RoIs fall outside the acceptance of the detector part being studied and the bin indicating the fraction of 0 ROBs hit is not shown.
+
+### Data Rate per ROB no selection
+
+This plot gives the data rate out of each ROB assuming no data selection takes place. To calculate the rate it was first necessary to calculate the probability that a particular ROB in the detector part is hit in an event. For each event an entry is added to the bin corresponding to each ROB which has been intersected by the RoI. The resulting histogram is normalised to the total number of events.
+
+The total data rate per ROB is then calculated using the following expression and is plotted as a function of ROB ID in the detector part under study:
+
+\[\begin{array}{l}\mbox{(number of modules per ROB*((channels per module*occupancy*bits per hit) + module headers) + ROB headers)}\\ * probability that ROB is hit * trigger rate * RoIs per event (EQ 1) \\ \end{array}\]
+
+Number of modules per ROB is a function of the ROB mapping scheme used. In this study it is always equal to:
+
+\[\begin{array}{l}\mbox{Number of modules per MUR * Number of MURs per ROB}\end{array}\] (EQ 2)
+
+Number of channels per module, occupancy, bits per hit and headers are dependent on the detector part under study. The values used in the calculation are listed in the relevant sections. All occupancies used assume that the experiment is running at high luminosity.
+
+The trigger rate is taken to be 10 kHz in all cases. This is _of the order of_ the rate from the level 1 trigger for the em-cluster trigger (containing one RoI) = 24.3 kHz divided by the rejection factor from the level 2 calorimeter trigger = 5, see [3]. The em trigger is chosen because this gives the highest rate. Note that these numbers correspond to running at high luminosity. Notealso that by setting the trigger rate to 10 kHz it makes it easy to adjust the plots for different trigger rates.
+
+As previously stated, it has been assumed that each simulated event contains one RoI. Therefore, number of RoIs per events is always equal to 1.
+
+### Data Rate per ROB with selection
+
+This plot gives the data rate out of each ROB assuming data selection takes place. It is calculated using the following expression and plotted as a function of ROB ID in the detector part under study:
+
+Note that only the data from the modules actually hit by the RoI are taken into account in the calculation, this is a quantity calculated by the simulation program. Otherwise all the other parameters are the same as those described for EQ 1.
+
+### Rob hit frequency
+
+This plot gives the frequency in kHz at which a ROB is accessed to read the data. It is calculated using the following expression and plotted as a function of ROB ID in the detector part under study:
+
+All quantities are the same as those described for EQ 1.
+
+### SCT Results
+
+#### 4.5.1 SCT Barrel
+
+In the SCT barrel the minimum unit of readout is one half-ladder consisting of 6 modules running in z. There is a possible additional constraint that half-ladders adjacent in \(\phi\) will be read-out together for cabling reasons. Three different ROB mappings have been studied for the SCT barrel, one layer mapping and two tower mappings. r-\(\phi\) views of the SCT barrel showing the ROB mapping were generated using the analysis program and these are shown in Figure 3.
+
+The difference between the two tower mappings is that the MUR pair constraint is respected in one, but not in the other.
+
+The following numbers taken from [2] have been used to calculate the ROB hit frequency and data output data rates for the SCT barrel:
+
+* Channels per module = 1536
+* Module occupancy = 0.01
+* Module headers = 16 bits
+* Bits per hit = 16 bits
+* ROB headers = 64 bits (this number is taken from the old version of DAQ note 62, it may no longer be correct)
+
+Results for the three different mappings are shown in Figure 4, Figure 5 and Figure 6. Note that the ROB ID numbers shown on the mapping diagrams start at 0, but on the plots the ID numbers start at 1. For example, ROB ID 3 on the mapping diagram corresponds to ROB ID 4 on the plots etc. This is the same for all the following detector parts.
+
+#### 4.5.2 Discussion of SCT Barrel Results
+
+For the layer mapping the average number of ROBs hit per RoI goes from about 4 for the smallest RoI size corresponding to the number of layers in the SCT barrel to about 7 for the largest. The entries in bins 1 to 3 are due to RoIs which do not fall entirely within the acceptance of the SCT half-barrel. The layer mappings show a widely differing range of data rate (without selection) and hit frequency as a function of ROB ID. This is because the ROBs with low ID numbers (see Figure 3) correspond to the inner layers of the detector where the hit rate is higher. It should be noted that the data rates for the inner ROBs with the larger RoI sizes
+
+Figure 4: Results for SCT Barrel Tower ROB Mapping without adjacent pair constraint
+
+Figure 5: Results for SCT Barrel Tower ROB Mapping with adjacent pair constraintmight start to cause problems if the results are scaled up allowing for more than one RoI, higher occupancy and trigger rate.
+
+There is very little difference between the results for the two tower mappings. Allowing unpaired MURs in the readout would therefore appear unnecessary. For the tower mappings, the average number of ROBs hit per RoI goes from about 2 for the smallest RoI size to about 4.5 for the largest RoI size. Due to the projective geometry much more of each RoI is contained within each ROB. Unlike the layer mapping, the data rates without data selection shows little variation as a function of ROB ID because each ROB covers a roughly equal range of \(\eta\)-\(\phi\). Data rates without selection should cause no problem even when scaling up for events containing more than one RoI, a higher occupancy and trigger rate. There is a large reduction in data rates if data selection is carried out. As would be expected, the rate with selection is very similar to the rate with selection for the layer mapping. The ROB hit frequencies should also not cause problems, even allowing for scale factors.
+
+#### 4.5.3 SCT Endcap
+
+In the SCT endcap there is no natural mechanical grouping of wheel modules. For the purposes of this study the MUR is taken to be up to 6 modules grouped within a wheel and the pattern repeated in each quadrant of the wheel. Note that groupings of 6 in the outermost wheel do not fall into repeating quadrants. For this study the MURs for this wheel are taken to consist
+
+Figure 6: Results for SCT Barrel Layer ROB Mapping
+
+exceptionally of 7 modules. Two different ROB mappings have been studied for the SCT endcap, one layer mapping and one tower mapping. r-\(\phi\) views of the SCT endcap wheels showing the same trend.
+
+Figure 8: SCT Endcap Layer ROB Mapping
+
+Figure 7: SCT Endcap Tower ROB Mapping
+
+[MISSING_PAGE_EMPTY:12]
+
+the mapping. The layer mapping shows a very irregular variation in data rate and hit frequency as a function of ROB ID. This is probably due to the large overlaps in \(\eta\) between the ROBs. As for the layer mapping for the barrel, a scale factor of only 4 would be required for some of the ROBs with the larger RoI sizes to give data rates of 100Mbit/sec. With selection the data rates are much lower and the variation of rate with ROB ID is somewhat reduced. ROB hit frequencies may be a problem for some of the ROBs with the larger RoI sizes. Again a scale factor of only 4 (allowing more than one RoI and a higher trigger rate) would be required to have a hit rate of 10kHz.
+
+For the tower mapping, the average number of ROBs hit per RoI goes from about 2 for the smallest RoI size to about 4 for the largest RoI size, showing that much more of each RoI falls within a single ROB. The data rates without data selection shows a regular variation as a function of ROB ID probably due to the different \(\eta\) coverage of each tower ROB. They should not cause problems even allowing for scale factors. There is a large reduction in data rates if data selection is carried out. As would be expected, the rate with selection is very similar to the rate with selection for the layer mapping. The ROB hit frequencies should not cause problems, even allowing for scale factors.
+
+### Pixel Results
+
+#### 4.6.1 Pixel Barrel
+
+In the Pixel barrel the minimum unit of readout is also one half-ladder. However, the total length of the barrel in z is 13 modules resulting in two half-ladders of 6 and 7 modules respectively. In this study, only the half-barrel with 6 modules per MUR has been considered. The mapping study does not assume that pairs of half-ladders adjacent in \(\phi\) need to be read out together. Four different ROB mappings have been studied for the Pixel barrel, two tower mappings, one layer mapping and a revised layer mapping based on the information given in [4]. The difference between the two tower mappings is that one is an attempt to create ROBs covering as near as possible an equal region in \(\phi\), however, each ROB has fewer than 8 MURs. The other mapping forces 8 MURs into each ROB. The revised layer mapping only allows a maximum of 6 MURs per ROB for the outer two barrel layers and 1 MUR per ROB for the inner, vertex layer. r-\(\phi\) views of the Pixel barrel showing the ROB mappings were generated using the simulation program and these are shown in Figure 11.
+
+The following numbers taken from [2] have been used to calculate the ROB hit frequency and data output rates:
+
+* Channels per module = 61440
+* Occupancy per module = 0.0001 for outer 2 layers, 0.0005 for vertex layer
+* Module headers = 32 bits
+* Bits per hit = 16 bits
+* ROB Headers = 640 bits
+
+Results for the different mappings are shown in Figure 12, Figure 13, Figure 14 and Figure 15.
+
+Figure 11: ROB mappings for Pixel barrel
+
+Figure 12: Results for Pixel Barrel Tower Mapping ROBs of equal \(\lozenge\)
+
+Figure 13: Results for Pixel Barrel Tower Mapping 8 MURs per ROB
+
+#### 4.6.2 Discussion of Pixel Barrel results
+
+For the layer mapping the average number of ROBs hit per RoI goes from 3 for the smallest RoI size, corresponding to the number of layers in the Pixel barrel, to about 5 for the largest. The entries in bins 1 to 2 are due to RoIs which do not fall entirely within the acceptance of the Pixel half-barrel. The layer mappings show a widely differing range of data rate (without selection) and hit frequency as a function of ROB ID. This is because the ROBs with low ID numbers (see Figure 11) correspond to the inner, vertex layer of the detector where the hit rate
+
+Figure 15: Results for Pixel Barrel Revised Layer Mappingis much higher. The data rates for the inner ROBs for all RoI sizes would probably cause problems even before allowing for scale factors, as they are of all of the order of 100Mbit/sec which is currently considered to be the upper limit. The data rates for the ROBs in the outer 2 layers are probably acceptable. With selection the data rates are much lower although there is still a large difference between the rates for the inner layer ROBs and outer layers. The data rates with selection should not cause a problem, however, the time taken for the selection to take place in the ROBs would have to be taken into account. The ROB hit frequencies are probably unacceptable for the inner ROBs for all RoI sizes. A scale factor of only 2 (allowing more than one RoI and a higher trigger rate) would be required to have a hit rate of 10kHz which is currently considered to be the upper limit. A scale factor of 4 would be required to have a hit rate of 10kHz for the ROBs with the largest RoI sizes.
+
+For the revised layer mapping the average number of ROBs hit per RoI goes from 3 to about 7 for the largest reflecting the larger number of ROBs in the system. Data rates with and without selection and hit frequencies are now all at acceptable levels, however, at the expense of twice as many ROBs. The high values seen for the last ROB is due to it containing 8 rather than 6 MURs (see Figure 11). In practice it would be better to split the last 14 MURs equally between the ROBs, giving 2 ROBs each with 7 MURs.
+
+For the tower mappings, the average number of ROBs hit per RoI goes from about 1 for the smallest RoI size to about 3.5 for the largest RoI size. Due to the projective geometry much more of each RoI is contained within each ROB. Unlike the layer mapping, the data rates without data selection show little variation as a function of ROB ID because each ROB covers a roughly equal range of \(\eta\)-\(\phi\). The rates for ROBs with 8 MURs are more uneven because some have two MURs in the vertex layer and some only one. All the rates for the ROB mapping with equal \(\phi\) should be acceptable. Data rates and hit frequencies for the 8 MUR mapping might be a problem for the ROBs with 2 vertex MURs for the larger RoI sizes, if they are scaled by a factor 4.
+
+#### 4.6.3 Pixel Endcap
+
+In the Pixel endcap each of the 5 wheels consist of 72 modules. These divide into exactly 12 MURs of 6 modules.Two different ROB mappings have been studied for the Pixel endcap, one layer mapping and one tower mapping. r-\(\phi\) views of the SCT endcap wheels showing the ROB mapping were generated using the analysis program and these are shown in Figure 16 and Figure 17. Only the first 3 wheels of the layer mapping are shown since the pattern repeats for subsequent wheels.
+
+The numbers used in calculating absolute data rates and frequencies are the same as those for the Pixel barrel apart from the occupancy which is taken to be 0.0001 for all modules.
+
+Results for the different mappings are shown in Figure 18 and Figure 19.
+
+Figure 16: Tower ROB mapping for Pixel Endcap
+
+Figure 17: Layer ROB Mapping for Pixel Endcap
+
+#### 4.6.4 Discussion of Pixel endcap results
+
+For the layer mapping the average number of ROBs hit per RoI goes from about 3 for the smallest RoI size to about 5, reflecting the non-projective geometry of the mapping. Data rates with and without selection are acceptable. Hit frequencies for the ROBs of lowest ID with the larger RoI sizes may cause problems. A factor of only 4 would be required to reach a frequency of 10kHz.
+
+Figure 19: Results for Pixel Endcap Layer Mapping
+
+Figure 18: Results for Pixel Endcap Tower MappingFor the tower mapping, the average number of ROBs hit per RoI goes from about 1.5 for the smallest RoI size to about 2.5 for the largest RoI size, showing that much more of each RoI falls within a single ROB. Neither data rates nor ROB hit frequency should cause problems, even allowing for scale factors.
+
+## 5 Currently Favoured Mapping Schemes
+
+According to the SCT and Pixel detector groups [4], at the time of publication, the following mapping schemes are those currently favoured for the listed detector part:
+
+* SCT Barrel, Tower mapping with adjacent pair constraint
+* SCT Endcap, Tower mapping
+* Pixel Barrel, "New" Layer mapping
+* Pixel Endcap, Tower mapping
+
+Note that mapping scheme studies are still ongoing within the detector groups.
+
+## 6 Summary and Future Work
+
+In all cases there is a clear difference between the results for the layer and tower mappings. Layer mappings for the SCT barrel and endcap may result in data rates (without selection) and ROB hit frequencies which may be too high. More detailed modelling work would have to be carried out in order to confirm or dismiss this observation. The layer mapping for the Pixel barrel is probably unacceptable due to the very high hit rates in the vertex layer. A revised layer mapping has been devised which provides acceptable rates but at the expense of a greater number of ROBs. Data rates for layer mappings with selection always give acceptable rates. In general all tower mappings are acceptable.
+
+In the case of the SCT barrel tower mappings, ignoring the constraint that pairs of half-ladders adjacent in \(\phi\) should be readout together does not produce a significant reduction in rates.
+
+Future work could include running the simulation with different ROB mapping files in order to assess their suitability within the limitations of this simple model. It may also be possible to determine data rates ROB complexes.
+
+## 7 References
+
+[1]Optimising the Grouping of SCT Wafers into Readout Buffers using Simulated Annealing Methods, Victoria A. Charlton, ATLAS DAQ-No-57, 10 Sept. 1996
+[2]DAQ note 62 update, P.Clarke, S.Falciano et al
+[3]RoI-based event descriptions for modelling the ATLAS second level trigger, S.George et al, April 12 1999
+[4]Damon Fasching, private communication, 6 June 1999

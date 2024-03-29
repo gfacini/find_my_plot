@@ -1,0 +1,76 @@
+# Geometry saving and user input in SLUG
+
+Robert DeWolf, Cavendish Laboratory, University of Cambridge
+
+Pavel Nevski, CERN, PPE division
+
+June 30, 1994
+
+###### Abstract
+
+Recent changes in SLUG are described. They allow to save detector geometry together with simulation results, thus avoiding possible inconsistencies between input datacards. A mechanism to input and store various sets of parameters for later analysis steps is proposed.
+
+## 1 Introduction
+
+The detector building mechanism in SLUG makes use of a relatively large set of datacard values to describe the actual detector geometry [1]. These datacards define the structure of GEANT and SLUG produced banks as well as the structure of ZEBRA output. In order to keep data integrity it is mandatory to have exactly the same datacards when analysing the output data.
+
+In the past this created many practical problems as the datacard variations from ones set of output data to another forced users to maintain a library of datacards and to keep track of their correspondence to the selected data. Moreover, any change in detector or data structures could not be known by the analysis program unless explicitly foreseen by the user.
+
+Although it has been possible in the past to write out and read in any ZEBRA bank, the use of this for the initialization of SLUG has been of very little use because all datacards were read in prior to any reading of the banks. With this new release we introduce a mechanism for restoring the geometry parameters prior to the reading of all the datacards. Once read in, this information is protected against changes from subsequent datacards that would could inconsistencies, thus ensuring a correct data interpretation. New sets of possible datacard are also introduced to pass on information of a variable nature to the analysis programs.
+
+Saving and restoring detector geometry
+
+Both SLUG and GEANT make use of ZEBRA [2] banks to handle the information in the computer memory. The original banks containing the GEANT geometry are: MATE, TMED, ROTM, VOLU and SETS. The SLUG program defines its owntop level bank DETM to store detector specific information.
+
+From now on these banks will be automatically output, (i.e no additional *BKIO datacard is required) along with the GEANT bank RUNG (which has always been written out), to form a useful SOR ("Start Of Run") record at the beginning of the output file.
+
+When reading data back (this is defined by the "KINE -1" datacard), SLUG checks whether the first record is the SOR record and whether a request to restore the geometry is defined by the *BKIO datacard (*BKIO 'P' 'GEOM'). If this is the case, all six banks mentioned above are restored from the input file instead of being rebuilt by SLUG and DICE. However the geometry cannot be restored neither checked from the secondary 'B' input stream ("overlapping events"), so it is still the responsibility of the user to check that it matches the format of the 'P' input stream.
+
+After the geometry is read, SLUG makes an attempt to read datacards beyond the first STOP card until the next STOP card is reached (note that the second STOP card is now mandatory and that all cards besides *MODE, and the new *DETD and *DETA cards should occur before the first STOP card!). The additional datacards from this part of the card input stream are interpreted in a standard way and may overwrite the content of the corresponding ZEBRA banks. However the DETP bank content at that moment is protected as well as the GEOM flag for the *MODE datacard, i.e. the user may change print, digitalization or analysis flags and also the content of the new DETD and DETA banks (see next section), but cannot alter the parameters of the DETP bank once the GEANT simulation has been done.
+
+Another mode of using SLUG that now becomes possible it to read in the DETM data structure using *BKIO 'P' 'DETM' card without reading any of the GEANT banks that are signaled to be read in by the GEOM keyword. In this case, the DETM cards read in supercede the values set in XXXDEF routines, but may then be edited by any *MODE, *DETP, *DETD or *DETA cards read in after the first STOP.
+
+Ifthe geometry banks have been found on input, the normal geometry building step (SLGEOM and UGEOM) is skipped and a new routine UGEOMR is called to copy the data from ZEBRA banks to detector common blocks, if necessary. UGEOMR is defined as a dummy routine in SLUG, and is replaced when running with DICE. At present this routine in DICE restores the magnetic field parameters in the corresponding common blocks (see section 5).
+
+Additional routines to restore detector specific common blocks from ZEBRA banks may be added to UGEOMR in a similar way like it is done in UGEOM. However, a particular detector routine (digitalization, analysis etc) may do it in 
+
+[MISSING_PAGE_EMPTY:3]
+
+User access to new detector banks
+
+Three new routines are included in SLUG to provide user access to the new detector banks: SLDETBA, SLSETBA and SLGETBA.
+
+The key routine is SLDETBA (CHDET,CHSET,NPAR,LDETP), where CHDET and CHSET are 4-character variables defining the detector and bank names. This routine looks for the appropriate bank CHSET linked to the detector CHDET and supplies the link value LDETP of the bank in ZEBRA memory. NPAR has the following meaning:
+
+- If not equal to zero, this is a request to define an output bank, and in this case the bank may be created or extended. Two different types of banks are foreseen: a single bank (NPAR\(>\)0) and a linear structure of banks (NPAR\(<\)0). A single bank is simply modified or extended with each new request to write in it, while a call with NPAR\(<\)0 always creates a new copy of a bank with the same name.
+
+If NPAR is zero, the call is interpereted a reading request, i.e. the bank should already exist. If the bank was defined as a linear structure, sequential calls will receive links to the next element in the existing chain of banks with the requested name.
+
+Although it should be a normal practice to store only real numbers in new banks, an auxiliary common block /SLDBNK/ is introduced allowing to store mixed type variables in a transportable format. The appropriate I/O format should be loaded in this common block using a call to MZIOCH and cleared after usage.
+
+To copy parameters to a detector bank from a user array a call to SLSETBA with arguments (CHDET,CHSET,NPAR,ARRAY) should be used. The meaning of NPAR is described above.
+
+To get the information from a detector bank to a user array a call to SLGETBA with arguments (CHDET,CHSET,NDPAR,NPAR*,ARRAY*) is used, where NDPAR is the dimension of the user'sARRAY in which the routine returns the NPAR parameters.
+
+## 5 Example of DETG bank usage : saving and restoring the magnetic field map
+
+In the ATLAS set-up, the calculation of the magnetic field in the air core toroid is a time consuming process even in a two-dimensional approximation. In order to save this field together with the data to output and not to repeat the calculations at the analysis step, a new routine BPUTGEO has been introduced in DICE.
+
+The field is kept in 3 different common blocks: /C0FIEL/ contains general constants, /BTABAR/the barrel and /BTAEND/the end-cap parts of the field map. The latter two are relatively large (about 60 000 words each) and should be preferably directly copied to the DETG bank. Another important point is that these common blocks contain a mixture of real and integer numbers and cannot be exportable to another computer if their format is not known to ZEBRA.
+
+To save the field the following mechanism was used:
+
+1. Each common is written as a separate bank in the linear DETG structure, associated with the MFLD detector.
+
+2. The format of each of the 3 common blocks is defined by MZIOCH and transferred to SLDETBA via an auxiliary common SLDBNK before an appropriate call to SLSETBA is done.
+
+To save the field, BPUTGEO is called from the BINIT routine upon the completion of the field calculation. To restore the contents of the field common blocks, a new routine BGETGEO is called from the UGEOMR DICE routine.
+
+## Acknowlegments
+
+We would like to thank Andrea Dell'Acqua for his useful comments and remarks which significantly helped us to develop these modifications, as well as Gilbert Poulard for fruitful discussions.
+
+## References
+
+* [1] R.S. DeWolf, SLUG manual, version 1.07
+* Memory management, version 3.67

@@ -1,0 +1,476 @@
+# Analysis and Conceptual Design of the HLT Selection Software
+
+PESA Software Group (editor Markus Elsing
+
+contact: Markus.Elsing@cern.ch
+
+June 10, 2002
+
+###### Abstract
+
+The ATLAS High Level Trigger consists of two selection steps, the Second Level Trigger and the Event Filter. In this document the analysis and the conceptual design of the High Level Trigger Selection Software are presented. Its aim is to define an infrastructure that will be used to implement the Second Level Trigger and the Event Filter. The document is based on the PESA software requirements document and on experience from previous prototype trigger software implementations. The concepts outlined in the following guide the detailed design and are therefore subject to further refinement, which is to be documented in a future series of detailed design documents.
+
+###### Contents
+
+* 1 Introduction
+* 2 The Event Selection and Classification
+* 3 Scope of the High Level Trigger Selection Software
+	* 3.1 Package Dependencies of the HLTSSW in the Online Subsystems
+	* 3.2 Package Dependencies of the HLTSSW in Athena
+	* 3.3 An Overview of the HLTSSW
+* 4 The Event Data Model Sub-package
+	* 4.1 Relations and Navigability
+	* 4.2 Examples of Structures in the Event
+* 5 The HLT Algorithms Sub-package
+	* 5.1 Data Conversion
+	* 5.2 Feature Extraction
+	* 5.3 The Seeding Mechanism
+* 6 The Steering Sub-package
+	* 6.1 The Trigger Configuration
+	* 6.2 An Overview of the Steering
+		* 6.2.1 Configuration of the HLTSSW
+		* 6.2.2 The LVL1 Conversion
+		* 6.2.3 The Step Processing
+		* 6.2.4 Obtaining the LVL2 and EF Detailed Results
+		* 6.2.5 Ending a Run of the HLTSSW
+* 7 The Data Manager Sub-package
+	* 7.1 Configuration of the Data Manager
+	* 7.2 The Container With Infrastructure
+		* 7.2.1 History Information
+	* 7.3 Retrieve by Region
+	* 7.4 ROB Data Request
+	* 7.5 Data Request by Detector Identifiers
+		* 7.5.1 Lazy Data Preparation
+		* 7.5.2 ROS Data Preparation
+	* 7.6 Caching of HLT Algorithm Results
+* 8 Further Issues
+* 9 Summary
+* A Unresolved Issues
+
+Introduction
+
+The High Level Trigger (HLT) is part of the ATLAS T/DAQ system. It operates on events that pass the First Level Trigger (LVL1). It must reduce the rate by a factor of \(\sim 10^{3}\), while retaining with high efficiency the events needed for offline analysis.
+
+It is foreseen to do the HLT selection in two steps: the Second Level Trigger (LVL2) and the Event Filter (EF). Both are fully described elsewhere, for example in the DAQ, DCS & HLT Technical Proposal [1]. Whenever LVL1 accepts an event, the detector data will be read out and buffered in the Read Out Subsystem (ROS). After that the LVL2 decision is made. The ROS contains ROB-ins (Read Out Buffer inputs) that hold the data received from the Read Out Drivers (ROD) of the detector. For events accepted by LVL2 the data fragments are transfered from the ROS to the Event Builder, from which complete events are transfered to the EF farm.
+
+LVL2 processors will have access to any part of the event data held in the ROS. Usually, it will not be possible to build complete events in the LVL2 processors due to the huge network bandwidth and processing resources this would require. Instead, LVL1 triggers will be used to guide LVL2 to Regions of Interest (RoI) within the event. Processors can request the data from small regions in the detector over the network. There is a possible exception to this: after an initial stage of refining a 6 GeV muon trigger from LVL1, at a comparatively low rate, the B-physics trigger might access the whole event in some sub-detectors, as LVL1 can not always provide guidance to the low momentum physics Signatures required. The balance between B-physics rate reduction in LVL2 and in EF is to be studied as part of the overall optimisation of the HLT.
+
+The Event Builder puts together fragments into a complete event record, and transfers them to the EF farm. Here more precise HLT reconstruction algorithms will be used to provide further event selection, rate reduction and possibly also classification. For example, event classification could be used for data base tags or assignment of events to different recording streams online. EF reconstruction algorithms may be seeded by the LVL2 results for speed, even though the full event will be available.
+
+It is also intended that some quick calibrations may be done in the EF for immediate availability. Since the full event is available at this stage, the EF is able to monitor the performance of lower trigger levels and the detector performance. The EF may also perform some data preparation steps before mass storage of accepted events, e.g. zero suppression of LAr data in inactive regions.
+
+The boundary between LVL2 and EF is not precise. Indeed, flexibility in setting the boundary should be retained in order to profit from the complementary features of both trigger steps. Optimisation of the roles of LVL2 and EF needs further dedicated studies. A rough guide summarising the differences between LVL2 and EF is given in table 1.
+
+The purpose of the PESA New Software project is to develop the ATLAS High Level Trigger Selection Software (HLTSSW). In a first step the software requirements have been summarised in a PESA requirements documented [2]. That document, as much as the analysis and conceptual design presented in this note, is based on experience from previous trigger software implementations [3, 4, 5]. This note is the result of the first two iterations of the analysis and design work carried out by the PESA software group [6]. It serves as a starting
+
+\begin{table}
+\begin{tabular}{|l c c|} \hline  & LVL2 & EF \\ \hline latency & 10 ms & 1 s \\ input rate & 75 - 100 kHz & 1 - 2 kHz \\ rejection & 40 - 100 & 10 \\ data access & event fragments & full event \\ trigger characteristic & fast rejection & precise selection \\ \hline \end{tabular}
+\end{table}
+Table 1: Summary of the differences between LVL2 and EF.
+
+point for the detailed design of the HLTSSW. Terms used in this note are defined in the glossary in the PESA requirements document [2].
+
+## 2 The Event Selection and Classification
+
+The key roles of the HLTSSW are "event selection" and "event classification". Abstract objects representing candidates of e.g. electrons, jets, muons and \(J/\psi\to e^{+}e^{-}\) are reconstructed from event data by a particular set of HLT Algorithms and Parameters. An event is selected if the reconstructed objects satisfy at least one physics Signature in the Trigger Menu. At both stages, the LVL2 and the EF, events are rejected if they do not pass any of the selection criteria designed to meet the signal efficiency and rate reduction targets of the trigger.
+
+The LVL2 and EF Detailed Results include those physics Signatures from the Trigger Menu which were satisfied and either higher level objects or, for certain applications, all reconstructed objects. The result at one trigger level provides seeds for the next level. The EF Detailed Result can be used to assign tags to the events or even assign them to particular output streams. Event tags may serve to select efficiently interesting events for offline reconstruction and analysis.
+
+The basic structure of the HLT selection chain is shown in figure 1 in a simplified form. The starting point for the HLT is the LVL1 Result. It contains the LVL1 Trigger Type and the information about Primary RoIs that caused the LVL1 accept, plus Secondary RoIs not considered for the LVL1 accept. Both types of RoIs are used to seed the LVL2 Selection. The concept of seeded reconstruction is fundamental to the LVL2, apart from the special case of B-physics.
+
+The LVL2 Detailed Result plays a similar role for the EF as does the LVL1 Result for the LVL2. The LVL2 Detailed Result provides the means to seed the EF Selection. It should also be possible to seed the EF directly with the LVL1 Result in order to study for example the LVL2 performance. The EF and the LVL2 Detailed Results are part of the event data.
+
+A yet to be further defined component is the EF Classification. It may include special selections for calibration events and for new physics Signatures, i.e. a discovery stream. Its role within the ATLAS software structure has to be defined by the architecture and physics teams [U.1].
+
+Figure 1: A component diagram of the High Level Trigger selection chain with the two steps of the LVL2 and EF Selection.
+
+## 3 Scope of the High Level Trigger Selection Software
+
+The subject of this document is the problem analysis and the conceptual design of the event selection software for the LVL2 and the EF. The goal is to replace and unify the functionality of the existing online and offline trigger implementations ATRIG [3], CTRIG [4] and the LVL2 reference software [5]. This involves both the infrastructure or framework and the algorithms. The latter are to be provided either by the PESA group or, in case of the algorithms for the EF, by the offline reconstruction group. Major parts of the online reconstruction will have to be based on offline reconstruction algorithms. This is an important constraint for the design of the HLTSSW.
+
+During data taking the HLTSSW will run in an online software environment provided by the HLT subsystem of ATLAS T/DAQ, with event data coming via the Data Collection (DC) subsystem [7]. Therefore the HLTSSW needs to comply with the online requirements, like thread safety, online system requirements and services, as well as online performance goals.
+
+Figure 2 shows how the DC and HLT subsystems collaborate by an exchange of messages. In the online system [1] the LVL2 Selection is done in the LVL2 Processing Unit and the EF Selection in the Event Handler. Both, LVL2 and EF, are situated in dedicated processor farms. The communication of the LVL2 Processing Unit is different in nature from the communication of the Event Handler. LVL2 receives the LVL1 Result from the LVL2 Supervisor. LVL2 is RoI guided and only requests the corresponding fragments of the events from the ROS. The data is read out of the Read Out Buffers (ROBs), which hold the event data after the LVL1 accept. After a positive LVL2 Decision the Event Building collects all fragments, including the LVL2 Detailed Result. The full event is sent via the Event Filter IO to the Event Handler, where the EF Selection is made. Accepted events are sent to the Data Base Loader for permanent storage of the event for offline reconstruction and analysis [U.2].
+
+It is essential though that the HLTSSW is also able to run directly in the offline environ
+
+Figure 2: A collaboration diagram for the online subsystems involved in the LVL2 and EF Selection following [1], showing the exchange of messages as indicated by the sequence numbers.
+
+ment Athena [8] to facilitate development of algorithms, to study the boundary between LVL2 and EF and to allow performance studies for physics analyses. Therefore the HLTSSW needs to comply with the control framework and services that are provided by the offline software architecture team. In the document we do not follow exactly the definitions and terms of the offline group. In practice many of the concepts are in common or could be the basis to unify the approaches.
+
+Figure 4: Package diagram showing the dependencies of the HLTSSW performing the EF Selection in the Event Handler subsystem.
+
+Figure 3: Package diagram showing the dependencies of the HLTSSW performing the LVL2 Selection in the LVL2 Processing Unit subsystem.
+
+### Package Dependencies of the HLTSSW in the Online Subsystems
+
+In figure 3 the package diagram is shown for the HLTSSW carrying out the LVL2 Selection in the LVL2 Processing Unit. The LVL2PU Application [9] uses the interface of the HLTSSW to request the LVL2 Selection on the next LVL1 Result. The HLTSSW needs to access ROB Data fragments and uses Meta Data in order to obtain the LVL2 Decision. The ROB data requests are sent via an interface of the ROB Data Collector. Services are used to access Meta Data. These include the Trigger Configuration information for the LVL2 Selection itself, as well as Geometry, Conditions and B-Field Map information needed for the algorithmic trigger processing of the event. Monitoring Services serve purposes like histograming and Messaging.
+
+No external dependencies are shown in the figure. The communication with external systems and subsystems, including the LVL2 Supervisor and the ROS, are hidden from the HLTSSW by means of the LVL2PU Application. The HLTSSW has an interface to the LVL2PU Application and can be initialised via this interface at the start of a "RUN". Likewise, the LVL2PU Application requests the HLTSSW to process a given LVL1 Result. Note that to optimise the use of available computing resources several LVL1 Results are processed in parallel in different threads within the LVL2PU Application [U.3].
+
+In figure 4 the corresponding package diagram is shown for the HLTSSW carrying out the EF Selection in the Event Handler [10]. The Event Flow has an interface to the external subsystems for the communication with the Event Filter IO. The Event Flow package transmits the event to the Processing Task, which requests the EF Selection for the event using the interface of the HLTSSW [U.4]. No equivalent of the ROB Data Collector is needed by the HLTSSW for the EF Selection, because it is carried out after the Event Building. Again Meta Data and Monitoring Services are needed for the algorithmic trigger processing. Also the dependencies on external systems and subsystems are hidden from the HLTSSW, including Event Filter IO and Run Control. It is foreseen to run a single EF Selection per Processing Task.
+
+In both subsystems the HLTSSW depends on interfaces of the Meta Data and Monitoring Services. It is desirable that in all situations, including the offline framework Athena, services allow for the same or similar implementation [U.5].
+
+Figure 5: Package diagram showing the dependencies of the HLTSSW running the LVL2 and EF Selection in the Athena framework.
+
+### Package Dependencies of the HLTSSW in Athena
+
+The package diagram for the HLTSSW running in Athena is shown in figure 5. In the offline the task of the HLT is to emulate the online LVL2 and EF Selection. This requires also to use the emulation of LVL1, which is to be provided by the LVL1 system. Hence three Athena Algorithms are needed for the full trigger selection chain, the LVL1 Trigger Emulation, the LVL2 Trigger Emulation and the Event Filter Emulation.
+
+The LVL1 Trigger Emulation provides the LVL1 Result. The task of the LVL2 Trigger Emulation is to communicate with the HLTSSW via the same interface as used by the LVL2PU Application. This includes the initialisation and the request to process the LVL1 Result. The LVL2PU receives back the LVL2 Detailed Result. Part of the LVL2 Trigger Emulation is the ROB Data Collector Emulator. It substitutes the functionality of the online ROB Data Collector. The Event Filter Emulation replaces the Processing Task of the Event Handler subsystem. It sends the event, including the LVL2 Detailed Result, in the format of the online Event Building to the HLTSSW and thereby requests the EF Selection to be performed.
+
+The LVL2 Trigger Emulation and the Event Filter Emulation are to be provided by this project. As in the online subsystems, Meta Data and Monitoring services are used. Those are to be provided as part of the Athena framework [U.5].
+
+### An Overview of the HLTSSW
+
+In figure 6 the package diagram of the HLTSSW is shown. The sub-packages are:
+
+* The **Steering** controls the selection software. It "arranges" the algorithm processing for the event analysis in the correct order, so that the required data is produced and the trigger decision is obtained. The Steering Controller is the component of the Steering that implements the interface to the LVL2PU Application (when running in the LVL2 Processing Unit) and to the Processing Task (when running in the Event Handler).
+
+Figure 6: A package diagram of the HLTSSW, showing the dependencies of the sub-packages. The external packages are named following the online case and include their respective offline emulations. The dependencies on the Offline Event Data Model, on the Offline Algorithms and on the ROS Data Preparation are explained in the text.
+
+The same interface is used by the emulation of these external packages in the offline framework Athena.
+* The event data is structured following the **Event Data Model** (EDM). The EDM covers all data entities in the event and their relationships with each other. The data entities span from the Raw Data in byte stream format (originating from the detector RODs), the LVL1 Result and all other reconstruction entities up to the LVL2 and EF Detailed Result. The EDM is therefore the "language spoken" by the software to communicate information about the event.
+* The **HLT Algorithms** are used by the Steering to process the event and to obtain the data on the basis of which the trigger decision is taken. The dependency on Offline Algorithms is especially important for the implementation of the EF. Trigger versions of Offline Algorithms are to be derived that are adopted to online requirements. Hence, a common definition of the EDM and the Offline Event Data Model is desirable [U.6] in order to facilitate the reuse of Offline Algorithms.
+* The **Data Manager** handles the event data during the trigger processing. It therefore provides the necessary infrastructure for the EDM. For the case of LVL2 the communication with the ROB Data Collector (or respectively its emulation) to access the ROB Data fragments is part of the Data Manager. Also shown is the dependence of the ROB Data Collector on the ROS Data Preparation. It is considered as a possible option that the ROS would carry out data reduction or simple algorithmic processing.
+
+In summary, the EDM covers all event data entities and is used by the other parts of the HLTSSW, by the Steering, the HLT Algorithms and the Data Manager, to communicate information about the event. The HLT Algorithms build up the event tree in the process of the reconstruction. The result is analysed by the Steering to obtain the trigger decision. The Data Manager has to provide an important functionality, as it supports the EDM. It provides the means of accessing the event data and for building it up. The data access patterns reflect the needs of the HLT Algorithms and of the Steering. Here, data access for example by "region" is clearly a requirement. In the following sections more detail is given on the HLTSSW sub-packages.
+
+## 4 The Event Data Model Sub-package
+
+The HLT is a two stage software trigger, which selects events by means of reconstruction. It is guided by the RoI information provided by the LVL1 system. All event data classes and
+
+Figure 7: A package diagram of the Event Data Model EDM.
+
+their relations are summarised in the EDM. The EDM of the HLTSSW is closely coupled to the yet to be defined offline EDM, especially because offline algorithms should be the basis of the EF Selection. The EDM should therefore be developed in close contact with the offline EDM, detector and reconstruction groups [U.6].
+
+In figure 7 a package diagram of the EDM is shown. The data classes are grouped into 5 sub-packages :
+
+* **Raw Data** coming from the ROS and the LVL1 system, or respectively its emulation, is in byte stream format. The LVL1 Result, the LVL2 and EF Detailed Results, as well as ROB Data from the sub-detectors and from the LVL1 system are Raw Data. Part of the Raw Data formats are headers and trailer from the ROBs, ROSs and DC [11] system. Note that for a given sub-detector several Raw Data formats might be used, e.g. different formats for different LVL1 Trigger Types.
+* The ROB Data from the different sub-detectors has to be converted into **Raw Data Objects** (e.g. SCT Raw Objects) for the purpose of further processing. As it is the case for the Raw Data, Raw Data Objects are highly sub-detector dependent information.
+* **Features** are any data derived from the Raw Data Objects or from other Features with increasing levels of abstraction. They range from data produced after calibration and clustering up to reconstructed quantities such as Tracks or Vertices.
+* **MC Truth** information. Together with the first three sub-packages of the EDM, the MC Truth is common to both the HLTSSW and the offline reconstruction.
+* Another part of the EDM is **Trigger Related Data**. It comprises RoI Objects and the LVL1 (LVL2/EF) Trigger Type [12], as well as so called Trigger Elements (TEs) and Signatures. A TE is derived from Features and implies (by its label) a physical interpretation of these Features, such as a particle, missing energy or a jet. It represents thus an even higher level of abstraction. TEs will be used by the Steering to guide the processing and to extract the trigger decision.
+
+Figure 8: Package diagrams showing the Raw Data, Raw Data Objects, Features and Trigger Related Data sub-packages. In all cases the stereotypes in the class names are used to indicate the package they belong to.
+
+A package diagram for Raw Data, Raw Data Object, Features and Trigger Related Data is given in figure 8. The stereotypes in the class names are used to indicate the package name. This convention will also be used in following diagrams.
+
+### Relations and Navigability
+
+An important aspect of the EDM are the relations between the different data classes, as shown in figure 9. The arrows indicate navigability, which is essential for the algorithm processing, because navigation is used to analyse and built upon the previously reconstructed event fragments. The role names of the class relations indicate the nature of the association. The **"seeded by"** relation is used if an instance of Class A is reconstructed by an algorithm, which in turn has been seeded by an instance of Class B. A different type of relation is the **"uses"** relation between, for example, Track and Clusters On Track. It is beneficial to allow for a **"mutually exclusive"** relation between two instances of a given class to indicate that these two are conflicting. An example of such a conflict is the case of two Trigger Elements of type "electron" and "photon", that are both based on the same "electro-magnetic" RoI from LVL1. The **"originates from"** relation is used to associate reconstructed objects to the MC Truth information in the simulation.
+
+In practice not all relations will be needed for all classes. Only a subset of relations or a simplified EDM, leaving out certain aspects of the event, might be used for LVL2 to comply with the more stringent latency requirements of LVL2 compared to the EF. It is up to the detailed design to support this flexibility in the navigation [U.7].
+
+### Examples of Structures in the Event
+
+During the trigger processing the event is built up. Each event contains instances of EDM classes. They are related to each other following the above defined patterns of associations. An example of a possible design of the relations between classes in the Feature sub-package is shown in figure 10.
+
+The classes of the Feature sub-package serve as natural data interfaces for any HLT (or offline) reconstruction algorithm. A future design of the Feature Sub-package will follow naturally the structuring of the reconstruction. Note that at each level a Feature is associated only to others of a next level. This avoids complex relations. Also, the Feature data seen from the high level data downwards (i.e., reverse to the reconstruction view) will be the basis of the offline event analysis and should therefore comply with the needs of the physics analysis as far as possible. The exact definition of the relations and classes should be done in collaboration with the offline reconstruction.
+
+In figure 11 typical examples of instances of EDM classes and their relations are given for an event processed by LVL2. Figure 11.a shows a Trigger Element which has a "uses" relation
+
+Figure 9: Possible types of relations between classes in the EDM as indicated by the role names.
+
+to a LVL1 RoI. Another Trigger Element, this one having a uses relation to a whole tree of Features, is "seeded by" the first one. In figure 11.b an example for the "mutually exclusive" relation between Trigger Elements is shown. Finally in 11.c a valid Signature uses two Trigger Elements. The full event tree will be constructed during the LVL2 or EF trigger processing out of fragments like the ones displayed here.
+
+Figure 11: Examples of relations between instances of EDM classes, which will be typical for an event processed by LVL2.
+
+Figure 10: An incomplete version of a design of relations between the classes in the Feature sub-package. See text for details.
+
+## 5 The HLT Algorithms Sub-package
+
+The EDM is tightly coupled to the HLT algorithm processing. The EDM definition helps to support a modular algorithm design. Compared to the offline situation, where this statement also holds, it is even more important for the HLTSSW, because the trigger selection is data driven.
+
+Figure 12 shows three HLT Algorithm sub-packages. They provide a rough structuring of the trigger reconstruction. Again, stereotypes are used in the figure to indicate the corresponding sub-package. The three sub-packages are :
+
+* **Data Conversion** comprises algorithms for Raw Data and Raw Data Object processing. The task of this type of algorithms involves sub-detector specific information. Hence, sub-detector groups are responsible for the implementation and maintenance of these algorithms, taking the HLT requirements into account. Data Conversion ends with "low level" Features, which are input to the second category of HLT Algorithms.
+* **Feature Extraction** algorithms operate on abstract Features and Trigger Related Data to refine the event information. They built upon the Data Conversion output and extract the necessary input data to derive the Trigger Decision.
+* It is beneficial to structure the algorithm processing in such a way that algorithms from a library of **Algorithm Tools** carry out common tasks such as track fitting or vertex finding.
+
+There is an important difference between the offline and the HLT reconstruction, especially for LVL2. The RoI based approach implies a data driven event reconstruction. This, in contrast to the offline, is done in sequences, each working on specific details of the events. Therefore a modular structure of the offline algorithms is necessary.
+
+Certain types of data manipulation are only possible at a later stage in the reconstruction, even though they are in principle part of the detector specific processing. These operations violate in a certain sense the three category structure given above. An example is the transformation of 1 or 2 dimensional objects, such as TRT Drift Circles or Silicon Clusters, into the ATLAS global frame by means of alignment constants from the Conditions Service. This is possible only at the time of track fitting, because the exact position can be deduced only on the basis of external predictions that use the track itself. Operations with this characteristics should be identified and standard methods developed to separate those detector specific operations from the Feature Extraction algorithms.
+
+Figure 12: A package diagram of the HLT Algorithm sub-package.
+
+### Data Conversion
+
+In figure 13 three types of algorithms are distinguished in the Data Conversion sub-package, based on the different types of tasks they perform on EDM data. **Data Unpacking Algorithms** convert the incoming Raw Data to Raw Data Objects. **Data Reduction Algorithms** perform tasks such as zero suppression on Raw Data Objects, thereby producing another type of Raw Data Objects. **Data Preparation Algorithms** transform Raw Data Objects into low level Features. This type of algorithms carries out tasks like calibration of energy measurements in calorimeter cells or clustering of silicon strips or pixels. It is an option especially for LVL2 to skip the level of Raw Data Object creation by starting the Data Preparation Algorithms directly from Raw Data [U.8].
+
+The boundary between Data Conversion and Feature Extraction is not exact, but note that only Data Conversion will see the Raw Data or Raw Data Objects.
+
+Figure 14: Diagram showing the relations between different types of Feature Extraction algorithms and EDM data.
+
+Figure 13: Diagram showing the relations between different types of Data Conversion algorithms and EDM data.
+
+### Feature Extraction
+
+In figure 14 two types of Algorithms are distinguished in the Feature Extraction sub-package.
+
+**Reconstruction Algorithms** process Features and produce new types of Features, just like offline reconstruction algorithms. Trigger specific is the use of the information in RoI Objects to restrict the processing to geometrical regions of the detector, which were identified by the LVL1 system. The TEs used by the Steering to "seed" the Reconstruction Algorithms represent these trigger relevant aspects of the event, as shown in figure 11.a. The seeding mechanism is discussed in the next subsection. The second type of algorithms are **Hypothesis Algorithms**. Their task is similar to particle identification. A Hypothesis Algorithm produces a new Trigger Element out of reconstructed Features whenever they validate the hypothesis of an assumed physics object. An example is the validation of an "electron" using a reconstructed Calorimeter Cluster and a Track, for which a new TE would be created.
+
+### The Seeding Mechanism
+
+The HLT Algorithms are the building blocks of the reconstruction that provides the data to derive the trigger decision. Logically the trigger processing is done starting from a LVL1 RoI using predefined sequences of algorithms. A so called "seeding" mechanism is needed in order to guide the reconstruction to the event fragments relevant for preparing the trigger decision.
+
+It is beneficial not to couple directly the Steering of the trigger selection to the details of the Feature Extraction Algorithms. No "micro" sequencing should be done on the level of Features, e.g. single Calorimeter Cells or Inner Detector Clusters. These complex event details are better handled by the algorithms themselves. Therefore Trigger Elements are to be used. They characterise with their label the abstract physics objects, e.g. "electrons" or "jets". Besides this label a TE does not have any properties or states of its own, because the list of possible states or properties is not well defined a priory. Instead it is the "uses" relation by which the TE is associated to the concrete event data, that should provide all necessary information to the algorithms.
+
+Figure 15 shows an example to illustrate how the mechanism works. The upper part (15.a) shows an example of an electro-magnetic RoI Object from the LVL1 calorimeter trigger. The
+
+Figure 15: Three diagrams showing fragments of the event associated to one RoI at different stages of trigger processing. See text for details.
+
+Rol Object is "used" by an "EM" TE. The first Feature Extraction Algorithm is seeded by the TE and accesses the necessary information from the RoI Object, navigating via the "uses" relation. The output of the reconstruction could be a Calorimeter Cluster that uses several Calorimeter Cells, which validate the LVL1 RoI. As shown in figure 15.b, another TE would be created for the validated Calorimeter Cluster. This TE uses the Calorimeter Cluster and is "seeded by" the first TE. The next Feature Extraction Algorithm is seeded with the new TE. The algorithm is able to navigate the full tree of data objects, as shown in figure 15.b, to access the necessary information. To validate the "electron" physics hypothesis it could use the precise position of the Calorimeter Cluster to reconstruct the Track from a set of SCT Clusters. Because a Track is found the "electron" hypothesis is validated and a TE is created. The resulting event fragment is shown in figure 15.c.
+
+A sequence diagram for the cluster finding Feature Extraction Algorithm is shown in figure 16. The event fragment before running this algorithm is shown in figure 15.a, the output situation is shown in figure 15.b. The algorithm obtains the collection of Calorimeter Cells as prepared data from the Data Manager. The details of it are not shown in figure 16. Also not shown in the sequence diagram is the Sequencer that is actually seeding the reconstruction by requesting a TE to be processed (see figure 22).
+
+In figure 17 a similar diagram to 15.c is shown for the case of a LVL2 B-Physics trigger. Here, the new aspect is the Inner Detector full scan. This means reconstructing all Tracks in the event after the initial validation of a "muon" [1]. A TE "uses" the collection of Tracks and seeds, for example, a Feature Extraction Algorithm that reconstructs an exclusive B-decay into two pions. The result of this would be a TE called "B to PiPi". This TE uses a B-Meson and is "seeded by" the "Inner Detector Scan" TE, as shown in the figure.
+
+Figure 16: Sequence Diagram for the cluster finding Feature Extraction Algorithm seeded by an EM TE.
+
+## 6 The Steering Sub-package
+
+The **Steering** controls the HLT Selection. It "arranges" the HLT Algorithm processing for the event analysis in the correct order, so that the required data is produced and the trigger decision is obtained. The Steering Controller is the component of the Steering that provides the interface to the LVL2PU Application for running in the LVL2 Processing Unit and to the Processing Task for running in the Event Handler. When running in the offline framework Athena the same interface is used by the emulation of these external packages.
+
+The LVL2 and the EF Selection is data driven, in that it builds on the result of the preceding trigger level. It is the task of the Steering to guide the HLT Algorithm processing to the physics relevant aspects of the event, using the seeding mechanism discussed in the previous section. Seen from the side of the Steering, the reconstruction of an event in the trigger is a process of refining TEs, as was shown in figures 15 and 17. For each TE at input several HLT Algorithms were executed that produced new TEs.
+
+The goal of the HLT Selection is to select the interesting physics events. The selection demands that the event matches at least one so-called physics "Signature". Each Signature is a combination of abstract physical objects like "Electrons", "Muons", "Jets" or "Missing Energy". An illustrative list of physics Signatures can be found for example in [1]. It is usually requested that, for example, an Electron has a minimal energy and is isolated from a Jet. Translated into the HLTSSW a Signature is nothing else but a combination of required TEs. A possible syntax for writing a Signature of requested TEs is using the label "2 x e20i", which would mean two "20 GeV isolated electrons".
+
+As shown in reference [1], the Signatures used to select the event can be quite explicit, like 4 Jets or an exclusive B-hadron decay. For each Signature requiring more than one TE it is beneficial not to completely validate the first, because the second may be e.g. due to noise and therefore may fail right away at the beginning of reconstruction. The HLT Algorithm processing should be done in steps. At each step a part of the reconstruction chain of HLT Algorithms is carried out for each TE, if possible, starting with the HLT Algorithm giving the biggest rejection. At the end of each step a decision should be taken, whether the event can still possibly satisfy one of the final physics Signatures.
+
+### The Trigger Configuration
+
+Figure 18 shows the class diagram for the **Trigger Configuration**. It contains a **Sequence Table** and a **Menu Table** for each of the trigger steps described above. Both of these are
+
+Figure 17: A diagram showing a fragment of the event for the case of LVL2 B-Physics trigger reconstruction. See text for details.
+
+discussed below.
+
+The Sequence Table consists of a collection of **Sequences**, where a Sequence is defined as a transformation of one or more TEs, via a set of HLT algorithms, into a new TE. The Steering obtains information about the specific HLT Algorithm to execute for a given Seed from the Sequence. Each HLT Algorithm in a Sequence is configured with the relevant parameter set.
+
+The Menu Table contains the collection of **Signatures** that could be validated in a given step. Each Signature usually contains collections of required TEs and of TEs required in veto, a prescaling factor, and a forced accept rate. Some exceptions to this do occur; for example random triggers do not specify a list of requested TEs, only a forced accept rate.
+
+It is important to provide a consistent Trigger Configuration at all trigger levels (LVL1, LVL2, EF). As Sequences provide input and output information in terms of TEs, it is possible to derive from the final EF Menu Table the Trigger Configuration for all trigger levels. The complete list of possible Sequences is sufficient to calculate the Sequence and Menu Tables for all earlier steps. Similarly, the LVL1 configuration can be derived from the set of input TEs for the first LVL2 step. A detailed design of the configuration service is needed [U.10], which should also specify the exact syntax for Sequences and Signatures.
+
+### An Overview of the Steering
+
+In figure 19 a class diagram for the Steering of the HLTSSW is given. Its interface to the LVL2PU and the Processing Task provides the necessary methods to configure the HLTSSW at the beginning of a "RUN", to execute the LVL2 or EF selection, and to end a "RUN". The interface is implemented by the **Steering Controller**.
+
+The task of the **Selection Configurator** is to provide the Trigger Configuration. This task is carried out during the initialisation phase of the trigger system (before the start of a "RUN"), which is especially important for LVL2.
+
+In the LVL2 the Steering Controller uses the **LVL1 Conversion** to convert the LVL1 Result (i.e. Raw Data) into RoI Objects and prepares the selection by creating the TEs needed for the seeding mechanism. In case of the EF the corresponding **LVL2 Conversion** translates the LVL2 Detailed Result to prepare the EF Selection. The trigger processing in
+
+Figure 18: A class diagram for the Trigger Configuration, showing for each step a pair of Sequence Table and Menu Table.
+
+steps is then carried out by the **Step Handler**. It uses the **Sequencer** to execute the HLT Algorithm in the Sequences. The Step Handler executes the **Step Decision** to compare the result of the algorithmic processing, given in terms of TEs, with the Signatures to decide whether or not to reject the event. The next step is processed by the Step Handler only if the event is still accepted, until all steps are executed. The role of the **Event Summary** is to produce the LVL2 or EF Detailed Results, depending on where the HLTSSW is running.
+
+The Steering Controller uses the **Run Summary** at the end of a "RUN" to collect summary information for monitoring purposes.
+
+#### 6.2.1 Configuration of the HLTSSW
+
+In figure 20 a sequence diagram is shown for the Selection Configurator. Its task is to provide a Trigger Configuration, which is then used by the Step Handler to carry out the trigger selection. The input to the Selection Configurator is a Configuration Identifier. It is needed in order to obtain the corresponding full set of Configuration Data from a dedicated service. Using this information the Trigger Configuration is created. The Sequences in the Sequence Tables contain HLT Algorithms. They need to be created and configured using a Parameter Set that is part of the Configuration Data. It is part of the HLT Algorithm configuration to access Meta Data via dedicated Services. The Selection Configurator transmits the Configuration Identifier to the Data Manager to configure the Data Conversion according to the Trigger Configuration needs [U.9].
+
+The task of the Selection Configurator should only be carried out during the initialisation phase (before the start of the "RUN"). For LVL2 it is essential that also the access to Meta Data is limited to this phase. Note that the HLTSSW is configured for LVL2 or for EF by means of Configuration Identifiers pointing to a LVL2 or to a EF Trigger Configuration, respectively
+
+Figure 19: A class diagram for the Steering, including the interface towards the LVL2PU and the Processing Task.
+
+#### 6.2.2 The LVL1 Conversion
+
+In figure 21 a sequence diagram is shown for the LVL1 Conversion. It is used by the Steering when running in LVL2. In order to prepare the LVL2 Selection one needs to translate the LVL1 Result [12] into the LVL1 Trigger Type and into RoI Objects, which are to be stored in the Data Manager. Finally, a TE is create for each RoI Object "using" it, as has been discussed in figure 15.a. The LVL1 Conversion returns a list of TEs to the Steering that provide the starting point for the step processing.
+
+The LVL1 Conversion has to know the configuration of the LVL1 system to translate the
+
+Figure 21: A sequence diagram for the LVL1 Conversion.
+
+Figure 20: A sequence diagram for the Selection Configurator that provides the Trigger Configuration.
+
+Raw Data. Therefore the LVL1 Conversion is to be developed in close contact with the LVL1 system [U.10]. In case of running the EF Selection it is the task of the corresponding LVL2 Conversion to decode the LVL2 Detailed Result to enable LVL2 seeding of the EF [U.11].
+
+#### 6.2.3 The Step Processing
+
+In figure 22 a sequence diagram is shown for the Step Handler carrying out the step processing for an event. The Step Handler gets as arguments the Trigger Configuration and the initial list of TEs produced by the LVL1 (LVL2) Conversion. Each step corresponds to a pair of a Menu Table and a Sequence Table. The reconstruction part for each step is controlled by the Sequencer. It executes HLT Algorithms in Sequences to further process the event and to refine the content in terms of TEs. The Step Decision decides based on the outcome of each reconstruction step whether or not to reject the event.
+
+Depending on the input list of TEs at the beginning of each step the Sequencer executes HLT Algorithms in Sequences, which are defined in the Sequence Table. The task is to "seed" the HLT Algorithms with all (one at a time) matching combinations of TEs out of the original list of input TEs and to obtain the resulting output TEs. The resulting list of TEs is passed to the Step Decision after all Sequences in the Sequence Table of this step have been processed. The Step Decision then compares the list of output TEs to the Signatures in the Menu Table for this step. For each matching combination of TEs a Signature is stored in the Data Manager. The Signature "uses" these TEs in order to prepare the LVL2 (EF) Detailed Result. The Step Decision returns a list of TEs, which have been used to satisfy at least one Signature. The remaining TEs are discarded from further processing. The Step Handler continues processing the next step either until it is rejected by the Step Decision, because no Signature is satisfied, or until all steps are done, in which case the event is accepted.
+
+Figure 22: A sequence diagram for the step processing showing the role of the Step Handler, of the Sequencer and of the Step Decision.
+
+At the time of writing, detailed design work on the Steering has already progressed quite far. Some of these details may contradict what is shown in figure 22. This is acceptable, since the aim of figure 22 is to indicate the main points of the design with details of all the messages given as an example for completeness. Once the detailed design is complete, definitive diagrams will appear in the documentation of that design.
+
+As drawn in figure 22 the HLT Algorithm is responsible for creating the result in terms of TEs for each Sequence. An alternative scheme has been proposed in which the Sequencer creates output TEs before executing the HLT Algorithms. In this case an activation scheme is used by the HLT Algorithm to validate the TEs. It is up to the detailed design to decide upon the scheme [U.12].
+
+#### 6.2.4 Obtaining the LVL2 and EF Detailed Results
+
+The Event Summary is executed after the Step Handler for each accepted event. Its task is to produce the LVL2 or respectively the EF Detailed Result based on the event information produced. As shown in figure 23, the Event Summary retrieves the list of validated Signatures from the Data Manager. From this the LVL2 (EF) Trigger Type is determined. The exact content of the LVL2 or EF Detailed Results, which is to be constructed from the event information, is not yet defined [U.11].
+
+At the end of the event analysis the Data Manager has to clean the event data from its memory.
+
+#### 6.2.5 Ending a Run of the HLTSSW
+
+The final component of the Steering sub-package is the Run Summary. Its task is to collect the summary information from the HLT Algorithms, which are in the Sequences of the Sequence Tables in the Trigger Configuration. This summary information is published via the Monitoring Services. The Run Summary also destructs the instances of the HLT Algorithms. Afterwards, the Steering Controller destructs the old Trigger Configuration.
+
+Figure 23: A sequence diagram for the Event Summary executed at the end of the processing of each accepted event.
+
+## 7 The Data Manager Sub-package
+
+The Data Manager provides the means of receiving and storing the event data during the trigger processing. It therefore provides the necessary infrastructure for the EDM and for the navigation used for the Seeding Mechanism. In case of LVL2, the Data Manager does the communication with the ROB Data Collector. It thereby hides the online aspects the ROB Data access from the HLT Algorithm processing. It seems beneficial to perform Data Conversion Algorithms on Raw Data in the Data Manager, because it allows naturally for lazy unpacking and optimisation. The access to (prepared) data by a Geometrical Region is a clear requirement for most of the HLT Algorithms that follows directly from the RoI concept. Therefore it is beneficial that the Data Manager implements this Detector Geometry
+
+Figure 24: A sequence diagram for the Run Summary, which is executed at the end of a “RUN”.
+
+Figure 25: The class diagram for the Data Manager sub-package. See text for details.
+
+dependent data access pattern centrally. It can then be used easily by all Feature Extraction Algorithms.
+
+In figure 25 a class diagram for the Data Manager sub-package is shown. The **Data Manager Interface** is implemented by the Data Manager. It is seen by the HLT Algorithms and by the Steering. In order to provide the necessary functionality the Data Manager uses several other components :
+
+* The **Region Selector** and the **ROB Mapper** are used to implement the "retrieve By Region" data access pattern. Their task is to translate the abstract Geometry Region into a set of (online) **Identifiers**. Those are used to access the data.
+* The **ROB Data Data Provider** is a LVL2 specific part of the Data Manager to communicate with the ROB Data Collector (or respectively with its emulation) for the ROB Data requests.
+* The **Data Preparation** is used by the Data Manager to process Raw Data with Data Conversion Algorithms. It thereby does algorithmic work to prepare the data for the Feature Extraction Algorithms and hides the detector dependent part of the processing.
+* The **Container With Infrastructure** provides the real functionality of a purely transient store for the Data Manager. This includes the support of object relations and of a lookup by Identifiers.
+
+### Configuration of the Data Manager
+
+The Data Manager needs to be configured at the beginning of a "RUN" to access Meta Data and to set up the Data Conversion Algorithms used by the Data Preparation. The Selection Configurator submits the configuration request from the Steering Controller to the Data Manager, as was shown in figure 20. The same limitations as for the Steering and HLT Algorithms apply to the Meta Data access by the Data Manager, especially for LVL2.
+
+In figure 26 a sequence diagram for the configuration of the Data Manager is shown. The ROB Mapper and the Region Selector access the Geometry Service to obtain the necessary information for the ROB Identifier and the Detector Identifier Mapping. The consistent configuration of the Data Preparation is an unresolved issue [U.9]. The HL
+
+Figure 26: A sequence diagram for the configuration of the Data Manager at the start of a “RUN”.
+
+an Identifier to obtain the Trigger Configuration from the corresponding Service. Different Data Conversion Algorithms need to be set up, depending on the type of Trigger Configuration, LVL2 or EF, and also depending on the details of the Feature Extraction Algorithms used in the Sequences.
+
+### The Container With Infrastructure
+
+The Container With Infrastructure (CWI) is the purely transient event store of the Data Manager. It provides the support of the external relations between data objects and allows for navigation in the event tree. It also supports access to data by an Identifier [13], such as the **ROB Identifier** for the ROB Data fragment or the (online) **Detector Identifier** for Raw Data Objects or low level Features, e.g. Calorimeter Cells or Clusters in the SCT. A Detector Identifier corresponds, for example, to a Front End Buffer in the LAr or to a wafer for the Pixels [14]. Furthermore user defined Identifiers are to be supported. Note, that an object could have more than one associated Identifier and that an Identifier could be used for more than one Object in the CWI. The CWI owns the objects stored and is responsible for destructing them at the end of the event processing.
+
+A possible way [U.7,U.13] to meet the requirements would be that the CWI supports the following methods:
+
+* Store an object in the CWI.
+* Associate a list of Identifiers with an object in the CWI. Identifiers are ROB Identifier, Detector Identifier or user defined.
+* Set a relation between an object and another one. The list of role names for the relations is given in figure 9.
+* Retrieve a collection of objects by their type, e.g. all Tracks, TEs, etc..
+* Retrieve a collection of objects of a certain type by an Identifier.
+* Retrieve a collection of objects of a certain type by their relation to another object. The list of role names for the relations is given in figure 9.
+* Clear the event from memory at the end of the processing.
+
+The detailed design of the CWI shall be done in close contact with the offline. In an ideal situation the result would be a common interface for the CWI (or even for the Data Manager) and for Storegate [15]. This would facilitate a simple import of offline reconstruction algorithms to implement the EF [U.13].
+
+#### 7.2.1 History Information
+
+The **History** of a reconstructed object comprises the HLT Algorithm (and its Parameter Set) used to obtain it. This kind of information is useful for offline debugging and analysis of the trigger processing, but poses an overhead to the HLTSSW. On the other hand the LVL2 and EF Selection is determined completely by the Trigger Configuration and by the event at input. Therefore it should be sufficient to save this Trigger Configuration for a given "RUN". Another use of the History is to retrieve all objects produced by a certain HLT Algorithm from the Data Manager. This functionality could be implemented by user defined Identifiers associated to the objects, when needed (see figure 31).
+
+### Retrieve by Region
+
+The data request by a **Geometrical Region** is an important requirement to implement the RoI concept in the HLTSSW. A Geometrical Region does not directly correspond to a RoI, but is a more general concept. A RoI defines a given volume in the detector of interest for the trigger processing, as was shown in figure 16. But during the HLT Algorithm processing more refined information becomes available that can be used to restrict the original volume and thereby the amount of data to be analysed. On the other hand, a Geometrical Regioncould be a full sub-detector or a group of sub-detectors, like for example for the full scan of the Inner Detector for certain B-physics triggers. Another application of the data request by Geometrical Region is for example the "Track Following" done by XKALMAN or IPATREC [14]. Here those Clusters are to be examined that are on the next detector surface intersected by the track candidate.
+
+In figure 27 two sequence diagrams are shown for the data requests by Geometrical Region. The difference between the two requests is in the kind of output data. Figure 27.a describes how to retrieve ROB Data. In this case the Data Manager uses the ROB Mapper to translate the Geometrical Region into a list of ROB Identifiers. Then a data request by ROB Identifiers is used to retrieve the ROB Data itself. Figure 27.b shows the corresponding requests for prepared data, i.e. Raw Data Objects or low level Features. A natural organising principle for this kind of data is by Detector Elements [14]. Hence the Region Selector is used to translate the Geometrical Region into a list of Detector (online) Identifiers and again a data request by Identifiers is used to retrieve the data.
+
+Note that the "retrieve By Region" access pattern effectively hides the details of the detector geometry model and of the Identifiers from the requesting HLT Algorithms. This pattern does not apply to higher levels of reconstructed objects, i.e. Tracks or TEs. Here the access to these objects is by their relation to other objects (Seeding Mechanism) in the event.
+
+Figure 28: A sequence diagram for the ROB Data request by ROB Identifier.
+
+Figure 27: Sequence diagrams for the data requests by a Geometrical Region. The difference between the requests is in the kind of output data. See text for details.
+
+### ROB Data Request
+
+In figure 28 a sequence diagram for the ROB Data request by ROB Identifiers is shown. For each ROB Data fragment the Data Manager checks, if it has been already stored in the CWI, before requesting it from the ROB Data Provider. Note that in case of the EF the full event is stored in the CWI and hence this check is always successful. The task of the ROB Data Provider is to send the ROB Data request to the ROB Data Collector, which is part of the LVL2PU Application or respectively its emulation offline. The ROB Data Provider returns the ROB Data fragment. It is stored in the CWI by the Data Manager to cache the data for a possible further request. At the end the Data Manager returns all fragments.
+
+### Data Request by Detector Identifiers
+
+In figure 29 the corresponding sequence diagram is shown for the data request by Detector Identifier. Again, the Data Manager checks, if the data for a given Detector Identifier is available in the CWI. If not, the Data Preparation is used to prepare the requested output, because either Raw Data Objects or low level Features are requested. Again, the data is then stored by the Data Manager in the CWI to allow for caching before returning it.
+
+#### 7.5.1 Lazy Data Preparation
+
+In figure 30 a sequence diagram is shown for the Data Preparation. It prepares Raw Data Objects or low level Features if they are not already stored in the CWI, as was shown in figure 29. This way the important performance requirement of so called "lazy data preparation" is implemented, because only the requested part of the data is actually processed, when it is needed by the HLT Algorithm.
+
+As shown in the figure, the Data Preparation uses the ROB Mapper to translate the Detector Identifier into a ROB Identifier. Then the ROB Data is requested from the Data Manager itself. This request was discussed in figure 28. The Data Preparation uses a Data Conversion Algorithm to create the requested output data from the part of the ROB Data that corresponds to a given Detector Identifier. It is an option, that only a part of the full ROB Data fragment gets transmitted from the ROS [U.3].
+
+Figure 29: A sequence diagram for the data request by Detector Identifier. See figure 30 for details of the Data Preparation.
+
+#### 7.5.2 ROS Data Preparation
+
+In principle the ROS is able to do simple Data Preparation as indicated in figure 6. Because of the complications this causes in the implementation of the ROS the current working assumption for the ROS is that no such processing will be included. However, data preparation in the RODs is being discussed for some detectors and it may be possible for a ROD to produce two blocks of data, for example one in a format optimised for LVL2 and the other optimised for use in the EF and offline. In conjunction with this it is foreseen to be able to select which of these two data blocks should be returned for a given data request. Further studies are required to determine the appropriate format of data for different cases. In addition if studies indicate that there are strong justifications to including other Data Preparation in the ROS a detailed case will need to be made so that the benefits can be weighed against the additional complexity introduced in the ROS [U.14].
+
+### Caching of HLT Algorithm Results
+
+In practice certain HLT Algorithms or Algorithm Tools will be called several times in different Sequences or as sub-algorithms. It is up to the Trigger Configuration Service to avoid duplication of Sequences in the Trigger Configuration. Nevertheless an efficient caching of HLT Algorithm results is a performance issue, because it is the way to avoid double processing. A cached result would only be computed once. It is up to the HLT algorithm developer to decide, if the result should be cached or not. At the end performance considerations will decide case by case, if a HLT Algorithm should recompute its result or keep record of cache results.
+
+In figure 31 a sequence diagram is shown for the "cached" HLT Algorithm that implements the caching for another HLT Algorithm called "doit". The first time it is executed for an Input "in" it needs to use the HLT Algorithm "doit" to compute the Output. The second time it is executed with the same Input it returns the cached Output. The "cached" HLT Algorithm implements the caching in the Data Manager with an user defined Identifier called "myCachID" and the "seededBy" relation, as shown in the figure.
+
+Figure 30: A sequence diagram for the Data Preparation that executes the Data Conversion Algorithms inside the Data Manager.
+
+## 8 Further Issues
+
+* An issue that needs to be addressed by the detailed design and implementation are HLT Algorithm error conditions. They are to be handled by the Sequencer and by the Data Preparation [U.15].
+* The LVL2 Supervisor or the LVL2 Processing Unit Application may timeout events that are being processed in the LVL2. In such a case the LVL2 Detailed Result might not be send to the ROS and might therefore not be available at input to the EF. Another possibility is that the HLTSSW sends only a partial result because of an error condition. In both situations the EF might be forced to revert back to the LVL1 Result to seed the selection, which needs to be taken into account in the detailed design of the EF Selection strategy [U.16].
+* The Meta Data Services are needed to provided the necessary information for the HLTSSW [U.5]. An important issue here is the lifetime of the information. In the LVL2 all Meta Data accesses are to be done before the start of the "RUN", while for the EF updates per time period may be possible.
+* The monitoring has several aspects, the debug output of the HLT Algorithms, the timing, the rate monitoring, etc.. Monitoring Services are used by the HLTSSW to publish the information. Not much is been defined so far in this field [U.17].
+* It is desirable to allow for a graphical event display in order to visualise the trigger reconstruction and decision making process. This could be done on the basis of the event information transmitted via the LVL2 and EF Detailed Results that may include all reconstructed Features for debugging purposes.
+* For the online system a graphical user interface will be useful for both the control and the monitoring of the HLTSSW.
+
+Figure 31: A sequence diagram for the caching of HLT Algorithm results.
+
+Summary
+
+In this note the analysis and conceptual design of the ATLAS High Level Trigger Selection Software is given. It should serve as the basis of the already ongoing detailed design and prototyping. The outcome of this should be described in a series of detailed design documents. Part of this work is to address the unresolved issues listed in the appendix. The detailed design documents will then lead to the final implementation of the HLTSSW.
+
+## Acknowledgements
+
+We would like to thank our colleagues for the constructive and useful discussion that made this note possible.
+
+Unresolved Issues
+
+In the following a list of issues is given that are not resolved in this document and hence should be subject of further analysis and design:
+
+1. [label=**U.0**,ref=U.0**]
+2. **Define role of EF Classification** A yet to be further defined area is the EF Classification that may also include special selections for calibration events and for new physics signatures (i.e. a discovery stream). Its role within the ATLAS software structure has to be defined by the Architecture and Physics teams.
+3. **Resolve the possible role of the Data Base Loader** A Data Base Loader has been proposed to store final accepted events in object form for offline reconstruction and analysis. This might also be the place to do data compression, as envisaged for the LAr. It would thereby reduce the load and tasks of the EF. The issue is to be resolved with the DC and the Architecture teams.
+4. **Detailed design of interfaces between LVL2PU Application and HLTSSW** The detailed design of the interfaces between LVL2PU Application and its ROB Data Collector and the HLTSSW needs to be agreed between the DC and PESA groups. Especially the issues of initialisation and processing in several threads have to be clarified and worked into a common design.
+5. **Detailed design of interfaces between Event Handler Application and HLTSSW** The detailed design of the interfaces and package dependencies between Event Handler and HLTSSW needs to be agreed with the HLT and DC groups.
+6. **Definition of Meta Data and Monitoring Services** In the LVL2 Processing Unit, in the Event Handler and in the offline framework Athena the HLTSSW has dependencies on interfaces to Meta Data and Monitoring services. It is desirable that in all situations services allow for the same or similar implementation. The issue is to be resolved together with the Online Software, Offline and Architecture teams.
+7. **Definition of common Event Data Model** Especially for the EF an important dependency for the implementation of HLT Algorithms is on Offline Algorithms. Trigger versions of those are to be derived that are adopted to online requirements. In order to facilitate this reuse of Offline Algorithms it is desirable that common definition of the EDM and the Offline Event Data Model is found. The issue is to be resolved with the Offline Reconstruction and the Architecture teams.
+8. **Support of navigation between instances of EDM classes** An important part of the EDM are the relations to allow for navigability. Different types of relations have been identified and are to be supported. In practice not all relations will be needed for all classes. Compared to the EF different relations might be used for LVL2 to allow for the latency requirements. It is up to the detailed design to support for such flexibility in the navigation needs.
+9. **Detailed Design of Data Conversion** The conversion of Raw Data into low level Features as Clusters and Calorimeter Cells poses potential processing overheads. Offline Data Conversion might not be optimal for the needs of especially LVL2. The detailed design of Data Conversion should take these aspects into account.
+10. **Configuration of Data Conversion Algorithms used inside the Data Manager** Part of the Data Manager tasks is to provide prepared data to the Feature Extraction Algorithms. Therefore the Data Manager needs to be configured in a consistent way, such that they match the Feature Extraction Algorithms needs in the Sequences. Details have to be worked out for the detailed design.
+
+**U.10 Consistent Trigger Configuration for all trigger levels**
+
+Detailed design of a Configuration Service is needed. The Configuration Service provides a consistent LVL1, LVL2 and EF configuration. It should also provide a concrete definition of a syntax for Sequences and Signatures.
+**U.11 Definition of the LVL2 and EF Detailed Results**
+
+The definition of the LVL2 and EF Detailed Results needs to be clarified. The issue is also important to allow for seeding of EF and offline reconstruction based on the information from preceding processing steps.
+**U.12 Possible scheme for creating of TEs by the Sequencer**
+
+As drawn in figure 22 the HLT Algorithm is responsible for creating the result in terms of TEs of the Sequences. An alternative scheme has been proposed, in which the Sequencer creates output TEs before it executes the HLT Algorithms. In this case an activation scheme is used by the HLT Algorithm to validate the TEs. It is up to the detailed design to decide upon the scheme.
+**U.13 Common interface of the Data Manager and Storegate**
+
+The detailed design of the CWI shall be done in close contact with the offline. In an ideal situation the result would be a common interface for the CWI, or even for the Data Manager, and for Storegate. If would facilitate a simple import of offline reconstruction algorithms to implement the EF.
+**U.14 ROS Data Preparation for LVL2**
+
+The ROS may be able to do simple Data Preparation on the Raw Data, as was shown in figure 6. Further studies of the role of the ROS Data Preparation is needed to evaluate whether significant performance gains could be expected for LVL2.
+**U.15 Handling of error conditions**
+
+An issue that needs to be addressed by the detailed design and implementation are HLT Algorithm error conditions. They are to be handled by the Sequencer and by the Data Preparation.
+**U.16 EF processing of events without LVL2 Detailed Result**
+
+The LVL2 Supervisor or the LVL2 Processing Unit Application may timeout events that are being processed in the LVL2. In such a case the LVL2 Detailed Result might not be send to the ROS and might therefore not be available at input to the EF. Another possibility is that the HLTSSW sends only a partial result because of an error condition. In both situations the EF might be forced to revert back to the LVL1 Result to seed the selection, which needs to be taken into account in the detailed design of the EF Selection strategy.
+**U.17 Monitoring of the HLTSSW**
+
+The monitoring has several aspects, the debug output of the HLT Algorithms, the timing, the rate monitoring, etc.. Monitoring Services are used by the HLTSSW to publish the information. Not much has been defined so far in this field.
+
+## References
+
+* [1] ATLAS Collaboration, _ATLAS High-Level Triggers, DAQ and DCS Technical Proposal_, CERN/LHCC/2000-17, Geneva 2000.
+* [2] S.George et al., _PESA high-level trigger selection software requirements_, ATL-COM-DAQ-2001-003, Geneva 2001.
+* [3] see _[http://atlas.web.cern.ch/Atlas/GROUPS/DAQTRIG/ATRIG/_](http://atlas.web.cern.ch/Atlas/GROUPS/DAQTRIG/ATRIG/_).
+* [4] see _[http://hepunx.rl.ac.uk/atlasuk/simulation/level2/doc/ctrig/_](http://hepunx.rl.ac.uk/atlasuk/simulation/level2/doc/ctrig/_).
+* [5] see _[http://atlas.web.cern.ch/Atlas/project/LVL2testbed/www/notes/_](http://atlas.web.cern.ch/Atlas/project/LVL2testbed/www/notes/_).
+* [6] see _[http://atlas.web.cern.ch/Atlas/GROUPS/DAQTRIG/PESA/psea.html_](http://atlas.web.cern.ch/Atlas/GROUPS/DAQTRIG/PESA/psea.html_).
+* [7] see _[http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/DataFlow/DataCollection/_](http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/DataFlow/DataCollection/_)
+* Developer Guide_, document in preparation, see _[http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/General/index.html_](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/architecture/General/index.html_)
+* [9] A.Bogaerts, _URD Level-2 Processing Unit_, document in preparation, see _[http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/HLT/hlt.html_](http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/HLT/hlt.html_)
+* [10] C.Bee et al., _Event Handler Requirements_, ATL-DAQ-2002-003, Geneva 2002.
+* [11] P.Clarke et al., _Detector and Read-Out Specifications, and Buffer-RoI Relations, for Level-2 Studies_, ATL-DAQ-99-014.
+* [12] M.Abolins et al.,_Specification of LVL1/LVL2 trigger interface_, document in preparation; N.Ellis et al., _Proposal for the definition of the trigger type word_, document in preparation; see _[http://atlas.web.cern.ch/Atlas/GROUPS/DAQTRIG/LEVEL1/level1.html_](http://atlas.web.cern.ch/Atlas/GROUPS/DAQTRIG/LEVEL1/level1.html_)
+* [13] C.Bee et al., _The Raw Event Format in the ATLAS Trigger & DAQ_, ATL-DAQ-98-129, updated April 2002.
+* [14] S.Armstrong et al., _Requirements for an Event Data Model for ATLAS Inner Detector Reconstruction_, document in preparation.
+* [15] P.Calafiura et al., _StoreGate: a Data Model for the ATLAS Software Architecture_, paper present at CHEP2001.

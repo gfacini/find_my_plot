@@ -1,0 +1,391 @@
+ATLAS Internal Note
+
+ATL-COM-DAQ-2003-049
+
+2003-09-26
+
+Timing Measurements for the second Level Trigger software of ATLAS with TrigTimeAlgs
+
+D. Dodt _CERN, Geneve 23, CH-1211_
+
+Timing measurements for the ATLAS LVL-2 trigger software performed with the TrigTimeAlgs package [1] were studied. The reproducibility of the latency of a typical algorithm was measured under constant conditions. The measuring procedure is described and a method is proposed to improve the reliability of timing measurements (minimum method). The results of timing measurements with the latest nightly release (08-28 2003) are shown.
+
+### Introduction:
+
+The summer student project documented here took place inside the ATLAS Physics and Event Selection Architecture (PESA) Group, which is part of the Trigger and Data Acquisition (T/DAQ) Project of ATLAS. The mission of the PESA group is basically defining the "physics needs" of the processes to be measured in ATLAS and developing the High Level Trigger software. Some Facts about the ATLAS Trigger and especially about the software part of it are introduced below.
+
+The aim of my project was to study the latency measurements, which are made to ensure that the HLT will not exceed the desired latency of O(10 ms). It was studied how the trigger timings reproduce while running the software repeatedly on one particular simulated event. The correlation of T2Calo with the polar angle of the cluster has been measured as an example for a correlation between the LVL-2 latency with an event property.
+
+### The ATLAS Trigger System
+
+The Trigger of the ATLAS Detector is structured in three hierarchical levels. The Level-1 trigger uses information from the calorimeters and from the muon trigger chambers to search for: high transverse momentum muons electrons photons, isolated hadrons and jets as well as large missing total and transverse energy. For reasons of latency it is implemented in hardware (FPGA, custom integrated curcuits).
+
+The high level trigger system (HLT), composed of Level-2 and Event Filter (EF), is software implemented and will run on two different trigger farms. The level-2 trigger processes information from the regions of interest (RoI) identified by the Level-1. It accesses the data from different detectors sequentially and makes an early rejection where possible. The Event Filter accesses data from the whole event.
+
+The LHC interaction rate is reduced from 40MHz (bunch crossing) over 100 kHz (Level-1 output) and 1 kHz (Level-2 output) down to a few hundred events (EF) that are being stored on tape. The latency of the different trigger levels is determined by the size (or respectively costs) of the intermediate buffers or pipelines and is 2.5 \(\mu s\) for Level-1, 10 ms for Level-2 and of the order of 1 s for the EF.
+
+### The HLT Event Selection Software
+
+The HLT Event Selection software is developed and maintained inside Athena. Athena is the GAUDI based _offline_ framework of the ATLAS experiment. The actual _online_ version of the LVL-2 software will be run in a specialized but compatible version of Athena. (Namely multithread capability is needed in the online version.) The EF will be developed and used inside the standard Athena-version.
+
+This approach of on- and offline framework compatibility has got the advantage of high flexibility e.g. when it comes to moving selection algorithms between the two HLT levels or into offline selection. Furthermore it allows the trigger software to be developed inside a well-tested and user-friendly environment.
+
+The main difference between offline and online situation represents itself in the availability of data. In the offline case (and also in the EF) the whole event is available in memory (Transient Event Store). At LVL-2 the data is read from the detector via Bytestream and converted into Raw Data Objects (RDOs) in an _on demand_ basis. This is a necessary constraint for reasons of the amount of handled data. This difference in data availability is hidden from the event selection algorithm itself, because in the algorithm itself only the Transient Event Store (TES) is addressed which then reacts differently depending on whether running in the LVL-2 or offline/EF environment.
+
+### Timing Measurements
+
+As mentioned above the Trigger Algorithms have to be designed such that LVL-2 will not extend the desired latency of O(10)ms. Thus measuring the timing requirements of the different algorithms is an important issue.
+
+In principle, timing measurements are performed by running the trigger software on events (detector output) that have been created with the help of MonteCarlo generators while measuring and logging the timings of the different parts of the software.
+
+The simulated detector output is stored in Castor in the form of zebra files, which can be used as input source for the Athena environment. The TrigAlgsTiming package [1] from John Baines provides the tools in order to measure and log the timing variables. The package uses the c++ function gettimeofday() which determines the maximum precision of the measurements. The precision of gettimeofday() is in the optimal case microseconds but depends on the machine where running. On Gigahertz Systems the precision might in fact well be microseconds.
+
+In order to give a reasonable estimate for the average required latency of an algorithm it is necessary to run over a certain amount of events. The event sample should more or less have the same composition in terms of event-types that will be measured in reality. Some other factors that influence the trigger latency are discussed in the following:
+
+* _Speed of Hardware_ The ATLAS Trigger Farms will use standard desktop PCs. As the speed of the commonly available computer hardware increases exponentially with time, it is foreseen to buy the required computers as late as possible. This also implies, that the machines that will be used are not yet available now. The timing measurements are therefore performed on available state of the art Desktop PCs. The clock frequency of desktop CPUs is expected to increase roughly by a factor of two or three until 2007. This means designing the algorithms for an latency of O(10)ms on nowadays machines will give a safety factor of this size in the trigger latency. Another unknown quantity required to predict the performance evolution, is the speed of the network connections. Gigabit Ethernet (GE) seems to be a good candidate to be used in the final online version of the Trigger Farms. The timing measurements investigated here do not take into account network traffic, which is studied separately in the ATLAS LVL-2 test beds. Instead the simulated byte stream from the ROBs is read into memory beforehand. Data preparation nevertheless plays an important role for the latency requirements because the byte stream has to be converted into c++ objects that are accessible for the trigger algorithms.
+* _Event properties_ Clearly the amount of time needed to perform the triggering (reconstruction-) algorithms differs from event to event. For example a track reconstruction will take longer if more space points are measured in the region of the track. It has been one of the purposes of this project to provide tools, which allow finding correlations between event properties and the latency of a specific event.
+* _Statistical fluctuations_ The process of running software always contains a certain amount of randomness. This is because in a typical present day operating system there are always threads, which are running in background. Thus even while only one user is logged onto a machine and is running only one single application this application may still be interrupted for a short time. This effect is even more important when the trigger software is not the only application running on a CPU. (As it may happen when performing timing measurements on a public non-dedicated machine.) The statistical fluctuations caused by this effect have been studied and the'minimum method' is proposed in order to minimize their influence.
+
+### Measurement procedure
+
+The different steps of timing measurements are described in the following as well as the macros and the scripts that were used. Detailed documentation and the source code can be found at castor [3].
+
+#### 3.1.1 Run the trigger software with different MonteCarlo files
+
+As a first step of the measurement the gen_ntuple.* scripts and the jobOptions file TriqMasterExample_TransientBS_jobOptions.txt are used to run the trigger software. In order to apply the minimum method1 it is necessary to compute every zebra file more than once and keep the results in different ntuple files (e.g. 00001_a.ntup, 00001_b.ntup,...). As the number of events stored in one zebra file may be as low as some 50 events it may be necessary to also run on more than one zebra file in order to get the desired statistics. (see diagram above)
+
+Footnote 1: The minimum method means measuring the trigger latency variables several times and taking the fastest of all the measured values as the desired quantity. See also the paragraph about reproducibility of trigger latency for more details.
+
+#### 3.1.2 Convert Paw Tuples into ROOT files
+
+This is done with the script convert.
+
+#### 3.1.3 Apply the Minimum Method
+
+The macro min.C applies the minimum method to a list of root files that are specified in the configuration file min.files. The timing variables to which the method should be applied to are defined in the configuration file min.ini together with some other input switches.
+
+When the macro is started, it extracts the fastest value for each timing variable out of the different Athena output files for the same zebra file (00001_a.root, 00001_b.root,...) and writes it into an output file (00001.root). The structure of the root files is copied from the first file, together with all the contained objects.
+
+In order to apply the method to many different MonteCarlo source files (00002_?.root, 00003_?.root,...) the script min may be helpful that writes different min.files and calls the macro repeatedly for each zebra file.
+
+#### 3.1.4 [Merge files together into one ROOT file]
+
+If more than MonteCarlo file was used for input it may be convenient to merge the different output files from the minimum macro (00001.root, 00002.root,... ) into one big one (final.root). In order to do so the macro merge.C is provided. All trees and histograms are merged together while other objects are ignored. In case of TTrees the TChair::Merge() method is used. As some trees that may not be necessary for the analysis (e.g. the tilerc/h10 tree in case of Release 6.0.4) may cause problems during the merge process, an option to ignore these trees is included in the macro.
+
+_As an alternative for merging the files they can all be opened in ROOT using the TChain Class._
+
+If it is not wanted to merge the output files, it is possible to open the different separate files together in a TChain object inside root. It turned out that the files which refuse to be merge with the macro mentioned above also don't work together with TChain. Ignoring the tilerc/h10 tree may also help here.
+5. _Create plots from the final file._
+
+Simple plots can be created with ROOT easily in an interactive way. The small macro **addriends.C** can be used in order to open the final output file (or to create TChains in case of seperate files). After the files are opened simple plots can be created with the Ttree::Draw() method. (For example "root addfriends.C" [enter] "h501\(-\)>Draw("var1:h101.var2","var2<10&&&var1>2","box")" [enter] creates a two dimensional box plot with var1 and var2 requiring some values for the variables.)
+
+The macro **plot.C** can be used to check the EventId's of the plotted events and to observe if for example the events of a certain file show differing behavior.
+
+### Athena jobOptions File:
+
+At least for a novice concerning the Athena jobOption files like me it turned out to be not trivial to get the trigger software running on the needed MonteCarlo events. This is why I want to give some advices that may help to avoid wasting time in try and error with the jobOption files.
+
+* The name of the symbolical link (ZEBRA.P) although seeming to be given in the first lines of the jobOptions file is also fixed at another place in some of the options files. This means it is **not** sufficient to change the line ApplicationMgr.EvtSel = "FILE ZEBRA.P"; In order to use another symbolical link.
+* In the jobOptions file provided in the standard installation for TriggerRelease Environment the EventSelector is by default set to some datasets EventSelector.dataSetNames = {"Y23406.1", "Y23406.2"} After my understanding this should be removed because it interferes with the event selection done by using the link (ZEBRA.P) to different zebra files.
+* It is (obviously) a good idea to make log files, which also can still be associated with the ntuple file after some time. The following instructions written in the algorithms jobOptions section make sure that the event ids can be seen in the log files: T2Calo_T2Calo_g4_L2.OutputLevel=2; T2Calo_g4_L2.OutputLevel=2; TrigTimeNtuple_TrigTimeNtuple_1_L2.OutputLevel=2; TrigTimeNtuple_1_L2.OutputLevel=2; TrigTimeTsync.OutputLevel=2;
+* The number of events to be processed has to be set properly: ApplicationMgr.EvtMax = 1000
+
+## Results
+
+### Conditions of the measurements
+
+TrigTimeAlgs-Package from John Baines is used [1]:
+
+* The algorithm uses **gettimeofday**(), which returns a time in units of **micro-seconds**, but actual precision depends on the machine where the program is running (it might be microseconds on fast machines)
+* The Units of the Ntuples (and all plots) are **ms**
+
+Using pcatr machines:
+
+* Running on pcatr06 and pcatr08 in different./run-directories.
+* Pcatr machines are equipped with Intel Xeon at 2.4 GHz Dualboards (0.42 ns Clock Cycle)
+* Dedicated for the measurement.
+
+Athena Release:
+
+* Most of the measurements (Reproducibility) are performed with the stable 6.0.4 Release using TrigSteering-01-01-71
+* The measurements described in the last paragraph are done with the latest nightly Release which is close to the coming 6.6.0 Release using TrigSteering-01-01-85
+
+Used Data:
+
+* Dijet Events with 17 GeV Et, low luminosity /castor/cern.ch/atlas/project/decl/lumi02/00200/data/decl.00200.lumi02.0001.ht.pythia_jet_17.zebra
+* Dijet Events with 25 GeV Et, high luminosity /castor/cern.ch/atlas/project/decl/lumi10/002001/data/decl.002001.lumi10.02400.hit.pythia_jet_25.zebra
+* Electrons at low luminosity /castor/cern.ch/atlas/project/decl/lumi02/00200/data/decl.002020.lumi02.0001.tast.a_minus_20_250.zebra
+
+### Reproducibility of LVL-2 Timing for a Certain Event
+
+In Order to study the reproducibility of the latency it is necessary to take one certain MonteCarlo event and run the trigger software several times on it. Technically this means running Athena several times on a certain zebra file, only requesting two or three events and making sure that they are all triggered by LVL-1 beforehand. As during the first event of a zebra file some initialization of the trigger algorithms is done the second event is used for the measurement. The plots shown below are using a simulated dijet event with more than 17 GeV transverse energy at low luminosity. The Timing variables plotted are ZFTAlgo, which is the time of Zfinder algorithm of IDSCAN and LEMtGetD, which is the data preparation time of the electromagnetic calorimeter part of T2Calo. The measurement was repeated in three different machines (pcatr06..08). The results are shown together on each diagram.
+
+It can be seen, that especially in the case of the algorithmic timing variable the statistical errors are much smaller than the systematic aberrations induced by using the different machines. The discrepancy is very significant for example for the ZFTAlgo variable, that has got relatively smallvalues. ZFTAlgo measures some algorithmic part of IDSCAN (i.e. does not contain any data preparation or network access).
+
+On the other hand there are the timing variables that have got bigger absolute values and which are most of the time dominated by the data preparation time. The effect of running on different machines is smaller for these variables: typically the differences are of the order of 3% to 5%. LEMtGetD is shown as an example for a timing variable with greater absolute value.
+
+There are two other things that can be observed: On each machine there are several outliers towards longer latencies (sometimes the computation needs significantly more time), and the timings are distributed in two peaks in the case of pcatr06.
+
+It is assumed that unusual machine states or perturbations, which cause this behavior can only degrade the optimal performance and thus slow down the triggering process. Therefore it is recommended and also applied in this project to repeat each measurement at least twice and take the fastest outcome as the actual result. This approach will avoid taking into account outliers, what is especially an issue if running the timing measurement on a non-dedicated machine.
+
+### T2Calo Results for Release 6.6.0 (nightly):
+
+T2Calo is a feature extraction algorithm for electromagnetic (EM) calorimeter clusters, which uses data from the calorimeters. Its execution time is correlated with the polar angle of the investigated cluster because the different parts of the calorimeters have a certain polar angle coverage. T2Calo has recently been revised, and optimized. This is why the results of the measurement are shown explicitly.
+
+On the y-axis of the plots above the total time of T2Calo is shown versus the pseudo rapidity of the cluster on the x-axis. In the appendix the same plots are shown for the data preparation time of T2Calo.
+
+### Conclusion
+
+Reproducing the latency of an event leads to a variation of results. Under the assumption about decreasing performance discussed above a recommendation is given to repeat measurements and take the fastest measured timing. It is discovered that there are considerable differences between the (theoretically identical) pcatr machines, which give an estimate for a systematic error of less than 5% for timing variables of the order of at least some tens of ms. For shorter timings the systematic errors can grow over the 10% limit up to significant values, care should be taken here in order to control systematic aberrations.
+
+An example of an event property correlation was measured and may give the possibility to draw conclusions on the T2Calo and data preparation performance of the latest Trigger Release.
+
+## Appendix A
+
+T2Calo total time for Electrons with 20 GeV Et at low luminosity
+
+## Appendix B
+
+## Appendix C
+
+Variable
+
+Mean
+
+RMS
+
+50%
+
+65%
+
+95%
+
+T2CEEGtD
+
+1.217
+
+\(\pm\)0.55
+
+1.238
+
+1.513
+
+1.95
+
+T2CEEReS
+
+0.056
+
+\(\pm\)0.023
+
+0.061
+
+0.063
+
+0.068
+
+T2CEETot
+
+1.482
+
+\(\pm\)0.61
+
+1.534
+
+1.824
+
+2.303
+
+T2CS1GtD
+
+1.164
+
+\(\pm\)0.40
+
+1.169
+
+1.336
+
+1.594
+
+T2CS1ReS
+
+0.031
+
+\(\pm\)0.008
+
+0.033
+
+0.034
+
+0.037
+
+T2CS1Tot
+
+1.742
+
+\(\pm\)0.59
+
+1.833
+
+2.024
+
+2.336
+
+T2CS2GtD
+
+1.169
+
+\(\pm\)0.67
+
+1.008
+
+1.286
+
+1.943
+
+T2CS2ReS
+
+0.041
+
+\(\pm\)0.024
+
+0.040
+
+0.041
+
+0.043
+
+T2CS2Tot
+
+2.229
+
+\(\pm\)2.98
+
+1.758
+
+2.001
+
+2.714
+
+LEM data prep.
+
+**3.55**
+
+3.415
+
+4.135
+
+5.487
+
+T2CHeGtD
+
+0.458
+
+\(\pm\)0.63
+
+0.035
+
+0.511
+
+1.529
+
+T2CHeReS
+
+0.038
+
+\(\pm\)0.023
+
+0.026
+
+0.045
+
+0.078
+
+T2CHeTot
+
+0.552
+
+\(\pm\)0.67
+
+0.078
+
+0.614
+
+1.700
+
+T2CTiStD
+
+6.481
+
+\(\pm\)4.18
+
+8.019
+
+10.21
+
+10.56
+
+T2CTiReS
+
+0.042
+
+\(\pm\)0.05
+
+0.022
+
+0.023
+
+0.099
+
+T2CTiTot
+
+6.828
+
+\(\pm\)4.45
+
+8.208
+
+10.39
+
+10.81
+
+total data prep.
+
+**10.49**
+
+11.47
+
+14.86
+
+17.58
+
+total ReS
+
+0.21
+
+\(\pm\)0.18
+
+0.21
+
+0.32
+
+T2CatTot
+
+**14**
+
+\(\pm\)6.78
+
+15.94
+
+16.81
+
+18.14
+
+T2Calo variables measured for Dijet events with 25 GeV Et at high luminosity.
+
+## References
+
+* [1][http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/dist/6.0.2/Trigger/TrigTools/TrigTimeAlgs/](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/OO/dist/6.0.2/Trigger/TrigTools/TrigTimeAlgs/)
+* [2][http://hepunx.rl.ac.uk/atlasuk/simulation/level2/doc/futuresw](http://hepunx.rl.ac.uk/atlasuk/simulation/level2/doc/futuresw)
+* [3]/castor/cern.ch/d/dodott/timing

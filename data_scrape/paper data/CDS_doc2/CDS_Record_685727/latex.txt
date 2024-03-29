@@ -1,0 +1,107 @@
+ATLAS technical note
+
+DAQ-NO-012
+
+28 March 1994
+
+**IDEAS FOR A LOCAL/Global Level-2 Trigger System**
+
+N. Ellis
+
+PPE Divison, CERN 1
+
+Footnote 1: This report was originally distributed as RD27 note 7 (4 March 1993).
+
+[MISSING_PAGE_EMPTY:2]
+
+## Introduction
+
+This document summarizes some ideas for a local/global level-2 (L2) trigger architecture and its interface to the level-1 (L1) trigger system [1]. An attempt has been made to divide the system into units which interact with each other in well defined ways as illustrated in Figure 1. The interaction between the different units in the L2 trigger system is mainly via data _records_ which are assumed to be transmitted over a network. In most of the system, the use of handshakes has been avoided resulting in relative simplicity.
+
+The L2 trigger system is taken to consist of a _supervisor_, many _local processors_ which perform feature extraction and a farm of _global processors_ which combine the feature information. Regions of Interest (ROI) are identified by the L1 trigger. These correspond to local objects such as candidate electron showers in the calorimeter or tracks in the muon detector that need to be validated in the L2 trigger. A given event may contain several (about five on average) such ROIs.
+
+For each ROI, feature extraction processing must be performed using data from several subdetectors. For example an electron candidate might be validated in the calorimeter, preshower detector and one or more inner tracking detectors. For implementation reasons, it may be convenient to have independent feature extraction processors for each subdetector - this would allow the optimization of processor architectures to the algorithms appropriate to each subdetector. Hence, in a given event, several local processors may be allocated for each of several ROIs flagged by the L1 trigger system.
+
+The feature extraction processors work independently to parameterize the feature using the subdetector data available to them - for example, a calorimeter cluster might be parameterized by its energy and position in the calorimeter, its longitudinal and lateral shape, its isolation and its compatibility with a single electromagnetic shower. The scheme described in this note is compatible with using a mixture of feature extraction processors which have very different characteristics. For example, it would be possible to use a large number of relatively slow processors (logically) distributed over the detector for the L2 calorimeter trigger, while using a much smaller number of fast processors for the inner tracking trigger.
+
+The feature information from the different subdetectors and the different ROIs is sent to the global L2 processor assigned to the event. The global processor combines the information from different subdetectors for each ROI - for example, combining track segments from different inner detectors and matching them with preshower and calorimeter clusters. It then combines the information from all the ROIs - for example it could calculate the invariant mass for electron pairs. Some additional information might be included in the global processing such as the missing \(E_{T}\) vector calculated in the L1 calorimeter trigger. On the basis of the combined information, the global processor decides whether or not to retain the event for further processing, transmitting its decision (L2 _yes/no_) to the supervisor.
+
+Figure 1: Outline of L1/L2 system
+
+### Overview
+
+The supervisor's principle function is to manage the global processor farm, keeping a list of which processors are free and which are busy. However, it also monitors the whole L2 trigger system, keeping statistics on error and time-out conditions. When necessary, it is responsible for taking action to repair the system (e.g. by re-booting processors). Such error recovery can be done in parallel with normal operation of the L2 trigger.
+
+The L1 trigger system consists of several subtrigger processors plus the central trigger processor that correlates the subtrigger results and makes the final _yes/no_ decision. The synchronous _yes/no_ decision is sent to the front-end systems via the timing, trigger and control distribution system - the bunch crossing number and/or L1 event number may also be distributed in this way. Data from the L1 system, both from the subtrigger processors and from the central processor, will be read out into a L2 buffer memory for subsequent permanent recording. These data will be used for monitoring and for efficiency studies; in the subsequent processing they are treated in the same way as subdetector data. The distribution of the L1 trigger decision to the front-end systems and the readout of L1 trigger data are not considered further in this document.
+
+When an event is accepted by the L1 trigger, the event number (possibly counter on L1 _yes_) is sent to the level-2 trigger supervisor (T2S). The supervisor which maintains a list of free L2 global processors (T2G) allocates one such processor to handle the event. It sends to the Region of Interest Builder (ROIB) the event number and the global processor identification number. An inhibit line is provided so that further L1 triggers can be prevented if the L2 trigger system is close to saturation (e.g. if it is about to run out of free global processors).
+
+The ROI builder interacts closely with the L1 trigger system. It collects the ROI data from the L1 subtrigger processors and builds ROI records. The minimum information is the type of feature - electron, muon or jet - and the position of the feature in detector. For each region of interest, the builder will send copies of the ROI record to the local processors associated with each of the subdetectors and to the global processor responsible for the event. The ROI records are addressed to the appropriate local processors. The addresses or the local processors are inferred from the positions of the features in the detector. The address of the global processor is provided by the supervisor. The ROI record contains the addresses of all the processors that are to receive it, in addition to the ROI data.
+
+On receipt of an ROI record a local processor obtains the information that it requires from the subdetector readout system and performs the feature analysis. It constructs a _feature record_ which parameterizes the feature and sends this to the global processor for the event.
+
+The global processor receives copies of all the ROI records for the event. Feature records are received from the local processors, one per ROI record. When all the feature records have been received, the global processor performs its feature combination analysis and makes a _yes/no_ decision for the event. It constructsa decision record which contains the _yes/no_ decision and additional information about why the event was or was not selected. The decision record is sent to the supervisor which distributes the L2 trigger decision to the readout systems and returns the T2G processor to the list of free processors.
+
+Buffers have to be included in the system described above to avoid losses. FIFOs are included at the input to the supervisor (Event #), the input to the ROI builder (Event #, T2G #), the inputs to the T2L processors (ROI record), the inputs to the T2G processors (ROI record; feature record) and the input to the supervisor (decision record). Should any of these FIFOs overflow, the information will be lost. However, this will generally lead to a time-out or error condition from which the system will quickly recover as described below.
+
+Note that the ROI building task could be shared between a number of independent ROI builders, each of which receives the event number and global processor number from the supervisor and deals with a particular part of the L1 trigger system.
+
+### supervisor
+
+The supervisor keeps a list of free T2G processors which are allocated on receipt of a L1 trigger. If the L2 system is close to saturation (e.g. buffers \(>\)90%  full), it can send an inhibit to the L1 trigger system. The inhibit mechanism could also be used if it was necessary to flush or reboot the system.
+
+The supervisor controls the L2 time-out and error-handling mechanisms and maintains statistics. It could be designed to keep any event that gave a time out in the global processor. The supervisor will remove bad processors from the system before initiating action to repair them. Serious problems such as dead processors will be detected rapidly, while intermittent problems will be identified by monitoring the statistics that are kept in the supervisor.
+
+The supervisor contains a number of component parts as listed in Table 1. Most of it would probably be implemented in hardware to handle the 100 kHz L1 trigger rate. However, the error handling part could be left to a programmable device to give the maximum degree of flexibility - the error rate will hopefully be very low.
+
+A block diagram of the supervisor is given in Figure 2. The _list handler_ moves T2G processors between the three lists (free, busy, disabled) under hardware control. The _time-out handler_ generates a special _time-out_ decision record if a T2G processor takes to long to respond. The _decision unit_ processes decision records; under normal conditions the L2 decision is sent to the readout systems and the T2G is returned to the list of free processors (request to list handler). The decision unit also updates the scalers that keep statistics on the T2G and T2L processors. If the scaler analysis indicates an error condition a special _error_ decision record is generated and fed back into the decision unit. When the decision unit receives a time-out or error record, it disables the relevant T2G processor and sends the decision record to the error handling part of the supervisor. After the error handling system has restarted a T2G processor, the processor can be returned to the list of free T2Gs. This is done by feeding a special _reinstate-processor_ decision record back into the supervisor. Clearly, it is essential that the supervisor is very robust.
+
+\begin{table}
+\begin{tabular}{l} Inputs \\ \(\bullet\)  Event \# from the L1 system \\ \(\bullet\)  Decision records from T2G processors \\ Outputs \\ \(\bullet\)  Inhibit to the L1 system \\ \(\bullet\)  Event \# and T2G \# to ROI builders \\ Lists \\ \(\bullet\)  Free T2G processors \\ \(\bullet\)  Busy T2G processors \\ \(\bullet\)  Disabled (dead) T2G processors \\ Time-out mechanism \\ \(\bullet\)  Timer for each T2G \\ - set when T2G allocated \\ - disabled when T2G returned to list of free processors \\ - generate ”interrupt” when time-out occurs (initiate error recovery) \\ Error mechanism \\ \(\bullet\)  Scalers for each T2G \\ - completed OK \\ - error \\ - time-out \\ \(\bullet\)  Scalers for each T2G \\ - completed OK \\ - error \\ - time-out \\ \(\bullet\)  Monitoring of the scalers to detect intermittent errors \\ \end{tabular}
+\end{table}
+Table 1: Components of the supervisor Figure 2: Supervisor block diagram
+
+### ROI builder
+
+The ROI builder is not discussed in detail here because it is closely coupled to the design of the subtrigger processors. However, a possibility for collecting the ROI data is a system based on rings with _grant_ signals [2]. This possibility is being considered in the context of the bit-serial and the bit-parallel calorimeter trigger processors.
+
+There appear to be some advantages in dividing the ROI building function between a number of independent ROI builders, each of which recieve the event number and T2G identification number from the supervisor. This may be easier from the implementation point of view and avoids a hot spot in the network connecting the ROI builder to the T2L and T2G processors.
+
+It is important to note that a significant time will be taken to provide the ROI information to the local processors. This must be taken into consideration when designing the data path connecting the local processors to the subdetector readout systems.
+
+### Local processing
+
+The input to each T2L processor has a FIFO which stores up the ROI records that arrive so that requests are queued. In the unlikely event that the FIFO becomes full, the ROI request is lost - this will subsequently result in a time out in the T2G processor. Normally, the T2L processor will send a feature record to the T2G processor. If the T2L processor detects an error, it can send a dummy feature record to the T2G processor which will forward the information to the T2S via a decision record - this information will be used to update the error statistics.
+
+If a T2L processor takes to long to process an ROI, an internal time-out mechanism should normally be invoked. If this local time-out fails, the T2G will time out. In this case, if the T2L subsequently sends a feature record this must be discarded by the T2G which may by then be idle or processing a subsequent event. The T2G may indicate this problem to the supervisor by means of a dummy decision record.
+
+If a T2L processor dies, the time out in the T2G will prevent the system from locking up. The supervisor will detect the problem and take action to reset the relevant T2L processor.
+
+### Global processing
+
+The T2G processor receives copies of all the ROI records for the event and sets up a list of feature records that it expects to receive from the T2L processors. It waits until all these feature records have been received and then performs the global processing algorithm making use of the feature data. It prepares a decision record containing the _yes/no_ result plus additional information about the event and sends it to the T2S.
+
+If the T2G does not receive all the feature records in a reasonable time, it will time out - it could always keep such events, avoiding a loss in efficiency. Following a time out, status information, including a list ofmissing T2L processors, will be passed to the supervisor in the decision record - this information will be used to update the time-out statistics.
+
+If the T2G processor detects an error, it returns the status to the supervisor in the decision record - this information will be used to update the error statistics.
+
+Note that it may be efficient to run several T2G processes on a given processor. This might avoid a long idle time while waiting for the T2L processors to send feature records. However, the optimum solution will depend on the relative processing times in the local and global parts of the system and on the overhead associated with multi-process operation.
+
+### Local/global network bandwidth
+
+The approximate network bandwidth can be estimated assuming a L1 trigger rate of 100 kHz, 5 ROIs per event and 4 subdetectors participating in the local L2 processing. Taking 100 bits per ROI record and allowing for 4 T2L plus one T2G destinations, the ROI record traffic gives a total of 250 Mbits/s. The feature records sent from the T2L to the T2G processors also contribute. Assuming 100 bits per feature record gives an additional 200 Mbits/s. There is only one decision record per event - assuming 100 bits the contribution is 10 Mbits/s. Hence, the _average_ network bandwidth under these assumptions is 460 Mbits/s, well within the capabilities of currently available technology. Clearly one would want to allow a large safety margin when selecting the network technology.
+
+Note that the above network handles only the ROI, feature and decision records. The transmission of data from the subdetectors into the T2L processors is performed on independent data paths. Typically, only \(\sim\) 1% of the data from a given subdetector will be used in the L2 processing for an event - i.e. \(\sim\) 1% of the detector area falls within regions of interest.
+
+### Record contents
+
+All records (ROI, feature, decision) contain explicitly or implicitly the addresses of the source and all destinations. In addition they contain the event number. The additional data depends on the record type.
+
+### Acknowledgements
+
+I would like to thank my colleagues in RD27 for their helpful comments which have been included in this document. I would also like to thank R.K. Bock, W. Iwanski, K. Korcyl for useful discussions.
+
+## References
+
+* [1] For more details see: N. Ellis, transparencies, RD-27 meeting 16 December 1992.
+* [2] C. Bohm et al, RD-27 note #6

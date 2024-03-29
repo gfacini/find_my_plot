@@ -1,0 +1,262 @@
+[MISSING_PAGE_FAIL:1]
+
+## 1 Introduction
+
+This document describes the software processes and network protocols required to implement the Event Filter for ATLAS. The Event Filter is expected to be a complicated set of inter-dependent processes (perhaps 1-2 thousand processes), and supervising such a complicated set of processes will be a challenging task. Because of this inherent complexity, it is essential that the individual tasks comprising the Event Filter be kept as simple as possible. Additionally, the network protocols required to exchange information among these tasks should be as simple as practical while still allowing sufficient flexibility to exchange the information required to coordinate their activities.
+
+There are two major hardware architectures proposed for the Event Filter [3, 4]. This document deals with an alternative implementation for the PC-based multi-processor design [4], and in particular, focuses on differences which considerably simplify the design.
+
+## 2 High-Level Architecture
+
+The Event Filter has two important functions in the ATLAS experiment. First, the goal is to completely reconstruct events received from the Event Builder in real time, and identify the approximately 10% of events which contain interesting physics. The remaining 90% of events will be rejected, thereby lowering the output rate to archival storage. Second, as the Event Filter is the first place within the data stream where complete events are available, it provides the first opportunity to monitor the behaviour of the detector as a whole, and in particular to cross-calibrate the different sub-systems within the complete detector.
+
+It is projected that the Level-2 trigger will provide events of approximately 1-2 MBytes at a rate of 1-2 KHz. Therefore, the complete Event Filter must be capable of processing \(\sim\)1-4GBytes/second of data. It is assumed also that complete reconstruction of an event will require upwards of 10\({}^{9}\) instructions, and hence \(\sim\)1-2 seconds at processor speeds projected for 2005. To fulfil the goal of reconstructing 1-2 KHz of input events, a collection of a few thousand processors will be required.
+
+It is unlikely that network technology will advance to the point where several GBytes/sec can be delivered through a single channel. Therefore, the high-level design of the Event Filter proposes several "sub-farms", each of which is connected to an output port of the Event Builder. The number of such sub-farms (and hence the required size of each) is not currently specified, and undoubtedly will be determined by network technology. Division of the complete Event Filter into such sub-farms has the added advantage that it simplifies the partitioning of the system, and easily allows part of the Event Filter to be dedicated to a particular task (e.g. specialized monitoring of a sub-detector).
+
+A sub-farm within the Event Filter consists of:
+
+1. A Distributor process which is responsible for reading events from the output port of the Event Builder and passing them to a Processing Task.
+2. A Collector process, which is responsible for collecting non-rejected events from Processing Tasks and returning them to the dataflow and (eventually) archival storage.
+3. One or more Processing Tasks, which accept events from the Distributor, process them, decide whether or not they should be retained and pass the non-rejected events to the Collector.
+
+Finally, an additional high-level, Event Filter wide task is required to supervise, monitor and control the above tasks in the various sub-farms. It also provides the interface of the Event Filter with the rest of the world. In this implementation the task is called efctl.
+
+Each of these processes is discussed in more detail in the following sections. A schematic of the complete event filter showing several sub-farms is given in Fig 1.
+
+### Distributor
+
+The Distributor process in each sub-farm connects to an output port of the Event Builder switch (SFI - Sub-Farm Input), and to the input port of each Processing Task within its sub-farm. It is responsible for accepting complete events from the Event Builder and passing them to Processing Tasks for analysis. In an alternative design [1-3] multiple levels of Distributor processes (D1, D2 and D3) are implemented. Only a single level of Distributor is implemented in the design described here, as additional levels appear to be unnecessary and only add to the complexity. Expansion of this design to multiple levels of Distributor (should that prove necessary) would be a trivial modification - this is discussed in more detail below.
+
+The "processing" required for the Distributor Task is minimal, consisting essentially of selecting events on the basis of event type, and routing them to an appropriate Processing Task. The MAGNI cluster at CERN (see Appendix in section 12) has been used to perform tests where it has been confirmed that the Distributor process is limited completely by network bandwidth (100 MBit Ethernet), utilizing less than 5% of the processing power of the CPU (550 MHz Pentium III) when the network is saturated. This number gives confidence that the current
+
+Figure 1: The complete Event Filter, consisting of multiple sub-farms (identified by their distributor). User software interfaces to the Event Filter via efctl. Lines indicate TCP socket connections between processes.
+
+design could easily accommodate an upgrade to GigaBit Ethernet without processing power in the Distributor becoming a bottleneck.
+
+The Distributor accepts events from the SFI and maintains a queue of events of each type. Events are removed from the appropriate queue when a Processing Task becomes ready. By maintaining an appropriate (to be determined) queue length, the Distributor acts also as a de-randomizer by buffering events received from the Event Builder.
+
+In this implementation, the Distributor acts also as the single connection between a sub-farm and the outside world. Put another way, all messages between external software and any component of a sub-farm must pass through the Distributor. Again this was done for reasons of simplicity. Outside software needs to know only about a single interface (the Distributor) to access any component within a sub-farm. Having a single point of contact also considerably simplifies monitoring of a sub-farm.
+
+### Collector
+
+The Collector process connects to the dataflow via the SFO (Sub-Farm Output) and also to the output ports of all Processing Tasks within the sub-farm. It is responsible for collecting non-rejected events from the Processing Tasks and returning them to the dataflow via the SFO. It is envisaged that the rate of accepted events will be approximately 10% of the rate input to the Distributor, and hence performance of a sub-farm will be limited by the Distributor rather than the Collector. As was the case for the Distributor, the multi-level Collector scheme of the alternative design was deemed unnecessary, and only a single level of Collector has been implemented.
+
+In addition, this implementation contains a direct connection between the Distributor and Collector. This connection serves two purposes. First, monitoring/supervision software (efctl) requires information from the Collector process. As the only interface to such external software is through the Distributor, this channel is necessary to deliver relevant information from the Collector to the Distributor. Second (as discussed more fully in section 8, Event Recovery), events which result in a Processing Task crashing should not be re-processed (presumably they will cause a similar crash when re-submitted to a Processing Task). Instead, they should be flagged as "troublesome" and sent directly to the dataflow for archival storage and eventual re-processing by offline software to discover the reason for the failure of the Processing Task.
+
+### Processing Task
+
+Processing Tasks receive events from the Distributor of their sub-farm and deliver non-rejected events to the Collector. The processing which is required to make the accept/ reject decision is unspecified in this document, except that it is presumed that it will require ~1-2 seconds to make the decision and that the process will be highly compute-bound (that is, except possibly at start-up, these processes will have access already to whatever software resources they require - calibration/alignment files etc. - and thus will place essentially zero load on the network during processing). It is foreseen that certain Processing Tasks will be dedicated to global monitoring rather than filtering, and such tasks will potentially contribute to external network traffic when delivering their results to human operators - histograms/ntuples etc. It is expected that such traffic will be a small fraction of the event dataflow, and its impact will be ignored in this document.
+
+This implementation includes a higher level process (efctl), which interfaces both with external user software and (possibly several) sub-farms via the Distributors. efctl provides the following services:
+
+* it provides the interface between the Event Filter and the OnlineSW system and in particular the Run Control [5] (see section 7 for more information)
+* it starts and stops the different Event Filter processes (Distributor, Collector and Processing Tasks) on request from external software (usually the Run Control system) via the DSA_Supervisor [5] and PMG (Process Management) [6] services of the OnlineSW system software (see section 7 for more information). PMG uses information saved in the OnlineSW configuration database [7] to determine which processes should be started on which hardware.
+* it receives monitoring information from the Processing Tasks and makes it available to external software on request e.g. via the Tcl script which displays monitoring and status information to the user (see section 5).
+
+An important requirement of the Event Filter is that it be capable of being partitioned, so that a subset of the available computing resources can be dedicated to a specific task (e.g. special calibration/monitoring of a subdetector). The efctl process implements such partitioning, allowing one (or several) subfarms to be isolated and dedicated to such a task. Multiple instances of efctl are supported. User software (e.g. Run Control to start/stop runs or collect statistical information) interacts (via a pre-defined socket) with efctl, which is then responsible for passing user messages to appropriate processes under its control. User software is thus isolated to some extent from the sub-farm granularity, which is determined primarily by networking limitations. Note, though, that it is not possible to sub-divide a sub-farm (i.e. each sub-farm belongs to one and only one efctl and partition).
+
+## 3 Operating System / Language
+
+This implementation differs from [3] in two important ways. First, it was decided to use "plain C" to implement the code for both the dataflow and supervision. In the alternative design [3], C++ is used to implement the dataflow software and Java is used for the supervision. The decision to use C was done primarily for efficiency and simplicity. Object-oriented code typically imposes an overhead which was deemed unacceptable (and also unnecessary, as the computational demands of the control processes are rather trivial). It is envisaged that Processing Tasks will be developed within the standard C++ environment used for offline code. Second, all processes are single threaded. As discussed below, this allows the code developer to explicitly control priorities.
+
+Except for trivial (but nonetheless necessary) services provided by all operating systems (process creation/management, interfaces to file systems etc.), the current implementation relies on two particular services which must be provided by the operating system. These services are available under Linux (the only OS for which this implementation has been tested) and other Unix operating systems. Nevertheless they are detailed here to facilitate porting this software to other operating systems should this become necessary.
+
+### Socket
+
+Communications among the various software components of the Event Filter is via Network (specifically TCP/IP) sockets. A socket is nothing more than a 2-way communications path which allows two processes to exchange arbitrary messages. Each pair of processes which need to exchange information open a socket and use this path to communicate with each other.
+
+Specifically:
+
+* A socket is required between the Distributor and each Processing Task.
+* A socket is required between the Collector and each Processing Task.
+* A socket is required between the Distributor and Collector (to implement the direct Distributor/Collector interface).
+* A socket is required between the Distributor and SFI.
+* A socket is required between the Collector and SFO.
+* A socket is required between the Distributor and efctl.
+
+Fig 2 shows a schematic of one sub-farm of the Event Filter. Boxes represent processes, and each interconnecting line represents a socket connection between the two processes.
+
+Sockets are limited system resources, and different flavours of Unix impose different restrictions, usually on a per-process basis. Current versions of Linux support a maximum of 256 sockets per process. This limit is of concern only for the Distributor and Collector processes as Processing Tasks require only two sockets each. Since each of these paths (in particular for the Distributor) is required to support a network bandwidth of approximately 1-2 MBytes / second, current (and foreseen) network technologies probably limit the number of Processing Tasks within a sub-farm to fewer than 100, so the limitation on the number of allowed sockets should not cause a problem.
+
+Figure 2: One sub-far of the event filter. Lines indicate TCP socket connections between processesThis implementation of the Event Filter further requires that the network sockets support the TCP/IP (or similar) protocol. There are two characteristics of TCP/IP which are important here. First, TCP/IP is a "connection-based" protocol, which simply means that communication occurs only between two well-defined end-points (processes). Second (related to the first) TCP/IP is a "reliable" protocol, which in network terminology simply means that a message sent to the other end is guaranteed to either (a) be delivered intact, or (b) generate an error condition so that the sender is aware that the communication failed. The IP part of TCP/IP involves routing, which is almost certainly superfluous in the context of the event filter. TCP/ IP was chosen simply because it is an existing, well-proven protocol which provides the two necessary conditions outlined here.
+
+TCP/IP sockets are similarly limited resources, but are limited on a per-machine rather than per-process level. Again, different flavours of Unix may impose different restrictions on the number of TCP/IP sockets which can be simultaneously open on a given system. The numbers are typically (much) larger than the per-process limits mentioned above, and should not cause problems if the number of processes running on each machine is small. Since Processing Tasks are likely to be completely compute bound, while the Distributor is network limited, it is unlikely that many such processes will share the same physical machine. One exception could be multi-processor machines hosting multiple Processing Tasks, but as the price of such machines is still large for more than a few processors per machine, it is assumed that this will not be a drawback. In our tests to date, we have run both the Distributor and Collector on the same (multi-CPU) machine connected to 50 Processing Tasks and still have not run into a resource limitation. As mentioned below under Event Recovery, it may not be advisable to run both Distributor and Collector on the same hardware in the final system, so \(\sim\)100 Processing Tasks should be easily realizable within a sub-farm.
+
+### Select
+
+The second system service which is required is the "select" function, which again is available under Linux and most other versions of Unix as well. In essence, select allows a process to block pending the availability of one (or more) of a selection of file descriptors (in our case, sockets). Additionally, the standard version of select allows the calling process to specify a timeout, and it will return after this timeout period even if none of the sockets is available (it will return before the timeout if a socket becomes available).
+
+Because of the large amount of computing power which is required in the Event Filter, it is essential that computing resources are used efficiently and, in particular, that processes do not block unnecessarily. This is most critical for the Distributor process, which is serving multiple Processing Tasks. The select function provides the necessary functionality for the Distributor to service these multiple tasks. In addition, select (or something very much like it) will be required in the Event Builder (which is serving multiple Distributors - one per sub-farm).
+
+In the Distributor, the select function is given a list of the sockets managed (SFI, Collector and multiple Processing Tasks), and requests that the Distributor block until one (or more) of these sockets is available for reading (that is, the process on the other side has written to the socket and hence there is information available to be read). The Distributor then reads the messages from whichever socket(s) have been written and processes them as required.
+
+As it is serving multiple clients, it is essential that the Distributor not block unnecessarily (that is, it should not block awaiting access to one particular channel, since this would needlessly delay servicing other channels). This requirement is less critical for Processing Tasks, which deal only with a single input and single output port. This is accomplished by use of the so-called "READY" mechanism, in which a process (in this case a Processing Task) sends a short message to the Distributor indicating that it is ready to accept an event (i.e. is just about to issue a select call). The Distributor is therefore assured that when it writes to the socket, the Processing Task will be available to read the message, and no blocking will occur. A similar protocol between the Distributor and the SFI ensures that the event builder will not send events to the Distributor until it is assured that it will not be blocked.
+
+Note that the use of the READY mechanism requires that the Operating System provides sufficient buffering that "short" messages can be sent over a socket at virtually any time. Most control/status messages in this implementation are less than a hundred bytes, so providing additional system buffering should not be required.
+
+The use of the select function in a single-threaded environment additionally offers the capability of explicitly prioritizing requests within a process. For example, provided that there is sufficient buffer space available to accept an event, the most important job of the Distributor is probably to read an event from the Event Builder and allow the EB to carry on assembling the next event. Lower priority tasks include servicing external user requests (from efctl), sending failed events to the Collector and servicing Processing Tasks. This prioritization can be easily accommodated with a Distributor code loop like the following:
+
+while (1) {  if (Buffer space is available)  send READY to SFI;  select ();  if (SFI is ready)  get event from SFI;  if (efctl is ready)  send information to user task via efctl  if (Collector is ready)  send event directly to Collector  if (Processing Task is Ready)  send event to PT;  }
+
+Implementations employing multi-threaded code (where scheduling of threads is handled by the Operating System) make such detailed prioritization more difficult.
+
+## 4 Network Protocol
+
+TCP/IP sockets allow the exchange of arbitrary byte streams (messages) between two processes. No assumptions are made about the contents of these messages, and in particular, there is no concept of a "record". The socket simply transmits an (unstructured) byte stream. TCP/IP guarantees only that the bytes are received in the same order in which they were sent. This provides great flexibility, but requires that some sort of standard structure be imposed externally on this byte stream, to ensure that complete messages are received in their entirety before being acted on.
+
+Every message passed between processes in this implementation is prefaced by a header of the following form:
+
+* 4 bytes
+* 4 bytes
+* 4 bytes
+* 4 bytes
+
+The interpretation of the data which follows this header (if any) is governed by the message type. The minimum message length therefore is 16 bytes.
+
+As the only interface to a sub-farm is via the Distributor (or efctl for external user software), messages may have to traverse several layers of software before arriving at their intended destination. This may be accomplished in two ways. First, the message type may include (implicitly) the type of process for which it is intended (e.g. a message requesting Collector statistics is obviously intended for the Collector process). Intermediate levels of software (the Distributor) must be aware of this in order to route such messages to their intended destination. Secondly, user software can request from efctl the path to any process in the Event Filter (this path is simply a list of socket numbers - one for each intermediate process - to reach a specific destination). This list is then inserted into the Destination field of a message. Intermediate levels inspect this field, extract (and remove) the next socket number to be used and forward the message along this route. When the Destination field becomes zero, the message has arrived at its destination.
+
+As socket numbers are limited to \(<256\), a single 4-byte word is sufficient to contain the routing information for the hierarchy in this implementation. The Source and Destination fields in the message header would need to be expanded if these limits were increased.
+
+Most messages elicit a response (e.g. a request for Collector statistics results in a response containing the statistical information), and again this response may be routed through several levels before it is returned to its destination. As the original message is passed down, the Source field in the message header is continually updated with the return address. To reply to a message, it is necessary only for the process to copy the contents of the Source field to the Destination field of the reply, and the response will then be correctly routed to the originator of the message.
+
+## 5 Monitor/Control
+
+User software may define arbitrary messages to be passed between (usually) Processing Tasks and external user programs. The system also defines several standard messages which are used to monitor/control the running system.
+
+In particular, each Distributor is aware of all of the processes which make up its subfarm (Collector and Processing Tasks). When a new process enters the subfarm (by connecting to the Distributor) a message is sent by the Distributor to efctl informing it of the birth of the new processor. Similarly, a message is sent to efctl on the death of a process. In this way, efctl always has an up-to-date picture of the processes present in each subfarm (it uses this information, for example, to construct the Destination address for routing messages from user software to a particular process).
+
+Processing Tasks automatically keep track of how many events are processed / rejected, network traffic and amount of CPU time needed to process each event. This statistical information is passed to the Distributor (along with the READY message) at the end of each event processed. Thus, the Distributor has up-to-date information on the performance of the sub-farm at all times. Periodically (or on request) the Distributor forwards information on the sub-farm to efctl so that up-to-date information is similarly available on the operation of all sub-farms within a partition.
+
+User software may connect to efctl and retrieve this monitoring information for presentation to the operator. We have developed a Tcl script which presents monitoring/status information on the state of a partition (possibly containing several subfarms) via a GUI. A typical display is
+
+Figure 3: Output from TCL script showing current configuration of and statistics from the Event Filter.
+
+shown in Fig 3. Update frequencies of the order of a few seconds impose a minimal load on the system, and allow information on the state of the system to be presented to the operator in a timely manner. Additionally, death of a process is recognized and reported in a few seconds. More detailed information (e.g. the length of event queues at various places in the system) is immediately available with a single mouse click, and is retrieved by sending the appropriate message to Distributor/Collector processes within a subfarm.
+
+## 6 Interface to OnlineSW and the Run Control system
+
+As stated in the Event Handler Supervisor High Level Design document [8] there should only be one point of contact between the Event Filter and the Online Software (OnlineSW) system (previously known as the Backend System). This is provided by the Event Filter supervision process. In this implementation the supervision process is known as efctl (see section 2.4). The interface with the OnlineSW system consists of two parts. The first part deals with communication between the OnlineSW system and the Event Filter. The second part deals with the use of OnlineSW services by efctl to perform required actions in the Event Filter. In particular, the OnlineSW configuration database and OnlineSW process management tools, used to stop and start dataflow processes within the Event Filter, are described. It should be noted that we have tried to exploit as fully as possible the services of the OnlineSW in order to obtain the required functionality for the supervision task, this is in contrast to the supervision implementation described in [3]. The following sections describe the communication bridge and use of OnlineSW services in greater detail.
+
+### Communication Bridge
+
+Comminication between the Event Filter supervision process and the OnlineSW system, in particular the Run Control is implemented as a "bridge" using the OnlineSW Information Service (IS). A detailed description of the bridge exists elsewhere [10] therefore, only a summary is given here. The bridge is illustrated in Fig 4.
+
+Figure 4: **Structure of Event Filter/OnlineSW Communication bridge**
+
+The bridge mechanism has been used in order to standardise the communication with the OnlineSW system from the different Event Filter prototypes [3, 4] for which different implementations of the supervision process exist. The Run Controller responsible for the Event Filter publishes its commands to the bridge. The supervisor, having previously subscribed to the Run Command information, receives notification that the information has changed. The supervisor reads the command and carries out whatever actions are required (e.g. starting dataflow processes). The supervisor then publishes its status to the bridge - either the actions completed correctly or with some error. The Run Controller is notified of the updated supervisor status. If the status is OK, the Run Controller completes its state transition. If the status is not OK, the Run Controller fails its state transition.
+
+The bridge can also be used to communicate important summary information about the Event Filter to the OnlineSW System, for example the number of dataflow processes which should be running versus the actual number of processes running. The information could then be displayed by the Event Filter panel in the IGUI (Integrated Graphical User Interface) [11] of the OnlineSW system, although this has yet to be implemented.
+
+Finally, information representing unsolicited messages from the Event Filter can be written to the bridge. This has not yet been implemented. Such messages would probably indicate abnormal situations in the Event Filter, for example a sub-farm crash. The Event Filter Run Controller would subscribe to this message field and would broadcast them to the OnlineSW system using MRS (Message Reporting System) [12] whenever it was updated.
+
+### Process Management
+
+Initially it was planned to use the Process Management (PMG) package of the OnlineSW services directly in efctl to start the various dataflow processes within the Event Filter. However, it became clear that many of the functions of the OnlineSW DSA_Supervisor process would be duplicated in efctl if this approach was followed. The role of the DSA_Supervisor is to start and stop (using PMG) all processes required to produce a data-taking configuration under the management of the Run Control system. The configuration information is saved in the OnlineSW configuration database. In releases of the OnlineSW software prior to version 0.0.14, only one copy of the DSA_Supervisor was allowed to run per partition. All processes registered in the OnlineSW database had to be started or stopped at the same time i.e. at the Boot/Shutdown phases of the data-taking procedure. A major drawback of this is that a sub-farm could not be stopped and restarted via the DSA_Supervisor without shutting down the whole Run Control system. However, in the 0.0.14 release of the OnlineSW Software (following discussions between the authors and the OnlineSW group) it became possible to run additional copies of the DSA_Supervisor per partition making it possible to have a dedicated DSA_Supervisor per sub-farm responsible for starting, stopping and monitoring the status of processes on that sub-farm only. The main DSA_Supervisor is still present and is responsible for starting partition wide processes such as the Run Control and the DSA_Supervisors responsible for sub-farm control.
+
+#### 6.2.1 Configuration Database
+
+The information required to start all processes in the Event Filter system is stored in the standard OnlineSW configuration database using the confdb_gui tool. The information is split into several different parts:* hardware repository
+* software repository
+* top-level partition configuration
+* sub-farm configuration
+
+The hardware repository consists of a number of files listing the various pieces of hardware which comprise ATLAS. An additional file has been created and added to the repository to specify the hardware on which the Event Filter software runs. For the tests performed at CERN the hardware consisted of all the machines in the MAGNI cluster. For each machine in the MAGNI cluster the host name and operating system type are specified.
+
+The software repository consists of a number of files listing all the software which can run in the ATLAS online environment including for example, the Root Run Controller process. An additional file has been created and added to the repository to specify all the Event Filter software, for example, the Event Filter Run Controller, the Distributor, the Collector etc. The name, full path and required operating system is given for each piece of executable code.
+
+The top-level partition file, contains information required by the main DSA_Supervisor to start all the partition-wide processes. Information is combined from the hardware and software repositories to provide a list of processes and the machines on which they are to run. For a simple system consisting of the Event Filter only, partition wide processes would include the Run Controllers (the Event Filter Controller and the Root Controller), efctl, the DSA_Supervisor responsible for each sub-farm and the injector and ejector task (SFI/SFO emulators) required when running the Event Filter in standalone mode.
+
+The sub-farm configuration file, contains information required by the sub-farm DSA_Supervisors to start and stop the processes within a given sub-farm. As for the top-level partition file, information is combined from the hardware and software repositories to generate a full list of processes and the machines on which they run. Processes running in the sub-farm are the Distributor, the Collector and the Processing Tasks. In addition to defining which process runs on which machine, any command line parameters and environment variables (e.g. socket numbers) required are also specified.
+
+#### 6.2.2 Starting the Event Filter on MAGNI
+
+The sequence of events required to boot the system described in the configuration database outlined above is illustrated in the following diagrams.
+
+In Fig 5 the command to "boot" the DAQ system is sent to the online DSA_Supervisor from the OnlineSW IGUI. On receiving the command the DSA_Supervisor looks in the software configuration database to see which processes need to be started and starts them, these are the partition-wide processes such as the Run Control and the DSA_Supervisors in charge of each event filter sub-farm.
+
+Once the DAQ system is "Up" i.e. all the processes have been started. The IGUI is used to send commands to the Run Control system. Fig 6 illustrates what happens when the "load" command is issued.
+
+The command is sent to the Root Controller which forwards it to the Event Filter Run Controller, which in turn, forwards it to the Event Filter supervision process (efctl). On receiving the "load" command, efctl sends the "boot" command to all the DSA_Supervisor processes in charge of sub-farms. When the local DSA_Supervisors receive the "boot" command they look in the configuration database for their sub-farm and start all the registered processes (Distribu
+
+Figure 5: Starting partition-wide processes
+
+Figure 6: Starting processes on the Event Filter sub-farms
+
+tor, Collector, Processing Tasks) on the specified machines. Once all the processes have been successfully started and the sub-farm is "Up", efctl is informed. Once all the sub-farms are "Up", efctl informs the Event Filter Run Controller that the "load" transition has been successfully completed and the Event Filter Controller informs the Root Controller.
+
+If a local DSA_Supervisor fails to start all the required processes it will not enter the "Up" state and the Run Control system will fail the load transition. Currently, it would not be easy to override this in the case that the DSA_Supervisor is unable to start a few Processing Tasks but is still able to start enough processes to have a viable data-taking configuration.
+
+Once the Run Control system is in the "Running" state, i.e. taking data, if a process dies within a sub-farm, the local DSA_Supervisor is informed and it enters the "Fault" state. The DSA_Supervisor sends a message to the IGUI informing it that a process has died but the status of the run is not changed, the run is _not_ paused. The dead process can be re-started by sending the "recover" command from efctl to the relevant DSA_Supervisor. In fact, sub-farms can be started and stopped as required, without affecting the overall status of the run by sending respectively the "boot" and "shutdown" commands from efctl.
+
+It should be noted however, that if a partition-wide process dies whilst in the "Running" state the run is automatically paused. We consider this not to be acceptable behaviour for the OnlineSW software and suggest that it may cause problems for other TDAQ groups as well.
+
+#### 6.2.3 Remaining problems with interface to OnlineSW system
+
+Some other problems have also been noted with the use of the OnlineSW software for process control, specifically problems arising if a PMG agent or DSA_Supervisor is killed on one of the hosts. We have reported the problems to the OnlineSW group and we hope they will be addressed in future releases of the OnlineSW.
+
+## 7 Event Selection
+
+Output from the Event Builder will consist of several different event types, and the Distributor must be capable of sorting them on the basis of Event Type and routing them to a Processing Task capable of handling them.
+
+During the initial connection between two processes via a socket, they exchange various pieces of information. One of the parameters exchanged is a "process type". This is used (for example) so that a Processing Task knows which connection is to the Distributor and which to the Collector. Provision is made in our design for multiple kinds of Processing Task, and hence a Distributor knows (via this initial exchange) not only that the process on the other end is a Processing Task, but also what kind of Processing Task (and hence what types of Events it is prepared to accept). Events received from the SFI are sorted into various queues based on event type. When a Processing Task becomes available, the Distributor removes an event from the appropriate queue and sends it.
+
+It is currently envisaged that each Processing Task will handle only a single event type, and hence will be associated with only a single queue in the Distributor. Nonetheless, our design allows for multiple event types to be sent to each Processing Task. This would be required (forexample) if the Processing Task were really a lower level Distributor (as discussed above) and thus capable of feeding events of several different types to its Processing Tasks.
+
+## 8 Event Recovery
+
+A prime consideration in the design of the Event Filter is that events must not be lost, either due to hardware fault or software failure (primarily crashed Processing Tasks).
+
+Processing Tasks are (potentially) complicated pieces of software, and are likely to be modified fairly frequently (certainly in the early stages of the experiment) until rejection algorithms have stabilized. The potential for unstable software is thus fairly high. The design deals with this eventuality primarily via the direct Distributor - Collector interface. Events which cause a Processing Task to fail must not be simply re-injected into the processing stream, as they will almost certainly fail again. Instead, (when the Distributor recognizes such a failed Processing Task), this event is tagged as being one which caused failure, and is sent directly to the Collector, where it will be saved (perhaps via a special debug channel) for more extensive analysis by offline software to discover the cause of the failure.
+
+Hardware failures are more difficult to protect against, as they can occur at any time. Although hardware is fairly reliable, it must be accepted that hardware faults in a collection of several thousand processors will not be a rare occurrence. Alternative designs have proposed that events entering the Distributor be saved to disk in a Distributor Global Buffer (DGB) and removed only when they are either rejected by a Processing Task or successfully re-injected into the dataflow by the Collector / SFO. This scheme has the potential drawbacks that disk I/ O in the Distributor may become a bottleneck. It also offers no protection against failure of the machine/disk hosting the DGB itself.
+
+In our implementation, event safety is enhanced by demanding that the event always be present in at least two different places throughout its lifetime in the Event Filter. When an event enters the Distributor, it is kept (in memory) in a queue after being passed to a Processing Task. It remains here until the Distributor receives either (a) notification from the Processing Task that the event has been rejected, or (b) notification from the Collector that it has been sent to (and accepted by) the SFO. Thus, two simultaneous hardware failures on two different machines would be necessary before an event is lost. In our simple implementation (of only a single level Distributor / Collector), the requirement of always keeping the event in two places effectively means it is resident in the Distributor throughout its lifetime in the Event Filter. If a multi-level Distributor/Collector architecture were to become necessary, this is no longer the case. The requirement is simply that in an A-\(>\)B-\(>\)C hierarchy, element A must retain the event until element B has successfully transferred it to C.
+
+Note that to protect against event loss in the case of failure of a single hardware component (processor), the Distributor and Collector of a sub-farm cannot run on the same machine. In practice, this may be undesirable in any case. The demands placed by the Distributor are somewhat unique - this machine requires large memory (since it must buffer all events within the sub-farm until their final disposition is known), and requires a very fast network connection (both to the SFI - which will perhaps be specialized hardware - and also because events sent to all Processing Tasks in the farm must pass through its network interface). The machine hosting the Collector / SFO, on the other hand, may well require access to large disk farms and/or tape units for archival storage of accepted events, while the network demands may be modest.
+
+## 9 Processing Task/Event Filter dataflow software programming interface
+
+One of the primary goals of this design is to simplify the interface for Processing Tasks to the Distributor and Collector processes. It is a requirement that Processing Tasks use standard offline software as much as possible, and hence it is critical that differences in the interface for online vs. offline code be minimized.
+
+A minimal Processing Task requires only four functions to interface with the Event Filter (which are provided in a standard library).
+
+1. pitit (argc, argv, MYPROCTYPE);
+
+This initialization call provides access to command line arguments, and also includes an identifier (MYPROCTYPE) of the "type" of Processing Task this is (and hence what kinds of events it is prepared to process). The identifier MYPROCTYPE is passed to the Distributor when a connection is made.
+
+2. getevent (&eventdata, &evelen);
+
+This call retrieves the next event from the Distributor. All details of the source of the event (e.g. socket connection) are hidden from user software. This routine internally takes care of connecting to the Distributor (or re-connecting in the case of Distributor failure) and handling all of the details of the network protocol, including sending the READY message indicating ability to accept an event.
+
+3. reject_event (&eventdata, evelen);
+
+This function is called if an event is to be rejected. Memory allocated for its storage is freed, and the appropriate REJECTED message is sent to the Distributor.
+
+4. accept_event (&eventdata, evelen);
+
+This function is called if an event is to be accepted. Memory allocated for its storage is freed and the appropriate ACCEPTED message is sent to the Distributor. In addition, the event is forwarded to the Collector. Details of the network protocol (including connecting to the Collector if needed) are handled internally.
+
+While this is the minimum required to interface a Processing Task to the event filter, more will almost certainly be required for a useful Processing Task (e.g. calibrations / alignment databases). Our test suite also implements a function:
+
+5. getgeom (runnumber, &geoptr, &geolen);
+
+which retrieves the geometry description based on run number. This function (included in the user library mentioned above) serves as a template for implementing similar loading of additional information required by Processing Tasks. Within the event filter implementation, this function results in a message to the Distributor to retrieve the geometry information for the given run number. The Distributor must know how to do this (perhaps by contacting a database server), and when the information is available, it is returned to the Processing Task using the standard message passing mechanism inherent in the network protocol. Expanding the protocol to allow for additional types of requests is a trivial process.
+
+**10Conclusions**
+
+We have developed a simple implementation of a PC-based Event Filter for ATLAS. The system works reliably, and throughput is comparable to that of an alternative (more complex) implementation. The simplicity of the design makes it easy to monitor and supervise farms composed of very large numbers of processes, as will be required in the final Event Filter for ATLAS. The use of standard Online Software services allows the Event Filter to be integrated into the overall ATLAS DAQ architecture, and to be controlled from the Run Control GUI. Some weaknesses in the Online Software have been identified (particularly regarding Process Creation /Management) which should be addressed in upcoming releases.
+
+**11References**
+
+1. "Event Filter Dataflow Software", C.Meessen et al., ATL-DAQ-2001-001, February 2001 [http://documents.cern.ch/archive/electronic/cern/others/athot/Note/daq/daq-2001-001.pdf](http://documents.cern.ch/archive/electronic/cern/others/athot/Note/daq/daq-2001-001.pdf)
+2. "Design of the PC-based Sub-Farm Prototype", C.P.Bee et al., ATLAS DAQ Technical Note 109, December 1998 [http://atddoc.cern.ch/Atlas/Notes/109/Note109.pdf](http://atddoc.cern.ch/Atlas/Notes/109/Note109.pdf)
+3. "Proposal for an Event Filter Prototype based on PC Computers in the DAQ-1 context", C.P.Bee et al., ATLAS Technical Note 45, January 1998 [http://atddoc.cern.ch/Atlas/postscript/Note045.ps](http://atddoc.cern.ch/Atlas/postscript/Note045.ps)
+4. "Proposal for an Event Filter Prototype based on a Symmetric Multi Processor architecture", P.Anelli et al., ATLAS DAQ Technical Note 82, March 1998 [http://atddoc.cern.ch/Atlas/postscript/Note082.ps](http://atddoc.cern.ch/Atlas/postscript/Note082.ps)
+5. "Run Control User's Guide", ATLAS OnlineSW Software group, ATLAS DAQ Technical Note 107, June 2001 [http://atddoc.cern.ch/Atlas/Notes/107/Note107.pdf](http://atddoc.cern.ch/Atlas/Notes/107/Note107.pdf)
+6. "Users guide for the PMG service", P-Y.Duval et al., ATLAS DAQ Technical Note 81, December 1999 [http://atddoc.cern.ch/Atlas/Notes/081/Note081.pdf](http://atddoc.cern.ch/Atlas/Notes/081/Note081.pdf)
+7. "Configuration Databases User's Guide", I.Soloviev, ATLAS DAQ Technical Note 135, September 2000 [http://atddoc.cern.ch/Atlas/DaqSoft/components/configdb/confdb-ug/ConfDB.pdf](http://atddoc.cern.ch/Atlas/DaqSoft/components/configdb/confdb-ug/ConfDB.pdf)
+8. "Event Handler Supervisor High Level Design", C.P.Bee et al., ATLAS DAQ Technical Note 92, April 1999 [http://atddoc.cern.ch/Atlas/postscript/Note092.ps](http://atddoc.cern.ch/Atlas/postscript/Note092.ps)
+9. "Implementation of the Information Service: Users Guide", S.Kolos, ATLAS DAQ Technical Note 37, March 2000 [http://atddoc.cern.ch/Atlas/postscript/Note037.ps](http://atddoc.cern.ch/Atlas/postscript/Note037.ps)
+10."EventFilter / OnlineSW Software Integration Proposal", Z.Qian et al., ATLAS Internal Note, ATL-DAQ-2001-002, November 2000 [http://documents.cern.ch/archive/electronic/cern/others/athot/Communication/daq/com-daq-2000-055.pdf](http://documents.cern.ch/archive/electronic/cern/others/athot/Communication/daq/com-daq-2000-055.pdf)
+11."Integrated Graphical User Interface", [http://atddoc.cern.ch/Atlas/DaqSoft/components/gui/Welcome.html](http://atddoc.cern.ch/Atlas/DaqSoft/components/gui/Welcome.html)

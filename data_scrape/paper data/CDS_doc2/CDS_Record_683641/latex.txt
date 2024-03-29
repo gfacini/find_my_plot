@@ -1,0 +1,476 @@
+**ATLAS Internal Note**
+
+**DAQ-NO-093**
+
+**22 May 1998**
+
+**The generic I/O module in ATLAS DAQ**
+
+**prototype -1**
+
+GAmbrosin\({}^{\rm b}\) H-P.Beck\({}^{\rm a}\), D.Francis\({}^{\rm b}\), M.Joos\({}^{\rm b}\), G.Lehmann\({}^{\rm a}\),
+
+L.Mapelli\({}^{\rm b}\), GMornacchi\({}^{\rm b}\), M.Niculescu\({}^{\rm b,c}\), J.Petersen\({}^{\rm b}\), D.Prigen\({}^{\rm b}\), J.Rochez\({}^{\rm b}\),
+
+R.Spiwoks\({}^{\rm b}\), L.Tremblet\({}^{\rm b}\), T.Wildish\({}^{\rm b}\)
+
+a. Laboratory for High Energy Physics, University of Bern, Switzerland.
+
+b. CERN, Geneva, Switzerland.
+
+c. Institute of Atomic Physics, Bucharest, Romania.
+
+NoteNumber : 041
+
+Version : 1.3
+
+Date : 18-08-97
+
+Reference : [http://atddoc.cern.ch/Atlas/Notes/041/Note041-1.html](http://atddoc.cern.ch/Atlas/Notes/041/Note041-1.html)
+
+**1 Introduction**
+
+**1.1 Purpose of the document**
+
+The present document describes the generic I/O module and the high level design of each of its functional components. In addition the pre-design prototype work is summarised. The document will be used as the basis for the detailed design of the generic I/O module within the DAQ prototype -1 project.
+
+The pre-design work was based on the Front-End DAQ Discussion Group Summary Document and Work Plan [1].
+
+**1.2 Overview of the document**
+
+Chapter 2 is a general description of the generic I/O module and its structure. Section 2.1 presents a logical model of the generic I/O module and identifies its major functional components. Chapters 3-10 describe the high-level design of each of the components.Chapter 11 summarises the pre-design work and presents the status of implementation and future plans.
+
+**1.3 Boundaries**
+
+The generic I/O module provides services to the I/O modules. The boundaries of the I/O modules within the read-out crate are described in [2]
+
+Since the pre-design only addressed the read-out crate, the aspects related to the SFI were not studied and this module will not be discussed further.
+
+**2 General description**
+
+The _I/O module_ (IOM) is a name for either the ROB, L3if, TRG or SFI module in the ATLAS DAQ prototype -1 architecture. The high-level design of the IOMs is described in [2] and it is assumed that the reader is familiar with this document.
+
+**2.1 The logical model of the generic IOM**
+
+The logical components of the generic I/O module are identified based on an analysis of the functional requirements of the IOMs. Consequently, this section stars with a short description of the IOMs, see also [2].
+
+The IOM ensures the data flow in the DAQ unit. It receives data on one or more input channels, buffers the data and forwards data to one or more output channels. The data may be ROB or crate fragments or information from the high level trigger systems. The data flow is controlled and synchronised via the exchange of messages between the IOMs across an internal I/O channel. During its existence in the IOM, the data belonging to a Gid, an event, undergoes a number of transformations triggered by data control messages. In addition the IOM provides a secondary data flow for event monitoring and communicates with LDAQ for purposes of control, monitoring and error reporting.
+
+The IOM is driven by stimuli (or "events") which may be generated either externally (by hardware e.g. a change in the status condition on an I/O channel) or internally (by software e.g a change in the value of a software flag). The IOM can be structured as a set of logical components, one for each stimulus, providing the required software and hardware functionality associated with that stimulus. The software element of each logical component, called a _task_, comprises the software functions in the IOM servicing the stimulus. Thus, the software part of the IOM (the IOM application) is structured as a set of tasks executed on the occurrence of stimuli.
+
+This generic description of the IOM shows that the different instances of the IOM's "share a core of functionality that can be exploited at the evaluation and design stages" [1]. This set of functions is called the generic I/O module. It defines the structure of the IOM and provides (by definition) functionality which is common to more IOMs. The generic IOM includes software as well as hardware elements.
+
+Based on the analysis of the IOM presented above the following components of the generic IOM can be identified :
+
+* Task scheduler. This component controls the execution of the IOM tasks based on hardware or software conditions (stimuli).
+* Buffer management. Buffer management (or event management) provides the functionality to manipulate events during their life in an IOM (an event in an IOM is a ROB or crate fragment).
+* Monitoring. At the level of the I/O module the function of monitoring is to service requests from the LDAQ for events of a user defined type (the term "event" means a ROB or crate fragment).
+* IOM communication. The inter IOM communication system provides a mechanism for exchanging data control messages between IOMs.
+* Intra IOM communications The intra IOM communication allows the exchange of messages between intelligent components within an IOM. It is relevant in the case where the IOMs have a multi-CPU configuration (e.g. intelligent PMCs).
+* LDAQ interface This component covers all the functions related to the interaction between the LDAQ and the I/O modules : control, monitoring and error reporting, LDAQ message system [3].
+* hardware related This component consists of common hardware elements and the supporting software. The latter provides efficient and direct hardware access which is the basis for the implementation of efficient polling and data transfers on the I/O channels.
+
+The pre-design prototyping has allowed to identify three more components :
+
+* boot function This component covers the functions which are executed by the IOM application before the connection to LDAQ is established.
+* Local data base. The local data base is used by an I/O module to export dynamically allocated configuration parameters to other IOMs and the LDAQ.
+* Local run control This allows to run the IOM in stand-alone mode with configuration and execution of the IOM tasks done at the level of the IOM (locally).
+
+## 3 Buffer manager
+
+This chapter describes the high level design of the buffer manager. The logical model identifies the main functions of the buffer manager. The physical model maps these functions onto software components and describes the main structure of each of those. The physical model is used to produce a set of component specifications which are described in the detailed design document.
+
+### Definition
+
+In this chapter the term "event" is frequently used as a generic name for event fragment, crate fragment or complete event depending the type of IOM :
+
+* ROB : event == event fragment
+* L3IF : event == crate fragment
+* SFI : event == complete event
+
+The term "event" should be interpreted according to the context in which it is employed.
+
+### Requirements
+
+The performance requirements of the IOM applications in DAQ prototype -1 have not been defined explicitly. In the design of the buffer manager, the final ATLAS requirements were used as a guideline. In the case of a ROB, for example, the main features related to buffer management are briefly :
+
+* input of event fragments with a rate of 100 kHz
+* event fragment size about 1 kbyte
+* average event fragment lifetime = 10 ms
+* high frequency of operations on events (\(\sim\) 100 kHz). These operations are triggered by data control messages in which the events are defined by their Gid.
+
+### Purpose and function
+
+The buffer manager provides event management functionality which is defined as those operations which are performed on an event during its lifetime in an IOM.
+
+### Logical model
+
+When data corresponding to a Gid flows into an IOM, an event (fragment) is created. The event consists of the event input data and in addition a descriptor which contains the dynamic information about the event. After the event has been created it may experience a number of transformations triggered by data control messages e.g. to copy or send the event to another destination or remove it. _Event management_ provides functions that allow the IOM tasks to perform basic operations on events :
+
+* allocating space for events* creating events
+* locating events based on an event Gid
+* deleting events
+* obtaining information about events
+* modifying events
+
+Creation of events and the input of event data involves allocation of memory space for event data and descriptors. The main functions of _memory management_ are as follows :
+
+* set-up and initialisation of memory buffer areas
+* allocation and de-allocation of memory space for an event
+* testing if memory space is available
+
+In data control messages exchanged by the IOMs an event is defined by its Gid. The first phase of each event operation therefore consists of _searching_ for the event in memory based on its Gid. For reasons of efficiency a sequential search is excluded. Faster search schemes can be implemented by creating an additional structure in which the event is stored, when it is created, and from where the event can be retrieved later with a minimal overhead.
+
+### Physical model
+
+In this section the logical model is transformed into a physical model which describes the design of the software components. In this process some design descisions are made.
+
+In order to fulfill the requirements listed above, it is essential to provide efficient memory management and event searching functions. Several options have been investigated but only the simplest can possibly achieve (or approach) the required performance.
+
+The memory management is based on a **paged memory allocation scheme, in which the events are stored in fixed size memory buffers**. Systems allowing for variable sized buffers are either too complex (memory fragmentation) or do not have the required flexibility (circular buffer : no "direct" access to events). A paged system is wasteful in terms of space utilisation but this is not expected to be a problem in case of the IOM where memory sizes of 32 Mbytes or more are common (e.g. the RIO2/8061). If we assume a page size of 4 kbytes this allows to store about 8000 events which corresponds to an event lifetime of 80 ms with an event input rate of 100 kHz.
+
+The event searching is based on the technique of dynamic **hashing**[6]. Events are stored in buckets as a function of their Gid : the event Gid is mapped onto a bucket identifier (Lid, see below) using **modulo** as a hashing function. Events within one bucket are organised as a singly linked list which is searched sequentially.
+
+#### 3.5.1 events - descriptors and data
+
+An event in the IOM has two components, a descriptor and a data area. The descriptor contains the dynamic information about the event during its life in the IOM and is therefore accessed frequently by the event management functions. The event descriptor has the following logical components:* event identifier: global Id and local Id (see below)
+* state information
+* pointer to the data area
+* link to other event descriptors. These links are defined in a processor independent way (i.e. not using logical CPU addresses) so that external CPUs can access the linked lists of event descriptors for example via VMEbus.
+* link to additional data pages
+
+As explained in the following section, memory space for events is allocated in pages. It may occur that the size of the event input data is larger than the size of one page. In this case the data area corresponding to one event consists of several pages which are not necessarily contiguous. The additional pages are described by sub-event descriptors which are placed in a linked list (see also section 3.5.3 and Figure 3).
+
+#### 3.5.2 event searching
+
+This section describes the event searching, additional information can be found in [5].
+
+When an event is created it is stored in a structure which consists of a _set of classes_. A class includes events with the same _Local Id_ and is organised as a singly linked list. The Local Id is a simple function of the Gid: Lid = mod(Gid,NC) where NC is the number of classes. The search operation then consists in computing the Lid from the Gid and scanning the corresponding list of events sequentially. If NC is chosen appropriately the number of events per class can be kept small allowing a fast search. The system is illustrated in Figure 1.
+
+Figure 1: Event searching. Local Id classes
+
+#### 3.5.3 memory management
+
+This section describes the memory management, additional information can be found in [5].
+
+The memory management is a paged system with an allocation scheme based on a stack of pointers to free pages. Event descriptors and event data are allocated in two different memory areas each partitioned in N pages. These areas are allocated statically and there is a one-to-one correspondence between the event descriptors and data. The basic memory management functions (get/free) operate on a pair of pages. The number of pages and the page size for event data can be defined by the user. The scheme is illustrated in Figure 2.
+
+#### 3.5.4 Event management functions
+
+The overview of the event and memory management in the previous sections allows to define the event management functions more precisely.
+
+* get memory space for an event Before event data is input, memory buffer space must be reserved. This function allocates one page of memory. In case the event overflows, other pages must be allocated.
+* add an event data page to an event This function is required in case of multi-page events. When an additional page has been allocated and filled with event data, the event descriptor must be updated accordingly.. This is implemented by linking the dummy event descriptor corresponding to the additional page into a linked list of data pages belonging to the event (see Figure 3). A multi-page event has one main event descriptor and a number of additional data page descriptors.
+
+Figure 2: Memory management: buffers and allocation scheme* create event An event can be created when the event data buffer is complete (including event headers) and the event descriptor has been initialised. After the "create" function has been called, other operations (find, delete etc.) can be performed on the event.
+* find event This function was described in some detail in the section 3.5.2 (event searching)
+* delete event An event has to be removed when it has been sent to the next level in the data flow or rejected in the IOM. The delete function will remove the event from the Local Id class and release the memory buffer space associated with the event. In the case of a multi-page event, all the pages have to be released..
+* access to event descriptors Event management includes access (read/write) to the components of the event descriptor. For reasons of efficiency, access via function calls should be avoided.
+
+#### Structure of the event manager
+
+The previous section shows that the event manager functions depend on the memory management functions and the software component that provides the Local Id class functions. The latter, in turn, rely on list handling (see Figure 2). The relative dependencies of the event manager components are shown in Figure 4, below.
+
+Figure 3: structure of a multi-page event
+
+Figure 4: the structure of the event manager
+
+## 4 Monitoring.
+
+A note on monitoring including a description of the programming interface is available in [7]
+
+### Purpose and function
+
+The purpose of monitoring is to provide a sample of events to the user monitoring tasks where the events are specified by their type. In the DAQ-unit monitoring is distributed over the LDAQ and the IOMs [3, 4]. User tasks interact only with the LDAQ monitoring element and not directly with the IOMs. The LDAQ maintains a data base of events originating from the IOMs and all user requests for events are handled relative to this pool of events. A separate function (the gathering) interacting directly with the IOMs is responsible for updating the data base.
+
+At the level of the IOM the function of monitoring is to serve requests from LDAQ for events of a specified type. The requirements to the IOM monitoring are :
+
+* minimal interference with the main data flow (data rate should not decrease by more than X(?) percent when monitoring is active)
+* statistical sampling only
+* monitoring of events in different states within the IOM [2]
+
+### Logical model
+
+In order to serve the LDAQ requests efficiently, the IOM maintains a set of _access lists_, each containing a (small) number of events of the same type. An event flowing through the system is added to an access list if it has a type requested by the user and if the corresponding access list is not full. Otherwise the event will not be selected for monitoring. When an IOM receives a request from LDAQ for an event of a given type, the corresponding access list is examined. If the list is non-empty an event is copied to LDAQ, otherwise a status is returned to notify LDAQ that no event is available. This implies that pending requests are not supported.
+
+The _event type_ is a generic name for a triple (Et,Dt,St) where Et is the event type, Dt the detector type and St the event state. The first two are external parameters and part of the event data while the event state is an internal parameter. The event states in the IOM and their relation to monitoring are described on [2].
+
+The requirement of monitoring events in different states implies that whenever an event changes state, it has to go through the monitoring "select" process described above which emphasises that the efficiency of this process is important for the performance of the IOM. When an event in state X is added to an access list, it goes into the state X+M and it is marked as non-removable [2]. The event continues its normal life cycle but can only be removed from the IOM when the event has been transmitted to LDAQ.
+
+The monitoring scheme is illustrated schematically in Figure 5. As described above, it is based on the concept that the IOM maintains a set of event access lists. one per event type, such that requests from the LDAQ can be handled with a minimal overhead. To summarise, monitoring in the IOM has two logical components:extract from the events flowing through the IOM a subset of events based on their type and store them in an access list.
+* upon request from the LDAQ, search this access list for an event of the specified type and, if found, transfer it to LDAQ
+
+### Physical model (preliminary & incomplete)
+
+The model described below is preliminary and incomplete. Some prototype testing of the concepts has been carried out but there are still many aspects of monitoring which need further study and discussion.
+
+When events are flowing through the IOM they are sorted according to their type and placed in FIFOs containing pointers to events of the specified type. Events are removed from the FIFO when requests from the LDAQ corresponding to the given event type are processed. If the rate of events of a given type is higher than the rate of monitoring requests for this type, the FIFO will on the average be full and the interference with the processing of events minimal since the FIFO update process is bypassed. The sorting of events into FIFOs according to their type is controlled by the user who defines the event types at initialisation time. The monitoring system is illustrated in Figure 6.
+
+It is important to minimise the overhead for the average event in the IOM. In the scheme proposed above, each event of type (Et,Dt) has an overhead which consists in locating the FIFO defined by (Et,Dt) and interrogating whether it is full. If the number of types is large this is very time consuming. A scheme to avoid this overhead is discussed in [7].
+
+Figure 5: IOM monitoring scheme
+
+It may be discussed whether the FIFOs are needed at all. Since the LDAQ provides the main buffering in the form of the event data base it could be argued that no buffering at all is required at the IOM level. If events of all the requested types are flowing through the system at a rate much higher than what can be absorbed by the LDAQ there is no reason for the buffering. In other cases with more rare events or in a bursty environment some buffering may be useful. If no buffering is required, the FIFOs could be replaced by an array of pointers to events of the various types.
+
+Figure 6: Monitoring FIFOs
+
+## 5 Scheduler
+
+This section is largely a copy of the first two sections of the document on the Event Scheduling in the IOM [9] which also includes a description of the programming interface.
+
+### Purpose and function
+
+The purpose of the IOM scheduler is to control the execution of "threads" within an IOM application. A thread is a function activated on the occurrence of an event. The scheduler was developed because the overheads associated with the standard thread scheduling in operating systems (LynxOS) is too heavy and in addition it provides system independence. A major difference with POSIX threads is that the IOM threads are not pre-emptible (seen from the application) which has some consequences:
+
+* no semaphores
+* the worst-case real-time response of the application is equal to the sum of the execution times of the threads (if round-robin)
+
+The scheduler has the following main features:
+
+* events may be external (I/O events) or internal (software interrupts)
+* dynamic insertion and removal of "events" in the scheduler
+* support for different scheduling policies (e.g. round-robin, priority based)
+* external device polling
+* execution of application code (functions) directly under the control of the scheduler as well as reporting of occurrence of events to user code (equivalent to waiting for the occurrence of multiple conditions).
+* identification of the currently active I/O thread (by means of a character string).
+
+### Model description
+
+The scheduler works on a process basis. Threads to be scheduled are added to the scheduler by providing a description in terms of:
+
+* Device functions: to initialise the device and to poll the device for the occurrence of an event. These are completely generic functions and are not necessarily related to a physical I/O device. They are expected to return a status reporting success or signalling a condition which may be either an error or an indication that an "event" is pending to be treated on the device.
+* Application function: this is called by the scheduler whenever a pending I/O or an error condition is reported by the device. It is up to this function to reset the source of the event.
+* A flag identifying the device, so that application code can recognize which event has occurred.
+* A priority associated to the device, so that polling and event reporting could be performed on a priority basis.
+
+A device declared ("added", see below) to the scheduler may be in one of two states:* _Active_: this device is participating to the scheduling process (i.e. its poll function is called). This is the state in which a device is by default (after an "add").
+* _Inactive_: while being declared to the scheduler, this device will not participate to the scheduling process. A device can be put into this state by calling the IOM_schedulerDeactivate function. Conversely calling the IOM_schedulerActivate function will return the device to an active state.
+
+Currently both a round-robin scheduling policy and a priority based one are implemented:
+
+* Round robin scheduling: the list of devices is organised chronologically (the one added the earliest first) and scanned circularly. The device priority attribute is not used for scheduling purposes.
+* Priority scheduling: the list of devices is organised by priority (the highest priority device first) and scanned in that order as long as devices are idle. Whenever a device is active (pending I/O or error status) its associated action routine is executed and then the scan of the device list is restarted from the highest priority one.
+
+## 6 LDAQ interface
+
+### Purpose and function
+
+In the document on LDAQ [3] two different models are described to define the boundary of LDAQ sub-system within the DAQ-unit. The present note is based on model #1 in which the interface between the LDAQ and the IOMs is defined by an Application Programming Interface (API) on the IOM side. In this RPC-like model, each function of LDAQ is mapped onto a function of the API providing an extension of the LDAQ functionality into the IOM. The functions of the API are executed when commands from the LDAQ FSM are received.
+
+### Logical Model
+
+The API can be divided into three groups corresponding to the main functions of LDAQ : run control, monitoring and error reporting. The functions of the API have a high degree of commonality across the IOMs. Below is a description of the generic aspects of the API (for details, see[4]).
+
+* run control Run control is responsible for the configuration and coordination of the IOMs in the read-out crate [3]. In addition it collects status informatiom from the IOMs.
+* configuration and initialisation At the level of the IOM the following operations are performed : 1. retrieve crate parameters from the LDAQ configuration data base (e.g. VME addresses, buffer manager parameters)ii. access the local data bases of the other IOMs to get dynamic parameters (see ch.8)  iii.initialise the IOM components based on the configuration parameters. This is typically done in the initialisation functions associated with each IOM task (see ch.5)
+* coordination This is the run control in a narrow sense. At the level of the IOM the following operations are performed :
+* execute the run start, stop, suspend and resume commands by activating and suspending the IOM tasks associated with event I/O.
+* status information At the level of the IOM the following operations are performed :
+* extract the status parameters from the IOM and send them to LDAQ
+* monitoring Monitoring is responsible for proving a sample of events of specified types to the user tasks connected to the LDAQ. At the level of the IOM the following operations are performed.
+* initialisation The user-defined event types allow to initialise the internal structures of the monitoring system (see ch.4))
+* request for an event An event of the type specified in the request command is transmitted to the LDAQ (see ch.4)
+* error reporting When an error occurs, the IOM application may report the error to LDAQ via a function with two parameters : the name of the IOM task and the error code
+
+## 7 Boot functions
+
+### Purpose and function
+
+The boot functions are the operations which are executed by the IOM application before the connection to LDAQ is established.
+
+### Logical Model
+
+The following functions are executed in the IOM boot sequence :
+
+* get non-LDAQ user input parameters The IOM application may require parameters which cannot be retrieved from the LDAQ configuration data base. An example is the logical name of the IOM which must be known before the communication can be established.
+
+* install exception and exit handler functions The exception handlers process hardware exceptions (e.g.VMEbus errors) and software exceptions (e.g. CTRL/C). Under LynxOS these exceptions are received in the form of signals. The exit handler releases (system) resources and provides post mortem dumps.
+* initialise pre-LDAQ IOM packages In order to establish communication with LDAQ it is required to initialise certain IOM packages.
+* start the IOM task associated with run control. The run control may be provided remotely via LDAQ or locally (see ch.9)
+
+## 8 IOM local data base
+
+### Purpose and function
+
+Crate configuration parameters are stored in the LDAQ data base and communicated to the IOMs, when the DAQ is started up [3]. In addition to these _static_ parameters. the IOMs need access to _dynamic_ parameters which are known only after the DAQ is started (or more precisely, configured.). These parameters typically describe resources in other IOMs e.g. the VME addresses of dynamically allocated memory buffers. The _local data base_ allows to store the dynamic parameters in a (memory) space within the IOM from where they can be accessed by other IOMs or the LDAQ module. The local data base provides the physical storage space for the parameters and the software that allows to access this space, locally or remotely.
+
+### Physical model (incomplete)
+
+The local data base is a memory area at a "well-known" address within an IOM i.e. the address is known globally in the crate after the DAQ has been configured. The IOMs initialise their local resources before the DAQ is configured and write pointers to these resources into the local data base. After configuration the remote IOMs and LDAQ have access to the local data bases of all IOMs, see also [3].
+
+## 9 Local Run Control
+
+### Purpose and function
+
+The local run control allows to execute the IOM applications in stand-alone mode i.e. without the run control system provided by LDAQ. This is often useful in the development phase of a project (debugging, testing, measurements etc.) since it allows to run configurations without an LDAQ processor and its associated software.
+
+### Logical model
+
+In a DAQ-unit the activities of the IOMs are coordinated by LDAQ which provides run control and configuration functionality [3]. The LDAQ and the IOMs exchange control and status information via the LDAQ communication link. In the case of local run control the LDAQ communication link is replaced by local I/O resources (keyboard, terminal). With local run control there is no global coordination of the IOMs and it the user's responsibility to ensure the appropriate synchronisation between the IOMs i.e to provide the run control manually.
+
+### Physical model
+
+In the IOM one of the tasks is responsible for the communication with LDAQ. In the case of **local run control** this task is replaced by another which allows the user to control the IOM locally : configuration parameters and run control commands are input via the keyboard and status information displayed on the local terminal. The task is activated on the occurrence of a signal generated via the keyboard (SIGQUIT). Due to the properties of the scheduler (see chapter 5), other tasks in the IOM are suspended for the duration of the user dialogue.
+
+### 10IOM message system
+
+#### 10.1Purpose and function
+
+The IOM message library allows IOMs to exchange messages over VMEbus. Applications include sending trigger information from the TRG to other IOMs (ROBs, L3IF) and exchanging messages between the L3IF and the ROBs related to data collection. Due to the high rate and large bandwidth associated with these operations a performant system is required.
+
+The main features are the following:
+
+* connection oriented protocol: a connection must be explicitly established before messages can be exchanged
+* unidirectional (simplex): one communication channel has a fixed sender/receiver configuration. A single channel cannot support transactions.
+* multi-cast: one sender can transmit messages to one or more receivers.
+* no interrupts (polling): sender and receiver poll on "space available" and "message available", respectively. The polling is done at the application level under control of the user and not internally in the send/receive functions.
+* local buffers: a message exchange involves two data transfers, one from the user buffer into the circular buffer and another from the circular buffer into the receive user buffer. One transfer is over VMEbus, the other from system memory to system memory.
+
+#### 10.2Model description
+
+The message system is derived from a model described in ref. [10]. Messages are exchanged via a circular buffer in (shared) VME memory. When a communication channel is opened, a channel descriptor is created. The channel parameters include read/write pointers to the circular buffer. The sender polls the read/write pointers and writes into the buffer when enough space is available. The receiver polls the read/write pointers to know if a message is available in which case the message is copied into a (local) user buffer.
+
+The user message is transferred over VMEbus under control of the PowerPC CPU (memcpy) or the BMA of the RIO8061. In the first case the sender or the receiver may execute the transfer and the message buffer may be allocated on either side. In the second case the sender is the master and the buffer(s) have to be allocated in the receiver(s). The multi-cast is implemented using the second method.
+
+If the buffer is allocated on the receiver side, access to the read/write pointers by the sender involves VMEbus cycles. If the polling frequency is high this will lead to interference with other VMEbus traffic. This problem should be carefully considered when integrating IOM applications. For example, if the circular buffer is allocated in the receiver and the sender application is the slowest, polling over VMEbus is kept to a minimum. However, if the sender is the fastest, the result may be a high frequency polling over VMEbus
+
+### 11The pre-design generic IOM
+
+#### 11.1Overview
+
+In the pre-design phase, the hardware object of the generic IOM included a RIO 8061 [16] which has an architecture as shown schematically in Figure 7. In addition to the "standard" components - PCI bus, PowerPC 604, two PMC sites and VMEbus interface - the RIO 8061 is equipped with hardware FIFOs accessible via VMEbus. The PMCs employed in the pre-design phase (S-link destination, S5933) are non-intelligent.
+
+Given this architecture the software components of the generic I/O module are implemented in the form of libraries which are linked into the IOM applications executing on the main CPU.
+
+In the pre-design phase the RIO 8061 was running the LynxOS operating system. As explained in section 2.1, the generic IOM includes functions like task scheduling, memory allocation and hardware access and it could therefore be expected that the libraries would implement these functions via LynxOS system calls. However, due to the IOM performance requirements and to achieve portability, the use of operating system services is excluded ( at run-time). This in particular applies to the use of the interrupt handling functions of the operating system.
+
+Figure 7: schematic architecture of the RIO 8061
+
+Before describing the software of the generic IOM in more detail it is useful to understand the general structure of its superset, the IOM, as shown in Figure 8. The numbers in the list, below, correspond to the numbers in the brackets in Figure 8
+
+1. the application specific user level code which distinguishes the different IOM applications. Examples : the ROB input thread, the L3IF data collection thread
+2. hardware independent software which is common to several IOMs. Example : buffer manager library
+3. lower level software (libraries) which support the common hardware (5). Example : the FIFO library for a RIO8061.
+4. lower level software (libraries) which depend on application specific hardware (6). Example : S-link library, S5933 library
+5. the hardware which is common to the IOM. Example : CES RIO8061 (CPU, memory, PCI etc.)
+6. the hardware which is specific to an IOM. Examples : the S-link destination PMC, DS link PMC
+
+The _generic IOM_ is mapped onto (2,3,5) in Figure 8. In the pre-design it included the following packages :
+
+* buffer manager
+* monitoring
+* task scheduler
+* IOM message system
+* local data base
+* hardware libraries
+
+Figure 8: general structure of an IOM(ROB, L3IF, TRG, SFI).
+
+The libraries for buffer management are included in version 1.0 of the DAQ -1 pre-design software release and linked into the ROB, TRG and L3IF applications [2]. It should be pointed out that the present version 1.0 "demo" system is not a very serious and interesting test of the buffer management functions and of the data flow in general. Much more extensive tests involving more realistic data flow conditions should be performed.
+
+A very preliminary list of post-pre-design projects related to buffer management follows (should be coordinated with the applications projects):
+
+* shorter term
+* systematic measurements of the basic buffer management operations
+* parameters of the memory and event management system (# pages, page size, # classes) allow the buffer manager to be tuned to the application. Performance measurements should be performed to validate the concepts of the system.
+* gradually add more "data flow" to the current demo system and perform extensive measurements both of the "internals" of the applications and the communications (over VMEbus) between them.
+* longer term
+* a method should be developed to allow events to use more than one page (for the data). This should be considered the exceptional case and is therefore not time critical but this feature may have an impact on the memory allocation for normal events (?).
+* the present system has not yet required the use of the notion of "event state". As the applications grow in complexity this will be needed and the event manager will have to be extended to support this concept. This will have to be done mainly at the level of the application.
+
+### Monitoring - status and plans
+
+The library for monitoring is included in version 1.0 of the DAQ -1 pre-design software release. However, at present it is just a passive component and not included in the "demo" system in which events for monitoring are produced artificially within the LDAQ thread and not retrieved from the event buffers. The system has been tested "manually" but not yet in realistic applications.
+
+A very preliminary list of post-pre-design projects related to monitoring follows (should be coordinated with the applications projects):
+
+* add monitoring to a (realistic) I/O application (e.g. the ROB). This will require an extension to the event manager as described above. This will allow to improve the demo system to retrieve events from the buffer manager via the monitoring FIFOs [7].
+* implement efficient event data transfers (over VMEbus) between LDAQ and the IOMs using the two transfer methods described in [4, 8]
+
+**11.4Scheduler - status and Plans**
+
+The scheduler library for buffer management are included in version 1.0 of the DAQ -1 pre-design software release. At present there are no plans for extending its functionality.
+
+11.4.1 Pre-design implementation
+
+On the RIO 8061 the SRAM is used for the local data base. This is accessible via VMEbus at the base VMEA32 address of the RIO. The "layout" of the data base is at present simply defined by a C structure.
+
+**11.5Local data base - status and plans**
+
+A library with a few functions to map and initialise the SRAM on a RIO8061 is included in version 1.0 of the DAQ -1 pre-design software. At present this simple system is adequate but it probably needs to be extended and made more flexible.
+
+**11.61OM message system - status and plans**
+
+??
+
+**11.7Hardware libraries**
+
+In the pre-design all IOMs were implemented using the RIO 8061 and therefore had a number of common hardware elements : PCI bus, VMEbus to PCI interface, hardware FIFOs, S-link PMC interface.
+
+11.7.1PCI library
+
+**11.7.1.1 Purpose and function**
+
+**11.7.1.2Status and plans**
+
+11.7.2 BMA library
+
+**11.7.2.1 Purpose and function**
+
+At present, VMEbus is the only data link between the IOMs and the LDAQ. Therefore both the transfer of physics data and all the crate internal inter module message passing rely on it. As a consequence, making optimal use of the bandwidth available is of great importance for the overall system performance.
+
+CES provides, as a part of their standard software for the RIO8061, a combination of a driver and a user library for the on-board BMA controller. This software, however, causes unacceptable.le calling overheads of the order of 50 ms per transfer and is based on interrupts. To improve this a fast and simple BMA user library has been written which does not require a driver and detects the end of transfer by means of polling. This library only offers the functionality required for the IOM applications in their present form and has got some limitations which may make it inappropriate for other applications. See [14] for more information
+
+#### 11.7.2.2Status and plans
+
+The BMA library is included in version 1.0 of the DAQ -1 pre-design software. In addition some example and test programs are available. If it turns out that the limitations of this library are to severe additional functionality can be added.
+
+#### 11.7.3 FIFO library
+
+#### 11.7.3.1Purpose and function
+
+One of the special features of the RIO 8061 is its hardware FIFOs accessible from the local CPU via PCI and from remote CPUs via VMEbus (and PCI) [13]. These 8 FIFOs are 256 words deep, support interrupts and use the on-board SRAM for data storage. It has been decided to use them for the communication between the LDAQ and the IOMs since they allow to implement a simple and robust protocol [3, 4]. As for the BMA library a speed optimised user library without interrupt support has been written. See [13] for more information.
+
+#### 11.7.3.2Status and plans
+
+The FIFO library is included in version 1.0 of the DAQ -1 pre-design software. In addition some example and test programs are available. If it turns out that the limitations of this library are too severe additional functionality can be added as required.
+
+It has to be pointed out that processor modules from other manufacturers such as Motorola do not offer FIFOs. It has to be discussed whether the message passing system built on top of them should be converted to a FIFO independent protocol which also runs on other H/W platforms
+
+#### 11.7.4.55933 library
+
+#### 11.7.4.1Purpose and function
+
+**References**
+
+[1]F/E DAQ Discussion Group Summary Document and Work Plan, [http://adddoc.cern.ch/Atlas/FrontEnd/document/draft.ps](http://adddoc.cern.ch/Atlas/FrontEnd/document/draft.ps)
+
+[2]The main data flow in the read-out crate of ATLAS DAQ prototype -1, ATLAS Technical Note # 47
+
+[3]The LDAQ in ATLAS DAQ prototype -1, ATLAS Technical Note # 40
+
+[4]Integration of the LDAQ and IOM components of the Read-Out crate in the main data flow, ATLAS Technical Note # 38
+
+[5]Notes on the buffer management in the I/O module for ATLAS DAQ prototype -1, ATLAS Technical Note # 2
+
+[6]E.Horowitz et al., Fundamentals of Data Structures in C, Computer Science Press (1993)
+
+[7]Notes on the Monitoring of Events in the I/O module for ATLAS DAQ prototype -1, ATLAS Technical Note # 35
+
+[8]Interface to the I/O modules for LDAQ monitoring, ATLAS Technical Note # 14
+
+[9]Event scheduling in the I/O module, ATLAS technical note # 18
+
+[10]IOM message library
+
+[11]Data Streams in the Read-out crate, Jos Vermeulen
+
+[12]PCI library, RIRIO2/RTPC Basic Libraries, ATLAS technical note # 16
+
+[13]FIFO library, RIO2/RTPC Basic Libraries, ATLAS technical note # 16
+
+[14]BMA library, RIO2/RTPC Basic Libraries, ATLAS technical note # 16
+
+[15]S5933 library, RIO2/RTPC Basic Libraries, ATLAS technical note # 16
+
+[16]RIO2 8061/8062 PowerPC based RISC I/O board, User's Manual, Creative Electronics Systems, Geneva, Switzerland

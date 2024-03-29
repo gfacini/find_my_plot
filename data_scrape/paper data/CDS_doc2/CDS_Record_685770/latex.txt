@@ -1,0 +1,191 @@
+ATLAS Internal Note
+
+DAQ-NO-051
+
+20 May, 1996
+
+Bunch Crossing Identification for the ATLAS Level-1 Calorimeter Trigger
+
+The UK Level-1 Trigger Group
+
+Contact: J. Garvey, D. Rees.
+
+## 1 Introduction
+
+In this note we discuss the problem of Bunch Crossing IDentification (BCID) for the level-1 calorimeter trigger for ATLAS.
+
+The level-1 calorimeter trigger has to decide if a potentially interesting interaction has occurred in ATLAS. The trigger makes a decision every LHC period of 25 ns. For each bunch crossing, the energy deposited in each calorimeter trigger tower due to an interaction in that crossing must be identified and its value entered into the trigger processor. The pattern of energy deposition is then examined to see if it corresponds to what is expected for interactions which might contain interesting physics. The obvious trigger criteria are the production of high \(p_{T}\) leptons, photons or partons, which manifest themselves in the calorimeters as high \(E_{T}\) electromagnetic clusters or hadronic jets.
+
+For calorimeters where the signal produced by the passage of a particle extends for a time which is short compared to the 25 ns bunch crossing period, allocating energy to a particular bunch crossing is relatively easy. The tile calorimeter, which is scintillator based, has an intrinsic time response which fulfils this requirement, and so in principle output pulses could feed directly into the level-1 trigger. In practice this is not the case, because in order to reduce the effect of electronic noise on the measurement of pulse height, the output pulses are shaped to extend over a number of LHC periods. The liquid argon based calorimeters are intrinsically slow, with charge collection times of a few hundred nanoseconds for most of the calorimeters in ATLAS. This collection time is long compared with the LHC period, and to reduce pile-up effects at high luminosity the output pulses are shaped to have a peaking time of about 40 ns and a base width of about 100 ns.
+
+The function of the BCID processor is to take in these long pulses, extract the time of traversal of the particle or particles which produced the pulse, and also obtain a value for the transverse energy deposited. Such information can then be input to the trigger processor, which can select the collisions which have resulted in interesting distributions of energy throughout the calorimeters.
+
+The level-1 calorimeter trigger processor for ATLAS will take in digitised calorimeter pulses. At present the planned FADC precision is 8 bits 1. The following discussion concentrates on the problem of performing BCID on digitised pulses and builds on previous experience with BCID demonstrator systems in test beam runs. A digital approach to BCID has several advantages. Particularly significant is the fact that field programmability is possible, allowing easy adaption to different pulse shapes and noise conditions.
+
+Footnote 1: This may be increased in the future to 9 or 10 bits, but such a change will not have a significant affect on the discussion here.
+
+## 2 Requirements for Successful BCID
+
+Extraction of timing information from an analogue pulse has been an essential requirement for nuclear physics and particle physics for many years. The important requirement for successful time extraction is that the pulse shape is not amplitude-dependent. For pulses of constant shape the problem becomes one of measuring the time of occurrence of some feature of the pulse, _e.g._ its centre of gravity, or the time at which some fixed fraction of its area has occurred. The precision with which, on a pulse to pulse basis, one can achieve the time extraction for pulses of nominally constant shape, depends on the level of noise and the electron statistics in the pulse. Certainly precision of a few hundred picoseconds can be achieved over a significant dynamic range for pulses as long as 50-100 ns.
+
+The problem of timing extraction for the LHC experiments is a slightly different one from the one described above for an isolated pulse. For any location within the calorimetry, the arrival of particles has a constant and measurable phase with respect to the LHC clock. From location to location this phase changes according to the distance from the intersection point of the beams. Particles coming from beam-beam collisions cannot arrive at other times.
+
+The requirement for pulses of amplitude-independent shape is paramount for the successful extraction of timing. Preamplifiers which reduce the dynamic range of pulse heights by some _peak amplitude_ dependent gain do not affect the pulse shape and so are acceptable. Preamplifiers which have an _amplitude_ dependent gain are by contrast not acceptable as they change the shape of the pulse. This is an important distinction.
+
+Although the former type of preamplifiers retain pulse shape, and therefore timing for individual calorimeter cells, they cannot be used in the trigger. This is because the calorimeter trigger towers are made up of the sum of many calorimeter cells, _e.g._ in the electromagnetic barrel one trigger tower comprises 56 calorimeter cells! Since the transverse energy corresponding to the trigger tower has to be related to the pulse height, it is clear that the same gain must be used for every calorimeter cell which is part of one trigger tower. This puts a severe restriction on the preamplifier options for the calorimeters. Any sort of compression of dynamic range in the calorimeter cell preamplifier, even _peak amplitude_ dependent gain, is incompatible with good transverse energy extraction and cannot be tolerated by the level-1 trigger.
+
+The proposed front end solution, which consists of a preamplifier with 16 bit dynamic range capability followed by two shapers of 13 bit dynamic range displaced in gain by a factor of eight, is an option which seems acceptable for the building of trigger signals[1]. For this solution the aim is to be linear up to a calorimeter cell energy of 2.5 TeV for the low gain shaper. This is the shaper channel which the trigger would use. It seems reasonable therefore to assume that the signal corresponding to a trigger tower will be linear over the full range of kinematically allowed transverse energy.
+
+BCID Algorithms
+
+The level-1 calorimeter trigger depends critically on the performance of the BCID system. The presence of noise means that 'perfect' performance over the whole range of pulse heights is impossible. However, it is highly desirable that the processor should be _optimal_ in the sense that is performs as well as theoretically possible in a given noise environment.
+
+The main challenges in designing the BCID processor are to achieve good performance at small pulse heights where noise is significant and at large pulse heights where the pulse shape is distorted by saturation effects. In this note we assume that saturation occurs only in the FADC system. The problems presented by these two pulse height regimes are sufficiently different that two algorithms are required. The algorithm for pulses that do not saturate the FADC system is aimed at reducing the effect of noise and makes the assumption that the pulse shape is constant with pulse height. The algorithm for saturated pulses takes into account the changes in shape of the digitised pulse due to FADC-saturation that occurs for large pulses, but is not primarily concerned with noise. The two proposed algorithms are described below and a BCID processor design based on these algorithms is discussed.
+
+### Non FADC-Saturated Pulses
+
+The functions to be performed by the BCID processor can be divided into the following three tasks:
+
+1. Pulse detection;
+2. Bunch crossing determination;
+3. Transverse energy measurement.
+
+In this section the problem of finding the optimal algorithm for non FADC-saturated pulses is approached using the theory of digital communication systems. Each of the three aspects of BCID is analysed to determine how optimal performance can be achieved.
+
+In effect, the BCID processor is a receiver in a communication system. The system involves the transmission of signals, in the form of pulses, that get affected by noise before being received by the processor. It is convenient to represent these signals as column vectors where each element represents a sampled bunch crossing. If the detector is hit at bunch crossing \(n\) the signal \(\mathbf{p}_{n}\) is transmitted and the processor receives a corrupted signal \(\mathbf{x}\), as illustrated in Figure 1. The processor must decide which signal was transmitted using the signal it actually receives. For example, to measure the bunch crossing number it must consider all of the possible transmitted signals, \(\mathbf{p}_{1\ldots N}\), and choose the one that best'matches' the received signal. To test the hypothesis that a certain signal was transmitted, the probability that \(\mathbf{x}\) is received for that transmitted signal is needed. For noise that follows a normal distribution this _conditional probability density_ is:
+
+\[f(\mathbf{x}|\mathbf{m})=Ae^{-\frac{1}{2}(\mathbf{x}-\mathbf{m})^{T}\mathbf{C} ^{-1}(\mathbf{x}-\mathbf{m})} \tag{1}\]
+
+where \(A\) is a normalization constant, \(\mathbf{m}\) is the mean vector which describes the transmitted signal and \(\mathbf{C}\) is the noise covariance matrix that describes the variance of each sample and the covariance between samples.
+
+#### Pulse Detection
+
+The BCID processor should reject noise and only produce an output when it receives a pulse. Hence, it must decide if a received signal \(\mathbf{x}\) contains a genuine pulse corrupted by noise or noise alone. There are two hypotheses that must be tested:
+
+1. A pulse with signal vector \(\mathbf{p}_{n}\) was transmitted;
+2. A pulse was _not_ transmitted and the transmitted signal is the zero vector, \(\mathbf{0}\).
+
+The _Bayes decision rule_[2] says how to decide which hypothesis is correct in the optimal way. The rule states that we should decide hypothesis 1 is correct (the transmitted signal is \(\mathbf{p}_{n}\) rather than \(\mathbf{0}\)) if
+
+\[\ln f(\mathbf{x}\,|\mathbf{p}_{n})-\ln f(\mathbf{x}\,|\mathbf{0})>k, \tag{2}\]
+
+where \(k\) is a constant. The value of \(k\) is based on the relative probabilities of the two signals being transmitted and the relative 'cost' of incorrectly recognising noise as a pulse and _vica versa_. If the relative probabilities and costs are equal then \(k\) is zero and the rule simply states that the one with the largest probability density should be chosen. In practise, the value of \(k\) would be a compromise between the need to efficiently detect pulses and the need to reject noise.
+
+For Gaussian noise the probability density functions are given by Equation 1 with mean vector \(\mathbf{m}=\mathbf{p}_{n}\) in the case where a pulse is transmitted and mean vector \(\mathbf{m}=\mathbf{0}\) when no pulse is transmitted. Ignoring constant factors and terms, the left hand side of Equation 2 becomes \(\mathbf{p}_{n}^{T}\mathbf{C}^{-1}\mathbf{x}\). Hence, the function
+
+\[h(\mathbf{x})=\mathbf{a}^{T}\mathbf{x},\ \ \text{where}\ \ \ \mathbf{a}= \mathbf{C}^{-1}\mathbf{p}_{n} \tag{3}\]
+
+should be used to decide whether or not a pulse is present. If \(h(\mathbf{x})\) is greater than a threshold value the processor decides that a pulse is present.
+
+Figure 1: The BCID processor receives a version of the transmitted signal corrupted by noise.
+
+[MISSING_PAGE_FAIL:5]
+
+noise is least significant, are given the largest weight so that the effect of noise is minimized. Also, the elements of **a** are zero where the pulse signal is expected to be zero so that it is only necessary to form the weighted sum for a 'window' of samples as wide as the pulse. If the noise is not white, as expected because signals are filtered before digitization, the covariance matrix and inverse matrix are not diagonal. In this case the non-zero elements of **a** extend before and after the pulse and the window of samples needs to be enlarged to achieve optimal performance. In either case, because the basic shape of the pulse stays constant as \(n\) changes, the elements of **a** stay constant but are shifted accordingly with \(n\). This means that the algorithm can be implemented with a _finite impulse response_ (FIR) filter.
+
+In an FIR filter, samples are presented to the filter sequentially and the most recent samples are kept in a 'pipeline' of registers. The value in each register is multiplied by a _filter coefficient_ and summed to form a filter output value. Each bunch crossing, the contents of the registers are shifted along, a new sample is stored in the first register, and a new filter output calculated. The pipeline of registers can be identified as the window of samples over which to evaluate the weighted sum and the filter coefficients as the weights themselves. The window of samples and the weights are effectively shifted by one sample every bunch crossing in exactly the manner required to implement the BCID algorithm. When the coefficients are configured to maximize the signal to noise ratio, as required for optimal BCID, the filter is said to be a _matched filter_. Matched filters are often used for the detection of pulses with a known shape when good performance is required.
+
+### FADC-Saturated Pulses
+
+The sensitivity of our present 8-bit FADC's is set to 1 GeV per bit, which means that FADC saturation occurs for pulses equivalent to greater than 255 GeV, assuming zero pedestal. Since the trigger operates with transverse energy rather than energy, the energy at which saturation occurs depends on rapidity as indicated in Table 1. The effect of the saturation is merely to truncate the digitisings to a value of 255.
+
+The immediate consequence of saturation is that the transverse energy measurement made by the trigger limits at 255 GeV. Interactions which lead to any trigger tower transverse energy limiting in this way will have to generate level-1 triggers. For such towers the problem of BCID extraction has to be solved, so that the correct crossing is identified for readout by level-2 and eventually by the data acquisition. This is easy for towers where the FADC saturation occurs in only one digitising because the peak of the pulse can be used. For very large pulses the FADC will saturate on many digitisings and the peak is lost. However, bec
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline \(\eta\) & Energy ( GeV) \\ \hline
+0 & 255 \\
+1 & 393 \\
+2 & 959 \\
+3 & 2567 \\
+4 & 6963 \\
+5 & 18923 \\ \hline \end{tabular}
+\end{table}
+Table 1: Energy corresponding to \(E_{T}=255\) GeV for different values of \(\eta\).
+
+merely a truncation, the time of the pulse can be extracted by studying the time sequence of digitisings where saturation occurs.
+
+We show in Figure 2 pulse shapes for the electromagnetic calorimeter used in this note to simulate the performance of the BCID algorithms. The phase of the FADC clock has been set such that there is a digitisation on the peak of the pulse. These shapes are typical of the pulses we have observed in beam measurements but do not necessarily indicate the final solution. The pulse heights in the figure are arbitrary, but the shape represents that of real pulses up to an energy of greater than 2.5 TeV, as discussed in Section 2. If we suppose that these simulated pulses do represent a deposition of 2.5 TeV transverse energy then the trigger FADC-saturation will occur at a value of 0.1 on the vertical scale. The requirement for successful BCID is to devise an algorithm which can extract the time of the pulse for such FADC-saturated pulses.
+
+The scheme which we propose is indicated in Figure 3. Briefly it will operate as follows. The 8-bit FADC data is directed through a comparator which is set to a high value near 255. The output of this comparator, corresponding to each FADC digitising, is clocked into a shift register every 25 ns. This shift register keeps the time development of the pulse at an amplitude near where the FADC saturates. A time sequence of these bits goes into the'saturation logic', probably implemented as a lookup table, which extracts the location of the peak of the original pulse and generates an output at the time appropriate to the correct bunch crossing _i.e._ incurring the same latency as the non FADC-saturated algorithm.
+
+A saturation algorithm has not been tested on real data yet, but it is possible to understand how it might function by using the simulated pulses indicated in Figure 2. By moving a discriminator level down in value from 1.0 to 0.1 we can study how the pattern of saturation bits changes in going from a transverse energy of 255 GeV to a transverse energy of 2.5 TeV. The bit patterns appearing in the shift registers are shown in Figure 4.
+
+Looking at the values for the 'fast' electromagnetic calorimeter pulses, it can be seen that a simple algorithm emerges. The saturation logic would be configured to generate an output if any of the patterns indicated in the figure occurred. This particular algorithm works for pulses of this shape, and where one FADC sampling is on the peak of the pulse. Other values of the relative phase of the FADC will result in other algorithms, but the principle of the method will be retained. Notice also that the method is rather independent of the electronic noise level, as the comparator is always operating at a high pulse height. For these fast electromagnetic pulses, the latency of the saturation logic can be quite short. This merely reflects the width of the shaped pulse. Looking at the'slow' calorimeter pulse the same features can be observed and the same comments can be made about the robustness of the algorithm relative to electronic noise. Here, the latency would be longer, reflecting once again the pulse width.
+
+This solution for dealing with FADC-saturated pulses has only evolved recently, and the performance remains to be fully tested, firstly on simulated pulses and then on real beam data. However it is already attractive for several reasons.
+
+* It is completely field-programmable and can be configured to cope with calorimeter pulses of different shape from the ones used here.
+* Because the comparator threshold is high the algorithm is insensitive to electronic noise.
+* The hardware implementation is straightforward and can be included easily into a common ASIC with the non-saturated algorithm.
+* Because it is operating in effect relative to the leading edge of the pulse and does not depend on the falling edge, it should be robust against any pulse shape variations on the Figure 2: Pulse shapes used to evaluate the performance of the BCID algorithms. The ‘fast’ pulse has a peaking time of 40 ns and the ‘slow’ pulse has a peaking time of 80 ns.
+
+Figure 3: Block diagram of a BCID processor that implements the algorithms discussed in the text.
+
+Figure 4: Shift register patterns for fast and slow pulses.
+
+tails of big pulses.
+
+### Combined Design
+
+A block diagram of a BCID processor that implements the algorithms discussed above is shown in Figure 3. Input data from the FADC system are fed into two processing pipelines, one for the non FADC-saturated pulses (at the top of the diagram) and one for the FADC-saturated pulses (at the bottom of the diagram).
+
+The processing that implements the algorithm for non FADC-saturated pulses is based around a FIR filter. The FIR filter is made from a pipeline of eight registers, eight programmable multipliers and an adder. The output of the FIR filter stage is fed into a pipeline of three registers, labelled \(f_{1}\), \(f_{2}\) and \(f_{3}\), that hold the filter output values for the three most recent bunch crossings. These values are compared by a 'peak finder' that detects a maximum in the filter output by looking for the condition \(f_{1}<f_{2}>f_{3}\). The value of \(f_{2}\) is also compared with a threshold. If the threshold is exceeded and a maximum has been found an output is generated. The BCID output value is taken from \(f_{2}\) after subtracting a constant value due to the pedestal offset that is applied to the input signals.
+
+The algorithm for FADC-saturated pulses is implemented with a comparator, shift register and saturation logic, and has already been discussed in Section 3.2. When a large pulse that saturates the FADC system is detected the saturation logic generates an output of 255 GeV. A second output from the saturation logic vetos the output of the circuit for non saturated pulses for a number of bunch crossings since it is not reliable for distorted pulse shapes. In this way, the processor can efficiently handle pulses over the full pulse height range produced by the calorimeters.
+
+## 4 Simulated Performance
+
+The performance of a BCID processor based on the algorithms described in Section 3 has been evaluated using a software simulation of the pulse signals produced by the electromagnetic calorimeter and of the processor itself.
+
+Two different pulse shapes, shown in Figure 2, were used to see how performance depends on shape. These shapes were taken from [1] and are for the liquid argon electromagnetic calorimeter, although they are reasonably representative of the pulses produced by the other calorimeters. The continuous waveforms were "sampled" at intervals of 25 ns with the phase of the sampling adjusted so that a sample was made on the peak. The pulse shape referred to as 'fast' has a peaking time 40 ns and shape referred to as'slow' has a peaking time of 80 ns.
+
+For a given algorithm and pulse shape, performance is determined completely by the nature and the amount of noise at the input of the processor. The following four sources of noise were simulated:
+
+* simulated by filtering Gaussian white noise with the impulse response of the preamplifier/shaper system given in [1].
+* simulated by adding Gaussian white noise.
+* simulated by adding a pulse for each bunch crossing with an amplitude randomly chosen according to the pileup transverse energy distribution shown in Figure 5.
+- simulated by quantizing signals to the nearest GeV.
+
+The pileup transverse energy distribution used was for trigger towers in the electromagnetic calorimeter up to \(\eta=3\) and was produced by the ATRIG Monte Carlo at a luminosity of \(10^{34}\) cm\({}^{-2}\)s\({}^{-1}\). To simulate the effect of FADC saturation any value greater than 255 GeV was fixed at 255 GeV. This simply had the effect of 'clipping' the top off pulses.
+
+The contribution of each source of noise and the total noise for the fast and slow pulse shape are given in Table 2. The amount of pre-shaper noise for the slow pulse shape was set to half that for the fast pulse shape to take into account the reduction in noise when the peaking time is increased from 40 ns to 80 ns[3]. The contribution from pileup is larger for the slow pulse because of the slower shaping. It should be noted that the size of the noise contributions are subject to varying degrees of uncertainty.
+
+Figure 6 shows a simulated event with a 5 GeV transverse energy deposition at bunch crossing number 40. Many such events were generated to measure the efficiency for correctly determining the bunch crossing, the probability of producing a noise output and the transverse energy resolution.
+
+Figure 7 shows the efficiency for correctly identifying the bunch crossing and generating a non-zero output, _i.e._ of 1 GeV or greater, as a function of transverse energy. Fast pulses can be correctly identified with about 80% efficiency for pulses between 1 and 2 GeV and nominally 100% efficiency above 3 GeV. The efficiency for slow pulses is not as good, despite having slightly less input noise, but is still 65% for pulses between 1 and 2 GeV and reaches 100% between 4 and 5 GeV.
+
+The probability of producing a noise output per bunch crossing as a function of output transverse energy is shown in Figure 8. Here, the slow shaping performs better giving a smaller probability of generating a noise output. The distributions are strongly peaked at 1 GeV with few noise outputs of 2 GeV or more. Furthermore, these higher transverse energy noise outputs are dominated by pileup where the algorithm has correctly detected a pulse.
+
+Figure 9 shows transverse energy residuals for pulses which do not saturate. The width of these distributions is the transverse energy resolution of the BCID processor. The slow pulse shape gives the best transverse energy resolution of 0.56 GeV. The fast pulse shape gives a resolution of 0.62 GeV.
+
+The algorithm for FADC-saturated pulses was tested by generating events with very large pulses that exceed the maximum pulse height of 255 GeV. It was found to perform with 100% efficiency for both fast and slow pulse shapes up to arbitrarily high energies.
+
+\begin{table}
+\begin{tabular}{|l|c|c|} \hline Source & Fast (GeV r.m.s.) & Slow (GeV r.m.s.) \\ \hline Pre-shaper & 0.35 & 0.18 \\ Post-shaper & 0.35 & 0.35 \\ Pileup & 0.26 & 0.33 \\ Digitization & 0.29 & 0.29 \\ \hline Total & 0.62 & 0.59 \\ \hline \end{tabular}
+\end{table}
+Table 2: Noise contributions for fast and slow pulse shapes.
+
+Figure 5: Pileup transverse energy per bunch crossing for trigger towers in the rapidity range of 0 to 3.
+
+Figure 6: A simulated ‘event’ with a 5 GeV transverse energy deposition at bunch crossing number 40. The data at the input to the BCID processor, at the output of the FIR filter and at the output of the BCID processor are shown.
+
+Figure 7: Efficiency for correctly determining the bunch crossing as a function of the pulse transverse energy for fast and slow pulses.
+
+Figure 8: Probability per bunch crossing of producing a noise output as a function of output transverse energy for fast and slow shaping.
+
+Figure 9: Transverse energy residuals for fast and slow pulses. The transverse energy resolution is given by the width of these distributions.
+
+Future Plans
+
+We are presently completing the analysis of data taken in the CERN test beam with the RD3 test liquid argon calorimeter during 1995. In this test we had 36 channels of BCID implemented using Field Programmable Gate Arrays of the XiLinx family[4]. The configuration included an 8-bit digital pipeline, a FIR filter, and a peak finder. Data were taken with electrons of a wide range of energies. The BCID system was designed to handle the non FADC-saturated pulses only.
+
+Further simulation will be done of the combined saturated/non-saturated system described here. If this confirms our present thinking that the concept will work successfully, then it will be discussed with our microelectronics engineers to evaluate the problem of incorporating the design into an ASIC. Such a feasibility study will be directed towards the problem of reducing latency in the design, as well as indicating the silicon area required and the number of trigger channels which could be put onto one ASIC. The timescale for this is not clear.
+
+It is the intention of ATLAS to make a choice of calorimeter front end systems by September 1996. One aspect of the overall front end system which will be defined at this time will be the details of the formation of the trigger tower signals, and how they are to be transmitted to the trigger processor hardware which will be installed in the remote control room. If analogue pulses are transmitted it may make sense to combine the functions of FADC and BCID in one MCM. If digitised pulses are transmitted we must decide where to put the BCID function, _viz._ at the sending end or at the receiving end. These considerations will clearly influence significantly the actual implementation of the BCID function.
+
+## References
+
+* [1] R. L. Chase _et al._, _A Fast Monolithic Shaper for the ATLAS Calorimeter_, ATLAS internal note LARG-NO-10.
+* [2] See for example, Couch, _Digital and Analog Communication Systems_.
+* [3] C. de La Taille, _New Noise Figures for the ATLAS E.M. Calorimeter,_ ATLAS Internal Note LARG-NO-035.
+* [4] I. Brawn _et al._, _Bunch-Crossing Identification for the ATLAS First-Level Calorimeter Trigger_, CERN/LHCC/95-56 (1 October 1995) 293-296.

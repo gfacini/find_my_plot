@@ -1,0 +1,819 @@
+April 29, 2002
+
+**The Silicon Trackers transient detector description**
+
+**David Calvet1**
+
+Footnote 1: LPC Clermont-Ferrand - calvet@in2p3.fr
+
+**Alessandro Fornaini2**
+
+Footnote 2: NIKHEF, Amsterdam - aforna@nikhef.nl
+
+**Szymon Gadomski3**
+
+###### Abstract
+
+This note describes the new transient detector description model of the two Atlas silicon trackers: the Pixel and the SCT detectors, as it will be used for Data Challenge 0.
+
+###### Contents
+
+* 1 Transient detector description
+	* 1.1 Full description of a detector element
+		* 1.1.1 Methods of SiDetectorElement
+		* 1.1.2 Collection of SiDetectorElement objects
+	* 1.2 Local description of a detector element
+		* 1.2.1 Diode identifier
+		* 1.2.2 Readout cell identifier
+		* 1.2.3 Local position
+		* 1.2.4 Diodes parameters
+		* 1.2.5 Methods of SiDetectorDesign
+		* 1.2.6 Collection of SiDetectorDesign objects
+	* 1.3 Package structure
+* 2 SCT module side local description
+	* 2.1 Package structure
+		* 2.1.1 SCT_ModuleSideDesign class
+		* 2.1.2 SCT_Diode class
+		* 2.1.3 SCT_ReadoutCell class
+		* 2.1.4 SCT_ReadoutScheme class
+	* 2.2 Module design
+		* 2.2.1 SCT_ModuleSideDesign class
+		* 2.2.2 Additional methods
+		* 2.2.3 Barrel module side design
+		* 2.2.4 Forward module side design
+		* 2.2.5 Constructors
+	* 2.3 Object building from XML
+		* 2.3.1 XML description of a SCT_ModuleSideDesign
+		* 2.3.2 Barrel and forward description
+		* 2.3.3 Example of an XML description
+* 3 Pixel module local description
+	* 3.1 Module design description
+		* 3.1.1 Diode map
+		* 3.1.2 Abstract diode matrix
+		* 3.1.3 Readout scheme
+		* 3.1.4 Methods
+	* 3.2 Object building from XML
+		* 3.2.1 XML description of a PixelModuleDesign
+
+[MISSING_PAGE_EMPTY:4]
+
+## Introduction
+
+This note describes the new transient detector description model of the Pixel and SCT detectors of the Atlas experiment. This detector description is only intended as a prototype for the future Atlas software, and thus does not contain all information.
+
+The code is implemented in the following three software packages:
+
+* the SiTrackerDetDescr package
+* the SCT_ModuleSideDesign package
+* the PixelModuleDesign package
+
+The new silicon trackers detector description model is based on the concept of \(detector\)\(elements\) (see section 1.1), which correspond to the minimal unit of detection and readout: a \(module\) in the Pixel detector or \(one\)\(side\)\(of\)\(a\)\(module\) in the SCT. In both cases this model provides information about segmentation into diodes of the detector elements and their connection to readout electronics, as well as position and orientation of the element in a global reference frame. Furthermore, each element is uniquely identified by a logical identifier. This detector description is widely used by the new Event Data Model [1].
+
+The SiTrackerDetDescr package defines the abstract structure of this detector description (both for the interface and the local description). The local description is then implemented in the SCT_ModuleSideDesign and PixelModuleDesign packages.
+
+This note describes the software as it is available in release 3.0.1, which will be used for Data Challenge 0.
+
+## Chapter 1 Transient detector description
+
+### 1.1 Overview
+
+The structure of the transient detector description is defined in the SiTrackerDetDescr package, while much of the sub-detector specific implementation ("designs" classes) is realized in the PixelModuleDesign and SCT_ModuleSideDesign packages.
+
+SiTrackerDetDescr is available in the CVS repository under
+
+offline/InnerDetector/InDetDetDescr/SiTrackerDetDescr
+
+This package contains the classes needed to geometrically describe the _detector elements_ of the silicon trackers: a module of the Pixel detector or one side of a module of the SCT.
+
+* Section 1.1 describes the SiDetectorElement class, which is the full description of a single detector element.
+* Section 1.2 describes the SiDetectorDesign class, which is the local description of the detector elements of the same design.
+* Section 1.3 describes the structure of the package and its dependencies.
+
+### 1.1 Full description of a detector element
+
+The new detector description for silicon detectors is based on the concept of \(detector\)\(elements\). Such detector elements are defined in the SiDetectorElement class.
+
+A SiDetectorElement object contains the geometrical description of a single detector element: a module of the Pixel detector or a side of a module of the SCT.
+
+A SiDetectorElement object contains three data members (see Figure 1.1):
+
+* the logical identifier of this detector element,* a reference to the SiDetectorDesign object describing the local geometry of this detector element (see section 1.2).
+* a reference to the DetectorPosition object describing the global position and orientation of this detector element.
+
+This class is able to give the logical identifier or the position of a given readout cell (a SiReadoutCell object, see section 1.2.2).
+
+When the detector element is a side of a SCT module, the SiDetectorDesign object referenced by the SiDetectorElement is a SCTModuleSideDesign object (see chapter 2).
+
+When the detector element is a Pixel module, the SiDetectorDesign object referenced by the SiDetectorElement is a PixelModuleDesign object (see chapter 3).
+
+#### Methods of SiDetectorElement
+
+The SiDetectorElement methods are:
+
+\(\bullet\) Identifier identify()
+
+which returns the logical identifier of this detector element,
+
+\(\bullet\) bool isPixel()
+
+\(\bullet\) bool isSCT()
+
+\(\bullet\) bool isBarrel()
+
+\(\bullet\) bool isEndcap()
+
+which return true if the element belongs to the Pixel detector, the SCT detector, the barrel part or the endcap part,
+
+Figure 1.1: _A SiDetectorElement object contains information about global position of the element, its segmentation into diodes and their connection to readout electronics, and about the logical identifier of the element_
+
+\(\bullet\) Identifier identifierOf(const SiReadoutCell *const p_cell)
+
+which returns the logical identifier of the given readout cell,
+
+\(\bullet\) Identifier identifierOf(const SiLocalPosition &localPos)
+
+which returns the logical identifier of the readout cell connected to the given local position,
+
+\(\bullet\) SiLocalPosition localPosition(const SiReadoutCell *const p_cell, const int clusterSize)
+
+which returns the local position of the given readout cell (or the cluster of given size starting at the given readout cell). If there can be more than one position, the diodesParameters method should be used,
+
+\(\bullet\) SiLocalPosition correctedLocalPosition(const SiReadoutCell *const p_cell, const int clusterSize)
+
+which returns the local position of the given readout cell (or the cluster of given size starting at the given readout cell), corrected by the Lorentz angle. If there can be more than one position, the correctedDiodesParameters method should be used,
+
+\(\bullet\) SiLocalPosition correctedLocalPosition(const SiLocalPosition &position)
+
+which corrects a local position for the Lorentz angle,
+
+\(\bullet\) HepPoint3D globalPosition(const SiReadoutCell *const p_cell, const int clusterSize)
+
+which returns the global position of the given readout cell (or the cluster of given size starting at the given readout cell),
+
+\(\bullet\) HepPoint3D globalPosition(const HepPoint3D &localPos)
+
+\(\bullet\) HepPoint3D globalPosition(const SiLocalPosition &localPos)
+
+which return the position in the global reference frame of a point in the local reference frame ("database frame" or "natural frame"),
+
+\(\bullet\) int diodesParameters(const SiReadoutCell *const p_cell, const int clusterSize, std::list<SiDiodesParameters> &params)
+
+which returns the local position and width of the diode(s) connected to the given readout cell, the returned integer being the number of returned parameters (Pixel); or the position and width of the cluster of given size starting at the given readout cell (SCT),
+
+\(\bullet\) int correctedDiodesParameters(const SiReadoutCell *const p_cell, const int clusterSize, std::list<SiDiodesParameters> &params)which returns the local position and width of the diode(s) connected to the given readout cell, the returned integer being the number of returned parameters (Pixel); or the position and width of the cluster of given size starting at the given readout cell (SCT). Includes correction for Lorentz angle,
+
+\(\bullet\) bool areNeighbours(const SiReadoutCell *const p_cell1,
+
+const int clusterSize1,
+
+const SiReadoutCell *const p_cell2,
+
+const int clusterSize2)
+
+which returns true if the two given clusters of cells are neighbours,
+
+\(\bullet\) double sinTilt(const SiLocalPosition &localPos)
+
+\(\bullet\) double sinStereo(const SiLocalPosition &localPos)
+
+which returns the sine of the tilt or stereo angles computed at a given local position,
+
+\(\bullet\) std::pair<HepPoint3D,
+
+HepPoint3D> endsOfStrip(const SiLocalPosition &position)
+
+which returns the two extremities of the virtual strip going through the given local position. This method is only relevant for the SCT.
+
+\(\bullet\) SiDetectorDesign &design()
+
+which gives access to the local description,
+
+\(\bullet\) DetectorPosition &position()
+
+which gives access to the global description,
+
+\(\bullet\) void lorentzCorrection(const double correction)
+
+which sets the Lorentz correction.
+
+#### Collection of SiDetectorElement objects
+
+The SiDetectorElement objects are stored in an object of the SiDetectorElementCollection class. This object has to be stored in the transient detector store, therefore it inherits from the DataObject class. Its class identifier is 2510.
+
+This class is able to store new detector elements with the method
+
+\(\bullet\) void add(const SiDetectorElement &element)
+
+when stored in a SiDetectorElementCollection object, the pointed detector element is owned by the collection which will take care of deleting it.
+
+A stored detector element can be accessed by the method
+
+\(\bullet\) const SiDetectorElement *p_element(const Identifier &id)
+
+which returns a pointer to the SiDetectorElement associated to the given identifier, or a null pointer if no corresponding object is found in the collection.
+
+### 1.2 Local description of a detector element
+
+The SiDetectorDesign abstract base class is the interface which must be used by any class describing the design of a detector element: a module of the Pixel detector or a side of a module of the SCT. The description must include:
+
+* the segmentation of the silicon sensor into individual diodes,
+* the connection of the individual diodes to the readout electronics cells.
+
+This class is therefore able to make conversions between objects of the following classes:
+
+* SiDiode, described in section 1.2.1,
+* SiReadoutCell, described in section 1.2.2,
+* SiLocalPosition, described in section 1.2.3,
+* SiDiodesParameters, described in section 1.2.4,
+* HepPoint3D.
+
+#### 1.2.1 Diode identifier
+
+The SiDiode abstract base class is the interface which must be used by any diode identifier: an object of a class derived from SiDiode must uniquely identify a single diode within a single silicon sensor.
+
+#### 1.2.2 Readout cell identifier
+
+The SiReadoutCell abstract base class is the interface which must be used by any readout cell identifier: an object of a class derived from SiReadoutCell must uniquely identify a single readout cell within a single detector element.
+
+#### 1.2.3 Local position
+
+The SiLocalPosition class is used to represent a three dimensional point in the local "natural" reference frame of a single silicon sensor: in this frame, the three axes are \(\eta\), \(\varphi\) and \(depth\). The coordinates of a SiLocalPosition are accessed through the methods:
+
+\(\bullet\) double xEta()
+
+\(\bullet\) double xPhi()
+
+\(\bullet\) double xDepth()
+
+Note that the coordinates xEta, xPhi and xDepth are in unit of length and not angle.
+
+#### 1.2.4 Diodes parameters
+
+The SiDiodesParameters class is used to represent the position and width of a cluster of diodes, in the local "natural" reference frame. The various methods available are:
+
+\(\bullet\) SiLocalPosition centre()
+
+\(\bullet\) SiLocalPosition width()
+
+\(\bullet\) SiLocalPosition halfWidth()
+
+\(\bullet\) double xEtaMin()
+
+\(\bullet\) double xEtaMax()
+
+\(\bullet\) double xPhiMin()
+
+\(\bullet\) double xPhiMax()
+
+\(\bullet\) double xDepthMin()
+
+\(\bullet\) double xDepthMax()
+
+#### Methods of SiDetectorDesign
+
+The design being very different for the modules of the Pixel detector and the SCT, the actual implementations are very different for the two detectors. Therefore the SiDetectorDesign class contains mainly a basic interface.
+
+Virtual interface
+
+The pure virtual methods of this class are:
+
+\(\bullet\) Identifier identifierOfReadoutCell(const Identifier &parentId, const SiReadoutCell *const p_cell)
+
+which returns the logical identifier of the given readout cell, appended to the parent's identifier,
+
+\(\bullet\) Identifier identifierOfDiode(const Identifier &parentId, const SiDiode *const p_diode)
+
+which returns the logical identifier of the readout cell connected to the given diode, appended to the parent's identifier,
+
+\(\bullet\) SiReadoutCell *newReadoutCellFromDiode(const SiDiode *const p_diode)
+
+which returns the readout cell connected to a given diode,
+
+\(\bullet\) void newDiodesFromReadoutCell(const SiReadoutCell *const p_cell, std::list<SiDiode *> &diodes)
+
+which returns the diode(s) connected to a given readout cell,
+
+\(\bullet\) SiLocalPosition localPosition(const SiReadoutCell *const p_cell, const int clusterSize)
+
+which returns the position in the silicon sensor reference frame of the (first if more than one) diode connected to the given readout cell (Pixel); or the position of the centre of the cluster of given size starting at the given readout cell (SCT),\(\bullet\) SiDiodesParameters parameters(const SiDiode *const p_diode)
+
+which returns the position and width of a given diode,
+
+\(\bullet\) int parameters(const SiReadoutCell *const p_cell,  const int clusterSize,  std::list<SiDiodesParameters> &params)
+
+which returns the position and width in the silicon sensor reference frame of the diode(s) connected to a given readout cell, the returned integer being the number of returned parameters (Pixel); or the position and width of the cluster of given size starting at the given readout cell (SCT),
+
+\(\bullet\) SiDiode *newDiodeFromSpatialPosition(const SiLocalPosition &position)
+
+which returns the diode containing the given position (in the silicon sensor reference frame),
+
+\(\bullet\) void newNeighboursOfDiode(const SiDiode *const p_diode,  std::list<SiDiode *> &neighbours)
+
+which returns the list of diodes which are neighbours of the given one,
+
+\(\bullet\) bool areNeighbours(const SiDiode *const p_diode1,  const SiDiode *const p_diode2)
+
+which returns true if the two given diodes are neighbours,
+
+\(\bullet\) bool areNeighbours(const SiReadoutCell *const p_cell1,  const int clusterSize1,  const SiReadoutCell *const p_cell2,  const int clusterSize2)
+
+which returns true if the two given clusters of cells are neighbours,
+
+\(\bullet\) HepVector3D phiMeasureSegment(const SiLocalPosition &position)
+
+which returns the unitary vector along the \(\varphi\) measurement element (pixel or strip) going through the given local position,
+
+\(\bullet\) std::pair<SiLocalPosition,  SiLocalPosition> endsOfStrip(const SiLocalPosition &position)
+
+which returns the two extremities of the virtual strip going through the given local position. This method is only relevant for the SCT.
+
+All these methods are implemented by the detector-dependent classes derived from SiDetectorDesign.
+
+#### Transformations between local reference frames
+
+The SiDetectorDesign class is also able to perform transformations between the local reference frame as defined in the geometry database ("database frame") and the local "natural" reference frame ("natural frame").
+
+The constructor allows the definition of the "natural frame" axes with respect to the "database frame" axes
+
+\(\bullet\) SiDetectorDesign(const Axis etaAxis,const Axis phiAxis,  const Axis depthAxis)
+
+where each argument can be any of the three axes (SiDetectorDesign::xAxis, SiDetectorDesign::yAxis or SiDetectorDesign::zAxis).
+
+Knowing this correspondence between the two frames, the SiDetectorDesign class provides two methods
+
+\(\bullet\) SiLocalPosition toLocalPosition(const HepPoint3D &point)
+
+which returns the position in the "natural frame" corresponding to the point in the "database frame",
+
+\(\bullet\) HepPoint3D toPoint3D(const SiLocalPosition &position)
+
+which returns the point in the "database frame" corresponding to the position in the "natural frame".
+
+The definition of the "natural frame" can be retrieved through the methods
+
+\(\bullet\) SiDetectorDesign::Axis etaAxis()
+
+\(\bullet\) SiDetectorDesign::Axis phiAxis()
+
+\(\bullet\) SiDetectorDesign::Axis depthAxis()
+
+which return the axis in the "database frame" (SiDetectorDesign::xAxis, SiDetectorDesign::yAxis or SiDetectorDesign::zAxis) corresponding to any "natural frame" axis.
+
+#### Collection of SiDetectorDesign objects
+
+The SiDetectorDesignobjects are stored in an object of the SiDetectorDesignCollection class. This object has to be stored in the transient detector store, therefore it inherits from the DataObject class. Its class identifier is 2511.
+
+This class is able to store new detector designs with the method
+
+\(\bullet\) bool add(const std::string &name,  const SiDetectorDesign *const p_design)
+
+which returns true if the given SiDetectorDesign object could be successfully stored with the name name. When stored in a SiDetectorDesignCollection object, the pointed detector design is owned by the collection which will take care of deleting it.
+
+A stored detector design can be accessed by the method
+
+\(\bullet\) const SiDetectorDesign *p_design(const std::string &name)
+
+which returns a pointer to the SiDetectorDesign associated to the name name, or a null pointer if no object of this name is found in the collection.
+
+### 1.3 Package structure
+
+Relations between classes of the SiTrackerDetDescr package, and between these classes and other packages, are shown in Figure 1.2.
+
+Figure 1.2: _Description of the SiTrackerDetDescr package structure and its dependency on the Identifier, DetDescrKernel, GaudiInterface and CLHEP packages._
+
+## Chapter 2 SCT module side local description
+
+### 2.1 SCT ModuleSideDesign class
+
+The SCTModuleSideDesign class inherits from the abstract class SiDetectorDesign from the SiTrackerDetDescr package. See chapter 2.2 for a detailed description of this class and of the two derived classes SCT_BarrelModuleSideDesign and SCT_ForwardModuleSideDesign.
+
+#### SCT_Diode class
+
+The SCT_Diode class inherits from the SiDiode class (SiTrackerDetDescr package) and describes a diode on a module side. It contains two data members:
+
+* strip: strip within crystal (int)
+* crystal: detector within module side (int)
+
+#### SCT_ReadoutCell class
+
+The SCT_ReadoutCell class inherits from the SiReadoutCell class (SiTrackerDetDescr package) and describes a readout cell on a module side. It contains one data member:
+
+* strip: strip number within module side (int)
+
+#### SCT_ReadoutScheme class
+
+The SCT_ReadoutScheme class is encapsulated inside the SCT_ModuleSideDesign class. It describes the connection between Silicon strips (SCT_Diode objects) and readout electronics (SCT_ReadoutCell objects). There are four data members:
+
+* crystals: number of crystals within module side (int)
+
+Figure 2.1: Structure of the SCT_ModuleSideDesign package and relations between its classes and classes from the SiTrackerDetDescr package* diodes: number of diodes within crystal (int)
+* cells: number of readout cells within module side (int)
+* shift: index of diode connected to cell with index 0 (int) (see fig. 2.2)
+
+There are two methods implemented:
+
+* SiReadoutCell *newReadoutCellFromDiode(const SiDiode* const p_diode): creates a new SCT_ReadoutCell from a SCT_Diode.
+* void newDiodesFromReadoutCell(const SiReadoutCell *const p_cell, std::list<SiDiode *> diodes): creates new SCT_Diode's from a SCT_ReadoutCell.
+
+### 2.2 Module design
+
+The abstract class SiDetectorDesign is implemented for the SCT case in the SCT_ModuleSideDesign package by the SCT_ModuleSideDesign class (see also section 2.1 and fig. 2.1). However, since there are two different types of modules for the barrel and forward parts of the SCT detector we need two more classes to give proper implementation to some methods: these classes are SCT_BarrelModuleSideDesign and SCT_ForwardModuleSideDesign. In Figure 2.3 is given a description of relations between these and other classes.
+
+#### SCT_ModuleSideDesign class
+
+The SCT_ModuleSideDesign class inherits from SiDetectorDesign. Its data members are:
+
+Figure 2.2: _Readout scheme for an SCT module side_
+
+* etaAxis, phiAxis and depthAxis (inherited from SiDetectorDesign): local axis corresponding to eta, phi and depth directions. (Axis)
+* an SCT_ReadoutScheme: crystals, diodes, cells and shift. See also section 2.1 for more information.
+
+There are several methods implemented in this class:
+
+* Identifier identifierOfReadoutCell(const Identifier &parentId, const SiReadoutCell *const p_cell): gets identifier of a given SiReadoutCell.
+* Identifier identifierOfDiode(const Identifier &parentId, const SiDiode *const p_diode): gets identifier of a given SiDiode.
+* SiReadoutCell *newReadoutCellFromDiode(const SiDiode *const p_diode): creates a new SiReadoutCell object connected to a given SiDiode.
+* void newDiodesFromReadoutCell(const SiReadoutCell *const p_cell, std::list<SiDiode *> &diodes): creates the new SiDiode objects connected to a given SiReadoutCell.
+* void newNeighboursOfDiode(const SiDiode *const p_diode, std::list<SiDiode *> &neighbours): creates a list of new neighbours of a given SiDiode.
+
+Figure 2.3: SCT_ModuleSideDesign _class and relations between barrel and forward classes_
+
+* bool areNeighbours(const SiDiode *const p_diode1, const SiDiode *const p_diode2): check if two diodes are neighbours.
+* bool areNeighbours(const SiReadoutCell *const p_cell1, const int clusterSize1, const SiReadoutCell *const p_cell2, const int clusterSize2): check if two cells are neighbours.
+
+These are general methods which can be used to describe both barrel and forward SCT modules. Differences between those two types of modules are taken into account thanks to two more classes, SCT_BarrelModuleSideDesign and SCT_ForwardModuleSideDesign.
+
+#### Additional methods
+
+These methods are implemented in both SCT_BarrelModuleSideDesign class and SCT_ForwardModuleSideDesign class, but the details of the implementation are in this case different for barrel and forward since these two module types have a different geometry.
+
+* double stripPitch(const SiLocalPosition chargePos): returns strip pitch (dependent on position for forward modules).
+* SiDiodesParameters parameters(const SiDiode *const p_diode): get the position and width of the given diode.
+* int parameters(const SiReadoutCell *const p_cell, const int clusterSize, std::list<SiDiodesParameters> &params): returns the list of SiDiodesParameters for a given cluster of strips (one SiDiodesParameters per crystal).
+* SiLocalPosition localPosition(const SiReadoutCell *const p_cell, const int clusterSize): get the position of the centre of the cluster of strips, whatever the number of crystals is.
+* bool inActiveArea(const SiLocalPosition &chargePos): check if the position is in active area.
+* double scaledDistanceToNearestDiode(const SiLocalPosition &chargePos): give distance to the nearest diode in units of pitch, from 0.0 to 0.5.
+* SiDiode *newDiodeFromSpatialPosition(const SiLocalPosition &position): create a new SiDiode object from a spatial local position.
+* std::pair<SiLocalPosition,SiLocalPosition> endsOfStrip(const SiLocalPosition &position): returns the extremities of the strip going through the SiLocalPosition.
+* HepVector3D phiMeasureSegment(const SiLocalPosition &position): returns a vector of length 1 parallel to the strip being hit.
+
+#### Barrel module side design
+
+An SCT barrel module side is described by the SCT_BarrelModuleSideDesign class which inherits from the class SCT_ModuleSideDesign. Its additional data members are:* stripPitch: strip pitch (double).
+* stripLength: strip length (double).
+* xEtaStripPatternCentre: geometrical position on G4 volume, eta coordinate of module center (double).
+* xPhiStripPatternCentre: geometrical position on G4 volume, phi coordinate of module center (double).
+* totalDeadLength: includes detector edge and gap between detectors (double).
+
+#### Forward module side design
+
+Forward modules geometry is somewhat more complicated to describe, as a result of this several classes are needed to implement the methods described above (see fig. 2.3).
+
+**SCT_ForwardPolarPosition class**
+
+The SCT_ForwardModuleSideDesign class represents a position on the module plane in local polar coordinates, more suited for calculations in the case of a forward SCT module side. Data members:
+
+* r: radial coordinate of point (double)
+* theta: angular coordinate of point (double)
+
+**SCT_ForwardFrameTransformation class**
+
+The SCT_ForwardFrameTransformation class connects two different reference frames: the usual cartesian coordinate system with which input position are given (SiLocalPosition objects) and a polar coordinate system (SCT_ForwardPolarPosition objects) more suited for calculations with SCT forward module geometry. This class is encapsulated within SCT_ForwardModuleSideDesign. Its data members are:
+
+* etaCenter: eta coordinate of module center (double).
+* phiCenter: phi coordinate of module center (double).
+* radius: radius from module center to beam (double).
+
+The following methods are implemented:
+
+* SCT_ForwardPolarPosition polarFromCartesian(const SiLocalPosition cartesian): create a new SCT_ForwardPolarPosition from a SiLocalPosition.
+* SiLocalPosition cartesianFromPolar(const SCT_ForwardPolarPosition polar): create a SiLocalPosition from a SCT_ForwardPolarPosition.
+
+#### SCT_ForwardModuleSideGeometry class
+
+The class SCT_ForwardModuleSideGeometry describes geometrical properties of a forward SCT module side, and it is encapsulated within SCT_ForwardModuleSideDesign. Its data members are:
+
+* radius1: radius from inner crystal center to beam (double).
+* halfHeight1: inner crystal half height (double).
+* radius2: radius from outer crystal (if present) center to beam (double).
+* halfHeight2: outer crystal (if present) half height (double).
+* strips: number of strips (double).
+* step: strip step in angle (double).
+* nCrystals: number of crystals per module side
+
+The following methods are implemented in this class:
+
+* bool inActiveArea(const SCT_ForwardPolarPosition *const p_polarPos): check if the position is in active area.
+* double stripPitch(const SCT_ForwardPolarPosition *const p_polarPos): give the strip pitch (dependence on position needed for forward).
+* double scaledDistanceToNearestDiode(const SCT_ForwardPolarPosition *const p_polarPos): give distance to the nearest diode in units of pitch, from 0.0 to 0.5.
+
+Note that these methods take as input a position in polar coordinates (SCT_Forward-PolarPosition objects), while the final methods implemented in SCT_ForwardModuleSide-Design take as input positions expressed in cartesian coordinates (SiLocalPosition objects).
+
+#### SCT_ForwardModuleSideDesign class
+
+The SCT_ForwardModuleSideDesign class inherits from SCT_ModuleSideDesign. Its data members are (in addition to those inherited):
+
+* an SCT_ForwardModuleSideGeometry
+* an SCT_ForwardFrameTranformation
+
+#### Constructors
+
+To summarize we present here the two constructors for objects of type SCT_Barrel-ModuleSideDesign and SCT_ForwardModuleSideDesign. See previous paragraphs for a more detailed description of the parameters which enter these constructors.
+
+* SCT_BarrelModuleSideDesign(const Axis etaAxis,  const Axis phiAxis,  const Axis depthAxis,  const int crystals,  const int diodes,  const int cells,  const int shift,  const double stripPitch,  const double stripLength,  const double xEtaStripPatternCentre,  const double xPhiStripPatternCentre,  const double totalDeadLength)
+* SCT_ForwardModuleSideDesign(const Axis etaAxis,  const Axis phiAxis,  const Axis depthAxis,  const int crystals,  const int diodes,  const int cells,  const int shift,  const double radius1,  const double halfHeight1,  const double radius2,  const double halfHeight2,  const double step,  const double etaCenter,  const double phiCenter)
+
+The first seven numbers are common to both constructors since they are the ones needed to construct an SCT_ModuleSideDesign object. Then the SCT_BarrelModuleSideDesign needs five more parameters while SCT_ForwardModuleSideDesign needs seven more.
+
+### 2.3 Object building from XML
+
+A SCT_ModuleSideDesign object (either barrel or forward) must be constructed and initialised from an XML file by using an appropriate class, the SCT_Module-SideDesignXmLBuilder. The method:
+
+* SiDetectorDesignCollection *build(const std::string fileName) builds SCT_ModuleSideDesign objects from an XML file named fileName and store them in an SiDetectorDesignCollection object.
+
+#### XML description of a SCT_ModuleSideDesign
+
+The XML description of an SCT_ModuleSideDesign is a \(parameters\) block:
+
+<parameters name="..." type=" SCT_ModuleSideDesign">... </parameters>where the value of the \(name\) field is used to access the corresponding SCT_ModuleSideDesign object with the p_design(...) method from SiDetectorDesignCollection.
+
+This parameters block must contain at least one set of \(global\) parameters, which must be the first set of parameters in the block:
+
+<real_array name="global" values="# # # # # # ##" /> where the seven numbers of the values field are the seven arguments of the SCT_ModuleSideDesign constructor (see section 2.2.1). The axes are defined as \(x=0\), \(y=1\), \(z=2\).
+
+#### Barrel and forward description
+
+In order to build an SCT_BarrelModuleSideDesign or SCT_ForwardModuleSideDesign additional numbers are needed. So the parameters block must contain another set of parameters, either labelled \(barrel\) or \(forward\):
+
+* <real_array name="barrel" values="# # # ##" />
+* <real_array name="forward" values="# # # ## ##" /> These numbers represent the last five (barrel) or seven (forward) parameters needed by a SCT_BarrelModuleSideDesign or SCT_ForwardModuleSideDesign constructor (see section 2.2.5).
+
+#### Example of an XML description
+
+Here is an example of XML description:
+
+<parameters name="SCT:Barrel" type="SCT_ModuleSideDesign">  <real_array name="global" values="2 1 0 2 770 768 1" />  <real_array name="barrel" values="0.080 63.5 0.0 0.0 2.0" /> </parameters>
+
+<parameters name="SCT:Forward" type="SCT_ModuleSideDesign">  <real_array name="global" values="2 0 1 1 770 768 1" />  <real_array name="forward" values="304.55 29.55 0 0 0.000207 0 0" /> </parameters>
+
+## Chapter 3 Pixel module local description
+
+basically a _matrix_ of pixels, with _columns_ and _rows_. But, this matrix may have an irregular spatial pattern, due to big inter-pixels or bricking for example.
+
+In order to describe any irregular pattern, a diode map is described by a set of an undefined number of _regular matrices_. Each regular matrix is defined by a single diode, replicated with a regular pattern to create a matrix, as explained in figure 3.1. Then, by adding several regular matrices, it is possible to describe any irregular pattern, as for example the bricked pattern of figure 3.2. If the diode map is fully regular, a single regular matrix is enough to describe it. A fully irregular diode map can also be described by a big number of regular matrices, the extreme case being one regular matrix (of size \(1\times 1\)) for each diode.
+
+#### PixelDiode class
+
+The PixelDiode class is the Pixel implementation of the abstract base class SiDiode (see section 1.2.1). An object of this class uniquely identifies a single pixel diode within a single silicon sensor. It contains three data members:
+
+* the diode _type_, defining to which regular matrix this diode belongs,
+* the _column index_ of this diode within its regular matrix,
+
+Figure 3.1: _Spatial definition of a regular matrix: position of the first diode (cross), size of the replicated diode, replication pitch and number of replication steps, for both the column and row directions._
+
+Figure 3.2: _Example of description of a bricked diode map using two regular matrices, shown with two different colours._
+
+* the _row index_ of this diode within its regular matrix.
+
+#### Abstract diode matrix
+
+The _abstract diode matrix_ is an abstract representation of all the diodes of a single module within a single matrix: it can be viewed as a matrix of identical diodes, like on figure 3.3. In this abstract matrix, any single diode can be identified by a pair of _column_ and _row_ numbers (a PixelModulePosition object).
+
+A diode map can also be used to make conversions between a PixelDiode object and a PixelModulePosition object. This conversion is done using the formula
+
+\[\text{abstract index}=\text{regular matrix index}\times\textit{factor}+ \textit{offset}\]
+
+for both the column and row indices. The _factor_ and _offset_ values must be given for each regular matrix.
+
+#### Readout scheme
+
+The _readout scheme_ is the description of the connection of the diodes of a single module sensor to the Front-End circuits to which it is bump-bonded. This description in mainly a conversion between PixelModulePosition objects (see section 3.1.2) and PixelReadoutCell objects (see section 3.1.3).
+
+The FE circuits are assumed to be identical in a single module (same number of columns and rows) and tiled as shown in figure 3.4.
+
+#### PixelReadoutCell class
+
+The PixelReadoutCell class is the Pixel implementation of the abstract base class SiReadoutCell (see section 1.2.2). An object of this class uniquely identifies a single readout cell within a single module. It contains three data members:
+
+* the FE _circuit number_, within this module, which contains the readout cell,
+* the _column number_ of the readout cell within this FE circuit,
+* the _row number_ of the readout cell within this FE circuit.
+
+Figure 3.3: _Example of abstract matrix, representation of the diode map of figure 3.2. The different colours show the different diode types._
+
+#### Multiple connections
+
+In some regions, like in the boundary between two FE circuits, it is possible that two diodes or more are connected to the same readout cell. In this case, the number of readout cells is of course smaller than the number of diodes. It is assumed that these multiple connections are the same for all FE circuits, and therefore they are described only for the first one (numbered #0). These multiple connections can only be done for full columns or rows of diodes and readout cells, as shown on figure 3.5.
+
+#### Methods
+
+##### Construction
+
+A PixelModuleDesign object must be constructed using the constructor with parameters
+
+\(\bullet\) PixelModuleDesign(const Axis etaAxis,
+
+const Axis phiAxis,
+
+const Axis depthAxis,
+
+const int circuitsPerColumn,
+
+const int circuitsPerRow,
+
+Figure 3.5: Example of a multiple row connection, where the diodes located in the abstract row #3 and #5 are connected to the readout cells row #3.
+
+Figure 3.4: Example of abstract diode matrix with 10 columns and 8 rows connected to \(2\times 2\) FE circuits, with 5 columns of 4 rows of readout cells each.
+
+const int cellColumnsPerCircuit,  const int cellRowsPerCircuit,  const int diodeColumnsPerCircuit,  const int diodeRowsPerCircuit) which defines:
+
+* the local "natural" reference frame (see chapter 1),
+* the number of circuits along the row and column directions,
+* the number of readout cells columns and rows for each circuit,
+* the number of columns and rows of diodes connected to each circuit.
+
+It already defines the readout scheme without the multiple connections.
+
+Then, regular matrices may be added to the object, using the method
+
+\(\bullet\) addDiodeMatrix(const double offsetColumn,  const double pitchColumn,  const double sizeColumn, const int numberColumn,  const int columnConversionFactor,  const int columnConversionOffset,  const double offsetRow, const double pitchRow,  const double sizeRow, const int numberRow,  const int rowConversionFactor,  const int rowConversionOffset) which defines:
+
+* the position of the first diode,
+* the replication pitch,
+* the size of the replicated diode,
+* the number of replication steps,
+* the factor and offset parameters for the conversion to the abstract diode matrix,
+
+first for the column direction, then for the row direction.
+
+Finally, multiple connections can be defined using the methods
+
+\(\bullet\) addMultipleColumnConnection(const int lowerColumn,  const std::vector<int> &connections)
+
+\(\bullet\) addMultipleRowConnection(const int lowerRow,  const std::vector<int> &connections)
+
+In the example of figure 3.5, the lowerRow would be equal to 3 and the connections vector would contain the values 3 (diode row lowerRow+0 = 3 connected to cell row connections[0] = 3), 4 (diode row lowerRow+1 = 4 connected to cell row connections[1] = 4) and 3 (diode row lowerRow+2 = 5 connected to cell row connections[2] = 3).
+
+### Inherited methods
+
+Since the PixelModuleDesign inherits from the abstract base class SiDetector-Design (see chapter 1), it implements the following methods:
+
+\(\bullet\)Identifier identifierOfReadoutCell(const Identifier &parentId,
+
+const SiReadoutCell *const p_cell)
+
+which returns the logical identifier of the given readout cell, appended to the parent's identifier.
+
+\(\bullet\)Identifier identifierOfDiode(const Identifier &parentId,
+
+const SiDiode *const p_diode)
+
+which returns the logical identifier of the readout cell connected to a given diode, appended to the parent's identifier.
+
+\(\bullet\) SiReadoutCell *newReadoutCellFromDiode(const SiDiode *const p_diode)
+
+which returns a pointer to the readout cell connected to a given diode. The user must take care of deleting the created readout cell object.
+
+\(\bullet\)void newDiodesFromReadoutCell(const SiReadoutCell *const p_cell,
+
+std::list<SiDiode *> &diodes)
+
+which returns a list of pointers to the diodes which are connected to a given readout cell. The user must take care of deleting the created diode objects.
+
+\(\bullet\)SiLocalPosition localPosition(const SiReadoutCell *const p_cell,
+
+const int)
+
+which returns the position of the centre, in the silicon sensor reference frame, of the (first) diode connected to a given readout cell. The second argument, requested by the SiDetectorDesign interface is irrelevant for PixelModuleDesign.
+
+\(\bullet\)SiDiodesParameters parameters(const SiDiode *const p_diode)
+
+which returns the position and width of a given diode.
+
+\(\bullet\)int parameters(const SiReadoutCell *const p_cell,
+
+const int,
+
+std::list<SiDiodesParameters> &params)
+
+which returns the position and the width, in the silicon sensor reference frame, of the diode(s) connected to a given readout cell. The second argument, requested by the SiDetectorDesign interface is irrelevant for PixelModuleDesign.
+
+\(\bullet\)SiDiode *newDiodeFromSpatialPosition(const SiLocalPosition &position)
+
+which returns a pointer to the diode containing the given position (in the silicon sensor reference frame). The user must take care of deleting the created diode object\(\bullet\) void newNeighboursOfDiode(const SiDiode *const p_diode,  std::list<SiDiode *> &neighbours)
+
+which returns a list of pointers to the diodes which are neighbours of the given one. The user must take care of deleting the created diode objects,
+
+\(\bullet\) bool areNeighbours(const SiDiode *const p_diode1,  const SiDiode *const p_diode2)
+
+which returns true if the two given diodes are neighbours,
+
+\(\bullet\) bool areNeighbours(const SiReadoutCell *const p_cell1,  const int,  const SiReadoutCell *const p_cell2,  const int)
+
+which returns true if the two given readout cells are neighbours. The two extra arguments, requested by the SiDetectorDesign interface are irrelevant for PixelModuleDesign.
+
+\(\bullet\) HepVector3D phiMeasureSegment(const SiLocalPosition&)
+
+which returns a unitary vector in the direction of the columns. The argument, requested by the SiDetectorDesign interface is irrelevant for PixelModuleDesign.
+
+A few methods related to the definition of the local reference frame are also inherited from SiDetectorDesign but there is no special implementation by PixelModuleDesign (see chapter 1).
+
+#### Additional methods
+
+The PixelModuleDesign implements also a few more methods than the SiDetectorDesign (see chapter 1) interface:
+
+\(\bullet\) Identifier identifierOfModulePosition(const Identifier &parentId,  const PixelModulePosition &position)
+
+which returns the logical identifier of the given module position, appended to the parent's identifier.
+
+\(\bullet\) double sensorLeftColumn()
+
+\(\bullet\) double sensorRightColumn()
+
+\(\bullet\) double sensorLeftRow()
+
+\(\bullet\) double sensorRightRow()
+
+which return the position of the left and right sensor boundaries along the column and row directions.
+
+\(\bullet\) int numberOfDiodes()
+
+\(\bullet\) int numberOfCircuits()
+
+which return the total number of diodes and readout circuits of the module.
+
+\(\bullet\) int columnsPerCircuit()
+
+\(\bullet\) int rowsPerCircuit()
+
+which return the number of columns and rows of cells in each readout circuit.
+
+\(\bullet\) double intersectionLength(const SiDiode *const p_diode1, const SiDiode *const p_diode2)
+
+which returns the "intersection length" of the given two diodes, as described in figure 3.6.
+
+### 3.2 Object building from XML
+
+The PixelModuleDesign objects may be constructed and initialised from an XML file, using AGDD. This is done by the PixelModuleDesignXmlBuilder class, using the method
+
+\(\bullet\) SiDetectorDesignCollection *build(AGDD *agdd)
+
+which builds new PixelModuleDesign objects from the given detector description. It returns a pointer to a new SiDetectorDesignCollection (see chapter 1) object (in which are stored these PixelModuleDesign objects) which must be deleted by the user. This method returns a null pointer if the objects could not be constructed.
+
+#### XML description of a PixelModuleDesign
+
+The XML description of a PixelModuleDesign object is a _parameters_ block:
+
+<parameters name="..." type="PixelModuleDesign">... </parameters> where the value of the name field is the key used to access the corresponding PixelModuleDesign object with the p_design(...) method of the collection (see chapter 1).
+
+This parameters block must contain at least one set of global parameters, which must be the first set of parameters in the block:
+
+Figure 3.6: _Definition of the “intersection length” of two diodes. The intersection length of the diodes A and B is the length of the dashed line, for the diodes A and C it is the length of the plain line and for the diodes A and D or A and E it is zero._
+
+[MISSING_PAGE_FAIL:32]
+
+### Multiple connections
+
+The PixelModuleDesign parameters block may also contain multiple connections parameters:
+
+\(\bullet\) <real_array name="row connections" values="#..." /> \(\bullet\) <real_array name="column connections" values="#..." /> where the first number of the values field is the lowerRow or lowerColumn argument and the other parameters define the connections vector argument of the PixelModuleDesign::addMultiple*Connection(...) methods described in section 3.1.4.
+
+#### Example of XML description
+
+The following block is an example of an XML description for a single circuit assembly, with four ganged pixels at the top of the circuit:
+
+<parameters name="PixelDesign1" type="PixelModuleDesign">  <real_array name="global" values="0 1 2 1 1 18 160 18 164" />  <real_array name="matrix"  values="-3.6.4.4 18 1 0 -4.05.05 164 1 0" />  <real_array name="row connections"  values="156 156 157 158 159 156 157 158 159" /> </parameters>
+
+### 3.3 Package structure
+
+Figure 3.7 shows the relations between all the classes available in the PixelModuleDesign package as well as the dependencies of the package on other packages.
+
+#### PixelModuleDesign class
+
+The PixelModuleDesign class inherits from the SiDetectorDesign class (see chapter 1) and contains two data members:
+
+* a PixelDiodeMap object,
+* a PixelReadoutScheme object.
+
+#### PixelDiodeMap class
+
+The PixelDiodeMap class implements the diode map functionalities described in section 3.1.1. It contains a vector of PixelDiodeMatrix objects.
+
+#### PixelDiodeMatrix class
+
+The PixelDiodeMatrix class describes a single regular matrix (see section 3.1.1). It contains four data members:
+
+* two PixelDiodeDescriptor1D objects, to describe the column and row segmentations,* two PixelDiodeToModule1D objects, to convert PixelDiode objects into PixelModulePosition objects.
+
+##### PixelReadoutScheme class
+
+The PixelReadoutScheme class implements the readout scheme functionalities described in section 3.1.3. It contains three data members:
+
+* a PixelModuleToCircuit object, to describe the division of the abstract diode matrix into readout circuits,
+* two vectors of PixelMultipleConnection1D objects, to describe the multiple connections between columns and rows.
+
+Figure 3.7: _Structure of the PixelModuleDesign package and its dependency on the SiTrackerDetDescr, Identifier and AgDD packages._
+
+## Bibliography
+
+* [1] The Silicon Trackers Event Data Model for the DC0 software, D. Calvet, ATL-COM-SOFT-2002-002.

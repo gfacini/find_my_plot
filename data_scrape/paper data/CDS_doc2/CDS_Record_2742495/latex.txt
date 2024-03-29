@@ -1,0 +1,399 @@
+Clustering Error Messages Produced by Distributed Computing Infrastructure During the Processing of High Energy Physics Data
+
+Maria Grigorieva
+
+Scientific Research Computing Center, Lomonosov Moscow State University,
+
+Leninskie Gory, 1, p-4, Moscow, 119991, Russian Federation
+
+maria.grigorieva@cerm.ch
+
+Moscow Center of Fundamental and Applied Mathematics
+
+Leninskie Gory, 1, Moscow, 119991, Russian Federation
+
+Dmitry Grin
+
+National Research Center "Kurchatov Institute"
+
+1, Akademika Kurchatova pl, Moscow, 123182, Russian Federation
+
+dymong@yandex.ru
+
+Day Month YearDay Month YearDay Month Year
+
+###### Abstract
+
+Large-scale distributed computing infrastructures ensure the operation and maintenance of scientific experiments at the LHC: more than 160 computing centers all over the world execute tens of millions of computing jobs per day. ATLAS -- the largest experiment at the LHC -- creates an enormous flow of data which has to be recorded and analyzed by complex heterogeneous and distributed computing environment. Statistically, about 10-12% of computing jobs are finished with failures: network faults, service failures, authorization failures, and other error conditions trigger error messages which provide detailed information about the issue that can be used for diagnosis and proactive fault handling. However, the analysis is complicated by the sheer scale of textual log data, often exacerbated by the lack of well-defined structure: human experts have to interpret detected messages and create the parsing rules manually, which is time-consuming and does not allow identifying previously unknown error conditions without further human intervention. This paper is dedicated to the description of the pipeline of methods for unsupervised clustering of multi-source error messages. The pipeline is data-driven, based on machine learning algorithms and executed in a fully automated way, allowing one to categorize error messages sharing similar textual patterns and meaning.
+
+clustering; error messages; machine learning; neural networks. PACS numbers:
+
+## 1 Introduction
+
+Modern scientific experiments, like the ATLAS experiment[1] at the LHC, are supported by diverse, distributed and complex computing infrastructure. Multiple software systems, components and services have to be continuously functioning to en sure stable and efficient processing and analysis of petabytes of data. Monitoring and control of such a huge computing environment requires significant computing resources and manpower. One of the most crucial tasks is monitoring of faults and errors, which need to be detected, analyzed and resolved efficiently. Existing approach of diagnosing faults in ATLAS Computing relies on human experts: they interpret error messages and manually create textual patterns in order to spot errors of the particular type and analyze computing jobs which failed with these types of errors. However, the analysis of large amount of textual log data without well-defined structure requires considerable human efforts. Furthermore, this method does not allow one to identify previously unknown error conditions automatically. A possible solution to this issue is to implement unsupervised clustering of error messages, allowing to group messages related to similar issues, and detect outliers. In this paper authors describe the pipeline of methods for fully automated unsupervised clustering of error messages. The method was tested and evaluated on error messages of the workload management system of ATLAS experiment.
+
+## 2 The characteristics of job failures in PanDA system at the ATLAS Experiment
+
+The ATLAS experiment is one of the four major experiments at the Large Hadron Collider at CERN1. ATLAS explores a wide range of physics topics using one of the largest particle detectors. ATLAS Computing2 is responsible for the analysis of the data produced by the ATLAS detector, including all the software used to store, manage, process and analyze vast amounts of collision data. Millions of computing jobs are executed daily within distributed heterogeneous computing environment, which is built around several main components: Production and Distributed Analysis system (PanDA),3 Distributed Data Management system Rucio,4 monitoring system BigPanDA.5
+
+Footnote 1: [https://atlas.cern/discover/about](https://atlas.cern/discover/about)
+
+Footnote 2: [https://atlas.cern/discover/detector/software-computing](https://atlas.cern/discover/detector/software-computing)
+
+PanDA is a data-driven workload management system for production and distributed analyses. It is responsible for the execution of physics analysis and computing jobs, and proved itself as a scalable and reliable system capable of handling millions of jobs daily. It was developed in 2005 by ATLAS and in 2008 was adopted by the ATLAS Collaboration as the sole system for distributed data processing and user analysis across all sites. PanDA consists of many components including the PanDA server, job queue manager, brokerage and dispatcher services, distributed data management system (DDM), database, client service, pilot factory, logger, monitoring system, and others. When, during the execution of a job, some component or service fails, and causes the failure of the whole job, the logger registers the error code and error message, saving it in the PanDA database in the record of the corresponding job. Each category of messages has dozens of error codes, and each code is associated with different error messages that can have non-standardized (often unpredictable) textual patterns.
+
+Figure 1 demonstrates the distribution of job statuses for each hour during a day:
+
+* jobs were successfully finished,
+* jobs were killed by the system due to timeout,
+* jobs were killed manually,
+* jobs were failed to be process.
+
+Failed jobs are on the top of each box, and the average number of failed jobs is close to 10% of all finished jobs. The chart was taken from ATLAS Computing monitoring system 3 for one week.
+
+Footnote 3: [https://monit-grafana.cern.ch](https://monit-grafana.cern.ch)
+
+One of the most important goals of the monitoring system is to investigate the distribution of different types of errors: detect the most frequent error patterns for some period of time, carry out retrospective analysis of these patterns to uncover the duration of these error conditions, and discover common characteristics of jobs finished with particular failures.
+
+## 3 Related Log Parsing Methods
+
+In our overview of the existing log parsing methods we will use the classification suggested in the work [5] by Zhu et al. It defines the following main categories of the log parsing methods:
+
+* _Frequent Pattern Mining algorithms_ SLCT [6] (Simple Logfile Clustering Tool) and its improvement, LogCluster [7], are
+
+Figure 1: Number of successful and failed ATLAS Computing jobs for one week
+
+based on searching for frequently appearing words by the user-specified threshold value (\(s\)) as the size of dense regions of frequent words. After two passes over the data the log templates are constructed. Then, both algorithms count the log messages matching a certain log template, constructing cluster candidates. Finally, candidates containing \(s\) or more messages are selected as clusters.
+* _Machine Learning algorithms_ LKE[8] and LogMine[9] use the hierarchical clustering algorithm based on the calculated pairwise similarities between all the log messages. LogSig[10] is an algorithm based on message signatures (message signature is a sequence of terms that has a high match score to every message in the corresponding group), which uses local search techniques to cluster the messages. SHISO[11] and LenMa[12] compute the similarity of each incoming log message and existing log templates, and put successfully matched messages into the corresponding cluster.
+* _Heuristics methods_, like AEL[13], IPLoM[14] or Drain[15], take into account some unique characteristics of all log messages. IPLoM (Iterative Partitioning Log Mining) is considered one of the state-of-the-art algorithms for log parsing. It computes the resulting clusters by partitioning the logs according to their length, token position in the message, and found mappings between selected columns of different logs. The final step is the generation of the log template for each cluster.
+
+There are some methods that suggest other unique approaches to the problem of log parsing. Ref. [5] covers them more comprehensively.
+
+The listed log parsing tools have some drawbacks that should be taken into account:
+
+* Current log parsers are sensitive to the length of log messages, thus resulting in degraded accuracy if log messages of the same type have a high length diversity;
+* Most of the current log parsers require some parameters to be tuned manually, often including a set of regular expressions required for the abstraction of unnecessary words/tokens, which doesn't allow for a fully automated execution;
+* These algorithms do not preserve metadata such as a mapping from error messages to the corresponding jobs;
+* Listed tools did not analyze their applicability to multi-source logs while this requirement was often present in practical applications.
+
+In this research we present the method, which allow to cluster multi-source error messages with associated metadata in a fully-automatic way. Messages can be of the varied structure without specified format. The method has the ability to train the vocabulary model on newly coming messages, which makes the results more accurate.
+
+There is one method using similar approach to ours -- LogOHC[16]. It starts with preprocessing of the log messages using regular expressions. Then this method utilizes word embedding technology (word2vec) to vectorize the log messages, after which they use the average of word embeddings of each word in the message as a vector representation of the entire message. After vectorization, hierarchical clustering algorithm is applied to this distributed representation to generate the log clusters. Log templates in LogOHC are obtained by changing different words in the template candidate related to the messages in one cluster to placeholders, if the messages have the same length, or by creating additional templates otherwise. The authors of this method point out that it requires similarity measure between nodes and class clusters to be set in advance as a parameter. Its value has a major influence on the effect of the algorithm and should be selected differently on different data sets.
+
+## 4 Requirements for the Clustering Method
+
+* _Unspecified number of clusters:_ Most of the clustering algorithms (k-means, k-prototypes, expectation minimisation) require to specify the number of clusters. That implies that an analyst knows the approximate number of similar groups in advance. In the case of error message clustering, the analyst can't predict the number of different error conditions and, consequently, text patterns. Additionally, any limited number of clusters can prevent the detection of outliers -- anomalous messages.
+* previously unknown error messages, is no less important than grouping of the messages describing similar issues. Those outliers must be detected automatically and separated into their own clusters.
+* _The minimization of human intervention in the process of clustering:_ We aim to use the clustering method that can function independently of any human intervention throughout the whole data processing pipeline. For that reason, we require a way to automatically detect the launch parameters for the algorithm.
+
+## 5 Clustering Pipeline
+
+Unlike the existing log parsing tools which use textual log files as the input, current method is designed to use tabular data containing the error messages associated with the indices of the computing PanDA jobs.
+
+We consider each error message as a sentence, consisting of tokens (words, digits, punctuation). To be able to cluster them, we have to convert initial error messages to the numerical representation.
+
+Proposed clustering pipeline contains three main components:
+
+1. Pre-trained model of words (or tokens), representing tokens and their context in a form of numerical vectors;
+2. DBSCAN clustering method [17], used for clustering those vector representations;
+3. The mechanism of pattern and key phrase extraction for compact cluster representation.
+
+Numerical representation of the error messages is obtained using the word embedding algorithm -- _word2vec_, which analyzes all tokenized messages and trainsnumerical vector model to create a representation for each token. All other data processing stages use these vectors instead of text messages. Thus, the accuracy of the clusterization depends on the quality of the initial vector model. It means that a word2vec model for the particular dataset has to be pre-trained using a considerable amount of error messages.
+
+Our method can work without a large training dataset (without the Preparation Stage) but the accuracy would be reduced. It is demonstrated in the Section 11 (Validation).
+
+Detailed description of input, output and interim data formats is provided in Section 6. The structure of the clustering pipeline can be seen on the Figure 5):
+
+Further clustering pipeline consists of the following stages:
+
+1. _Preparation Stage: Training Word Embeddings Model of Tokens_ -- train word2vec model on considerably large amount of error messages. These messages are preprocessed in the same way as described in Data Trimming section.
+2. _Data Trimming_ -- this stage allows one to significantly reduce the initial number of error messages by discarding any domain-specific and/or meaningless messages for the analysis information like file paths, URLs, UUIDs, line numbers, network addresses.
+3. _Tokenization_ -- split error messages into tokens;
+4. _Data Preparation_ -- clean error messages using regular expressions;
+5. _Regrouping_ -- group the initial data frame by the hash values of the cleaned messages while saving job indices of the initial messages for each
+
+Figure 2: Clustering Pipeline
+
+group, then reconstruct and detokenize common textual patterns of messages in a group. After regrouping the initial number of error messages can be reduced by up to 90-95%.
+3. _Message Clustering_ -- At this stage we carry out data processing based on the word2vec model of error messages. There are two options to apply the vector model - 'pre-trained' and 'on-the-fly' modes. 1. _Loading of the word2vec Model_ -- in the 'pre-trained' mode we just load the vector model that was trained in advance with the large amount of error messages (at the Preparation Stage); 2. _Training word2vec model on-the-fly_ - in the 'on-the-fly' mode a new word2vec model is trained by the current error messages;
+
+When we have the vector model of all tokens it can be used for the following data processing steps:
+
+1. _Vectorizing of Error Messages_ -- Use the model to obtain word embeddings, then use the average of vectors in the sentence to obtain distributed sentence representation;
+2. _Dimensionality Reduction_ -- Perform principal component[18] analysis decomposition to reduce the size of vectors;
+3. _k-neighbours Distances_ -- Calculate average distances to k-nearest neighbors for each message;
+4. _Calculating Epsilon_ -- Find the maximum cluster distance as a knee point of the average distances curve;
+5. _DBSCAN Clustering_ -- Execute DBSCAN clustering algorithm with the detected epsilon value;
+6. _Regrouping by Cluster Labels_ -- Regroup the data frame by cluster labels.
+7. _Cluster Description_ 1. _Common Patterns Extraction_ -- Find common textual patterns within a set of error messages based on the Levenshtein similarity and sequence matching algorithms;
+8. _Key Phrases Extraction_ -- Extract keywords and key phrases from all the messages included in the group.
+
+Our approach to error message clustering differs from the methods listed in Section 3 in the following ways:
+
+* Proposed text preprocessing method allows us to significantly decrease the initial number of error messages;
+* Optional usage of Principal Component Analysis algorithm increases the performance of the clustering algorithm without noticeable loss of quality;
+* We use DBSCAN clustering method with an automatically calculated epsilon value, which allows clustering without specifying the number of clusters;* Clusters are described by common textual patterns and a set of significant key phrases for easier analysis;
+* Error messages are clustered together with indices of associated data objects, like PanDA job indices and, potentially, other metadata.
+
+## 6 Data Transformation within the Clustering Pipeline
+
+This section describes input and output formats, along with all the data transformations throughout the pipeline (Figure 3).
+
+As an input, the clustering pipeline expects a tabular two-dimensional data structure (DataFrame) which includes identifiers of PanDA jobs and corresponding error messages.
+
+Figure 3: Data Conversion Process
+
+[MISSING_PAGE_EMPTY:9]
+
+CBOW model predicts a word by a given set of neighbors, while the skip-gram model predicts possible neighbors by a given word and is more preferable for large data samples. The main advantage of the word2vec method and its evolutions is the computational efficiency compared to the alternatives and the linear structure of the representation that allows using vector arithmetic to explore the relationship between words.
+
+To create a model, we need to define some parameters:
+
+* size -- size of the resulting word vector. This parameter refers to the size of layers in a neural network, which, in turn, represents the size of context for each word. Word embedding length is usually around 100-300, but it depends on the size of vocabulary;
+* window -- the size of a sliding window in which the words will be considered neighbouring;
+* min_count -- minimum frequency of words. All the words with total frequency lower than this are ignored;
+* algorithm -- skip-gram or CBOW (our choice is the CBOW algorithm due to it usually being faster).
+
+We trained the model with the following values of the listed parameters:
+
+* size = 300,
+* window = 7,
+* min_count = 1,
+* algorithm = CBOW.
+
+As a result, the word2vec method represents every token in the dictionary as a numerical vector. Tokens sharing a common context represented by similar vectors. The word2vec model allows to search for similar words/tokens by the similarity of their context represented by the distance in the vector space. For example, words source and destination are often used in the same context (source and destination doesn't match). The word2vec model confirms this, as the most similar token to the destination is source (rate = 0.94) and vice versa. Below we provided top-5 most similar words for'source' and 'destination' with similarity rates measured by the word2vec model.
+
+v2v.most_similar(positive=['source'], top=5)
+
+['destination', 0.9413229823112488),
+
+['and', 0.9197645137793),
+
+['nismatch', 0.8880150318145752),
+
+['checksum', 0.8876438736915588),
+
+['match', 0.8619803190231323)]
+
+v2v.most_similar(positive=['destination'], top=5)
+
+['source', 0.94132292706604),
+
+['arm_get_url', 0.978338276066995),
+
+['does', 0.8252342939376831),
+
+['and', 0.8289124417304993),
+
+['supported', 0.819286246910095)]The advantages of using word embeddings:
+
+* word2vec provides the approximation of the semantic meaning of different words in a text, allowing us to preserve the context information for each token;
+* The size of the embedding vector is very small in contrast to the size of the whole vocabulary of the initial sample of logs which can exceed thousands of entries;
+* word2vec model can be trained once on a large amount of error logs to generate the representative vocabulary, which can then be stored in a file on a server, and used to perform online log analysis while improving the model for later applications;
+* Existing word2vec model can be updated periodically with new error messages, thus representing the relationship between tokens and, as a result, messages, more accurately.
+
+After the word2vec model is trained on a large volume of error messages, it becomes the basis for the mapping of error messages to numerical vectors. Larger models can achieve better accuracy in clustering tasks.
+
+## 8 Data Trimming
+
+### Tokenization
+
+Tokenization is the process of dividing the text into a sequence of smaller parts (words, keywords, symbols, digits) called tokens. It's important to note that, unlike existing strategies of text analysis, when all tokens are cleaned from unnecessary substrings, like numbers, punctuation and stop-words, tokenization of error messages at this first stage is implemented saving all the symbols. Of course, further steps of the analysis will discard most of the unnecessary substrings, but initial tokenization is done in this manner for the reconstruction of textual patterns in the following "regrouping" stage.
+
+In this research we use tokenization of sentences using whitespace as a divider. Additionally, we save all spaces as tokens to enable further detokenization. More aggressive tokenizer (for example, using punctuation symbols as dividers) can also be used, but it splits substrings such as URLs and file paths into multiple parts. If these parts are significant for the clustering, then aggressive tokenizer would be better. We, however, prefer treating such a substring as a single token.
+
+An example of the error message containing a file path and its tokenized form is provided below.
+
+"Non-zero return code from generate (65); Logfile error in log.generate:
+
+"Publas FATAL /build/.../Generator/Generator/Modules/src/...56
+
+"StatusCode @Endoutle:execute(): code 0: this (truncated)"
+
+['Non-zero', '.','return', '.', 'code', '.', 'from', '.', 'generate', '.', '(65)', '.', 'Logfile', 'error', '.', 'in', '.', 'log.generate', '.', 'Pythia8', '.', 'FATAL', '.', '/build/.../Generators/Generator/Modules/
+
+"src/...56', '.', '(StatusCode', '.', '.', 'denote/../../', 'code', '.', '.', '.', '', ''this', '.', '(truncated)')]
+
+In further stages of processing, tokenized error messages will be used for the reconstruction of common textual patterns. As we opted to preserve every token in the initial message, it is possible to convert a sequence of tokens back to a textual string -- detokenize it. As a result of this stage, a new column named Tokenized Pattern is added to the initial DataFrame.
+
+### Data Preparation
+
+Data preparation step aims to remove all the substrings that aren't necessary for the clustering, such as filenames and paths. Error logs with those substrings substantially increase the number of tokens to analyze despite not being conceptually different for the purpose of log analysis. We use regular expressions to remove all of the following patterns:
+
+* Any word with '.' symbol in it,
+* Words containing digits in them,
+* Any special symbols.
+
+Finally, cleaned strings are converted to lowercase. The result of data preparation stage is a list of error messages, where all substrings matching those patterns are changed to spaces (duplicate spaces are removed afterwards). The example below illustrates the result of cleaning for some error messages:
+
+Initial Message:
+
+TRANSFER globus_ftp_client: the server responded with an error 451
+
+General problem: Failed to connect [2001:1248:80:182]:22335: Connection timed out
+
+Cleaned:
+
+transfer globus_ftp_client the server responded with an error general problem
+
+failed to connect connection timed out
+
+After this stage several new columns are added to the initial DataFrame, as seen in Figure 3. The number of cleaned messages is much smaller than the initial number of error messages, which allows us to regroup the DataFrame by the cleaned messages.
+
+### Regrouping
+
+At the next stage, the enhanced DataFrame is grouped by Hash column, followed by aggregating of data within each group and representing it using a common pattern5. This results in a different DataFrame, as shown in Figure 3.
+
+Further analysis and clustering are carried out using this regrouped DataFrame. The Sequence column is used as a basis for the word2vec model. It is possible to train a new model on this data or use it to update a pre-trained word2vec model.
+
+## 9 Message Clustering
+
+### Message Vectorization
+
+As our goal is to cluster error messages, not single tokens, the vector representation of tokens (word2vec model) must be converted into the vector representation of the whole messages. For that purpose we use a mathematical average of the vector representation of all the tokens in the sentence, represented as a matrix with the shape \((M,K)\), where \(M\) is the size of the embedding vector and \(K\) is the number of error messages. Schematically, it is shown on the Figure 4.
+
+### Dimensionality Reduction
+
+The result of the messages vectorization stage is a number of numerical vectors, each representing an error message. The number of dimensions of a message vector was set to 300, in accordance with the pre-trained word2vec model. The performance of the DBSCAN algorithm which we use to cluster these vectors is very sensitive to the number of dimensions: the time complexity of DBSCAN algorithm gets close to \(O(n^{2})\) with the number of dimensions increasing. Moreover, the curse of dimensionality leads to the notion of distance being less useful (this problem can be partially compensated by using metrics other than euclidean distance). On the other hand, using a small number of vector dimensions leads to worse word2vec embeddings and, as a result, decreases quality of the clustering results. To solve both of those problems, we apply the dimensionality reduction algorithm -- Principal Component Analysis with the number of components limited to the square root of the length of the vocabulary.
+
+Dimensionality reduction is the process of reducing the number of variables under consideration by obtaining a set of principal variables. One of the commonly used methods is the _PCA (Principal Component Analysis)_ that finds and analyses
+
+Figure 4: Vector representation of error messagesredundant features to construct a new set of principal features based on combination of the old ones.
+
+Adding dimensionality reduction stage allows us to represent our error messages in a smaller number of dimensions. It improves the performance significantly and doesn't noticeably affects the quality of the clustering. This stage can be skipped if the dimensionality of message vectors is already small enough.
+
+### DBSCAN Clustering
+
+The DBSCAN (Density based clustering) algorithm is proposed which makes an assumption that clusters are high-density regions in space separated by regions of lower density. A dense cluster is a region which is "density connected", i.e. the density of the points in that region is greater than a minimum. Since this algorithm expands clusters based on density-connectedness, it can find clusters of arbitrary shapes. DBSCAN does not require the knowledge of the exact number of clusters in advance. Instead, given a set of data points (or embeddings), DBSCAN groups together the points that are close to each other based on some distance metric.
+
+The DBSCAN algorithm requires two main parameters:
+
+* epsilon -- the maximum distance between two samples for one to be considered in the neighborhood of the other. In other words, it specifies how close the points have to be considered as a part of the same cluster;
+* min_samples -- the number of samples (or total weight) that have to neighbour a point for it to be considered as a core point. This includes the point itself. When min_samples equals to 1, it guarantees that each outlier will be put in a separate cluster.
+
+The main difficulty in using DBSCAN algorithm lies in determining the epsilon value. The paper Ref. [21] proposed that an optimal value can be inferred directly from the input data. The method used to automatically determine the optimal epsilon value is described in the next subsection.
+
+### Calculating Epsilon
+
+A common approach of calculating the epsilon value, based on clustering data, consists of the following steps:
+
+* Calculate the average of the Euclidean distances from every point to its k-nearest neighbors;
+* Sort those average distances in ascending order and draw a distance curve;
+* Search a knee point of the curve where a sharp change occurs.
+
+### K-neighbors Distances
+
+In this step we aim to calculate the average distance from each point to its k-nearest neighbors. While choosing a value of k, we have to remember that smaller values increase the influence of noise while larger values make the algorithm more computationally expensive. A general rule of thumb in choosing the \(k\) value is setting it equal to \(k=\sqrt[3]{N}/2\), where \(N\) is the number of samples in a training dataset[22]. Next, these k-distances are sorted in an ascending order and plotted against their indices in the sorted list. Our goal is to determine the "knee", which corresponds to the optimal epsilon parameter. A _knee_ (also known as elbow) of a curve is a point where a sharp change in its slope occurs. The optimal value for epsilon can be found at the point of maximum curvature.
+
+### Automatic Knee Detection Algorithm
+
+As one of the main requirements for the clustering method is the minimization of the user intervention in the process, searching for a knee on the distance curve should be automated. Knee detection algorithms may vary depending on the exact problem, and often researchers use system-specific approaches. But in the case of the analysis of log messages, we suggest that these messages may be completely different, which complicates the creation of a specific rule. For that reason we chose a general application-independent knee detection algorithm, Kneedle[23].
+
+Kneedle is based on the definition of a curvature of a continuous function at any point as a function of its first and second derivative:
+
+\[Kf(x)=\frac{f^{\prime\prime}(x)}{\left(1+f^{\prime}(x)^{2}\right)^{1.5}} \tag{1}\]
+
+The algorithm starts with a smoothing spline and normalizes all points to the unit square. That allows us to preserve the shape of data without depending on its magnitude. Next, it calculates the difference between the curve and the \(y=x\) line. Since the absolute maximum of the curvature is unknown in advance, the algorithm observes trends and looks for a local maximum in the resulting difference curve. However, the local maximum is not declared as a knee immediately. Instead, Kneedle waits when the difference values drop below a configurable threshold based on average difference between consecutive values of \(x\) and the sensitivity parameter \(S\). If that happens before the next local maximum, then the point \(x\) is declared as a knee. Otherwise, if the difference reaches a local minimum, the threshold is reset to 0 and the algorithm waits until the next local maximum is reached.
+
+Kneedle can be integrated with minimal efforts into various systems that encounter the knee detection problem. This method allows us to adjust how aggressively we want to detect knees by using the sensitivity parameter \(S\). The smaller values of \(S\) detect knees quicker, while larger values are more conservative.
+
+Figure 5 shows different knee points depending on the sensitivity. Horizontal axis represents the average Euclidean distances, and vertical axis is the number of error messages (or number of vectors).
+
+In our work, we use the default sensitivity value of 1.0, as suggested in the original paper. However, we use the algorithm in online mode, which means that we do not stop after we found a local maximum classified as a knee but continue until the end of the curve. That allows us to potentially find several knee points on a curve. For example, with the previous curve using the sensitivity value of 1.0 will result in both knee points being found: first at the distance value equal to 0.4 and second at the value 2.5. If we choose the first knee as the epsilon value, then DBSCAN may return too many clusters, as after this point the curve continues to increase rapidly. However, if we choose the second knee value, DBSCAN may return too few clusters, as after this point the curve plateaus. For this reason we suggest that the optimal value of epsilon should be the mean value of all found knee points.
+
+When the epsilon value is found, we carry out the DBSCAN clustering algorithm with input data as the vector model of error messages, and with the following parameters: epsilon as preciously calculated value and min_samples=1.
+
+After the clustering, each row of the DataFrame can be associated with a corresponding cluster label. This label is added to a new column named Cluster Label.
+
+Next stage of clustering pipeline deals with regrouping the DataFrame using these cluster labels and providing a summary of all data within each group.
+
+At this final stage we aim to provide accurate description of clusters.
+
+## 10 Cluster description
+
+Descriptions of clusters are made of two parts: common textual patterns of all messages in a cluster, and common key phrases.
+
+### Extract Common Textual Patterns
+
+The algorithm for extracting common patterns from the messages in a cluster is described below.
+
+Figure 5: Knee Points with sensitivity \(S=1\) (left) and \(S=10\) (right)
+
+Error messages in a cluster are represented as a list of sequences (tokenized messages). First sequence in the list is selected as a template and is then compared with all the other sequences using the Levenshtein similarity metric2. If the sequence is too different (Levenshtein similarity is less than a threshold 3), we consider it a part of another template. Then we extract matching portions of all the sequences close to the pattern, changing different parts to a placeholder value (*). This gives us a common part of all the sequences with placeholders to denote variable parts. Finally, the resulting pattern is detokenized to get a common textual pattern. After extracting a pattern, the process is repeated for all the sequences deemed too different from a previous templates to obtain all the patterns for a cluster.
+
+Footnote 2: The Levenshtein distance is computed by finding the number of edits which will transform one string to another. The transformations allowed are insertion, deletion and substitution of a single character
+
+As a result, the following list of error messages
+
+\(\mathtt{ADDtoreg}\) got a SIGART signal (exit code 134); Logfile error in log.ADDtoreg
+
+\(\mathtt{ADDtdoADD}\) got a SIGART signal (exit code 134); Logfile error in log.ADDtobADD
+
+\(\mathtt{HITtoRD}\) got a SIGART signal (exit code 134); Logfile error in log.HITtoRD
+
+\(\mathtt{ADDtnoIIST}\) got a SIGART signal (exit code 134); Logfile error in log.ADDtobLIST
+
+\(\mathtt{EVTRoIIST}\) got a SIGART signal (exit code 134); Logfile error in log.EVTRoHIST
+
+is represented by the common textual pattern:
+
+(*) got a SIGART signal (exit code 134); Logfile error in (*)
+
+### Extract Key Phrases
+
+Key phrase extraction is another option for clusters description. Sometimes looking at the common key phrases for the cluster is enough to understand the problem
+
+Figure 6: Process of common template extraction
+
+the messages are describing. For example, _authentication/login error, source and destination doesn't match, not enough space/memory, copy failed_.
+
+RAKE[24], short for Rapid Automatic Keyword Extraction, is an algorithm that determines key phrases in a body of text to provide a compact representation of its content in a single pass over the document. It is based on an observation that key phrases frequently contain multiple words but rarely contain stop words such as _the, a, of_, and punctuation.
+
+RAKE splits the text into candidates by the specified delimiters and stop words. After that it constructs a graph of co-occurrences which is used to calculate a score for each candidate defined as the sum of its member word scores. Word scores are derived from the frequency of word appearance and its co-occurrence with other words. The final step before extracting a number of top scoring candidates as key phrases for the document is to look for pairs of keywords the adjoin each other at least twice in the same order. This allows to identify keywords that contain interior stop words. For example, the phrase _failed to connect_ would normally be ignored if we consider _to_ a stop word but being repeated in the same combination makes it a candidate for a key phrase.
+
+## 11 Validation
+
+To validate the developed clustering pipeline, we used ATLAS PanDA jobs error messages of two types -- supervisor error 1 and execution errors 2. Initially, we trained two word2vec models on the log samples containing 4M error messages and 1M messages (a fragment of error logs between 01-01-2020 and 05-20-2020) for supervisor errors and execution errors respectively. After that, the clustering pipeline was applied to the data samples for a week with 120K and 40K of messages, respectively.
+
+Footnote 1: Error messages from PanDA Dispatcher which receives requests for jobs from pilots and dispatches job payloads
+
+Clustering pipeline executed on the supervisor errors returned 49 clusters. The three biggest clusters have the size of about 30K of messages, 7 clusters are much smaller (size is less then 10K messages), 10 clusters are consisted of up to 100 messages and 18 clusters has the size less then 10 and can be treated as anomalous. First and the biggest cluster for supervisor errors dataset contains Diag from worker and LRMS error phrases. Looking at the key phrases for the cluster, we can see that this cluster mostly refers to issues related to job failures, like job failed, requested to cancel the job, job was killed. Several other issues also went to that cluster, for example, unknown error, plugin, some internal error. The next cluster contains errors characterised by Condor HoldReason and Worker cancelled by harvester common phrases. The third one contains errors with Diag from worker: (*) RemoveReason... descriptions. Long textual patterns in the fourth cluster seem to mostly relate to composite logical condition evaluation in system macros.
+
+Clustering pipeline executed on the execution errors returned 102 clusters with average size of 471 error messages. It has 10 clusters with the size above 1000 samples, 71 with less than 1000 samples, and 21 anomalous messages (clusters consisting of a single error message). Looking at the execution errors example, first four clusters have a single common textual pattern each, while the next one contains messages related to algorithm errors with such fields as EventCounter and Run in the patterns. The sixth cluster contains no such file errors.
+
+Our clustering method is also good at detecting anomalous error messages. The figure 9 shows that each anomalous message is placed into a separate cluster, which allows us to explore them individually as each cluster is mapped to a job (pandaID).
+
+It should be noted that the result of clustering is highly dependent on the
+
+Figure 7: Clustering results for _supervisor_ errors
+
+Figure 8: Clustering results for _execution_ errors
+
+Figure 9: Anomaly messages of the _execution_ errors
+
+word2vec model. Our research showed that, if we don't use pre-trained word2vec model and instead train it on-the-fly based on the input data (with the same parameter values we used in the preparation stage), the output clusters are much less sensitive to the anomalous error messages, and tend to mix several types of errors in the same cluster. The results of executing the algorithm on the same input data without using a pre-trained model can be seen on the figure 10. As we can see, the pipeline resulted in a huge cluster with 35K messages and several much smaller clusters. Moreover, the patterns in those clusters tend to have more placeholder values, as the algorithm cannot separate similar but different error messages well enough. On the other hand, this approach can be useful if we want to combine more types of messages to get just several bigger classes of errors.
+
+The studies of the accuracy and efficiency of the proposed clustering method, including the comparison of the results with some other tools provided in Section 3, is out of the scope of this work and will be carry out at the next phase of the development, after the integration of the clustering framework with ATLAS computing infrastructure. This paper provides the proof-of-concept of the proposed clustering method as the mixture of various intelligent data processing algorithms.
+
+Figure 10: Clustering results for _execution_ errors without pre-trained word2vec model
+
+## 12 Conclusion
+
+Proposed method for the clustering of ATLAS PanDA jobs error messages is fully automatic and allows to group together messages with similar textual patterns in error description and error conditions. Using the underlined trained model of tokens (words embeddings model) in our pipeline ensures more accurate results of clustering. Unlike other log parsing tools, our method clusters not just a list of error messages, but a DataFrame containing PanDA jobs indices with associated error messages. As a result, each cluster is represented as a list of common textual patterns, key phrases, and the list of corresponding PanDA jobs indices. Considering that PanDA jobs metadata has many significant attributes like computing site, timestamps, status, information about resources, and others, the results of clustering allow one to analyze the characteristics of PanDA jobs for each error condition.
+
+Further development of this clustering method involves usage of the improved version of the word embeddings algorithm -- _BERT (Bidirectional Encoder Representations from Transformers)_, which is used by Google to understand user searches. Nowadays it has become a state-of-the-art technique for natural language understanding. We expect that BERT will improve the vector model of tokens, and therefore improve the clustering pipeline in general.
+
+## 13 Acknowledgements
+
+The clustering method was developed with the financial support from the Russian Science Foundation (grant No.18-71-10003). The framework ClusterLogs2 is currently being designed based on developed method with the financial support from the Moscow Center of Fundamental and Applied Mathematics.
+
+Footnote 2: [https://github.com/maria-grigorieva/ClusterLog](https://github.com/maria-grigorieva/ClusterLog)
+
+## References
+
+* [1] G. A. et al., _JINST_**3**, S08003 (2008).
+* [2] T. Maeno _et al._, PanDA: distributed production and distributed analysis system for ATLAS, in _Journal of Physics: Conference Series_, (6) (2008), p. 062036.
+* the next generation of large scale distributed system for ATLAS Data Management, in _Journal of Physics: Conference Series_, (4) (2014), p. 042021.
+* [4] A. Alekseev, A. Klimentov, T. Korchuganova, S. Padolski and T. Wenaus, ATLAS BigPanDA monitoring, in _Journal of Physics. Conference Series_, (2018).
+* [5] J. Zhu, S. He, J. Liu, P. He, Q. Xie, Z. Zheng and M. R. Lyu, Tools and benchmarks for automated log parsing, in _2019 IEEE/ACM 41st International Conference on Software Engineering: Software Engineering in Practice (ICSE-SEIP)_, (2019), pp. 121-130.
+* [6] R. Vaarandi, A data clustering algorithm for mining patterns from event logs, in _Proceedings of the 3rd IEEE Workshop on IP Operations & Management (IPOM 2003)(IEEE Cat. No. 03EX764)_, (2003), pp. 119-126.

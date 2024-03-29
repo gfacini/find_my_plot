@@ -1,0 +1,119 @@
+# The ATLAS Level-1 Central Trigger Processor Core Module (CTP_CORE)
+
+R. Spiwoks, P. Borrego Amaral, N. Ellis, P. Farthouat, P. Gallno, J. Haller, T. Maeno, T. Pauly, H. Pessoa Lima Junior, I. Resurreccion Arcas, G. Schuler, J. M. de Seixas, R. Torga Teixeira, and T. Wengler
+
+Manuscript received October 27, 2004; revised June 14, 2004.R. Spiwoks, P. Borrego Amaral, N. Ellis, P. Farthouat, P. Gallno, J. Haller, T. Maeno, T. Pauly, H. Pessoa Lima Junior, I. Resurreccion Arcas, G. Schuler, R. Torga Teixeira, and T. Wengler
+The CTP provides an 8-bit trigger-type word with each L1A which indicates the type of trigger and which can be used to select options in event data processing in the sub-detector front-end electronics.
+
+The CTP specification aims for L1A generation within 100 ns (time from input signal to CTP to output of L1A signal). This corresponds to a latency of four bunch crossings (BCs). The menu used for the trigger formation is likely to change frequently depending on the physics, beam and detector conditions. High flexibility has to be provided for the L1A generation.
+
+The CTP sends, at every L1A, information to the Region-of-Interest Builder (RoIB) in the LVL2 trigger for guidance of the LVL2 trigger algorithms. It also provides information to the Read-Out System (ROS) of the data acquisition system. This information is a superset of the information to the RoIB and can contain data for several bunches before and after the triggering bunch for debugging and monitoring purposes.
+
+The CTP provides monitoring data: snapshots of incoming data; bunch-by-bunch scalers of inputs; and scalers of trigger inputs and trigger items before and after pre-scaling integrated over all bunches.
+
+The CTP is like all other components of the LVL1 trigger configured, controlled and monitored by the Online System [10].
+
+## III Design of the CTP
+
+The CTP consists of several different modules which are housed in a single 9U VME64x crate. In addition to VMEbus, the CTP modules use custom buses for the synchronized and aligned trigger inputs (PITbus, \(\mathrm{PIT}=\mathrm{pattern}\) in time), for the common timing and trigger signals (COMbus), and for the sub-detector calibration requests (CALbus). The different types of modules are described in some detail below. An overview of the design of the CTP is shown in Fig. 3.
+
+The CTP machine interface module (CTP_MI) receives timing signals from the LHC via the TTCmi [6], or generates them locally. It controls and monitors the internal and external busy signals. The CTP_MI sends the timing signals to the COMbus.
+
+The CTP input module (CTP_IN) receives trigger inputs from the trigger processors and other sources. It synchronizes the trigger inputs with respect to the internal clock, checks their parity, and aligns them with respect to the bunch-crossing identifier. The CTP_IN selects and routes trigger inputs to be sent to the PITbus. It can capture a history of the trigger inputs in a test memory or provide trigger inputs from the test memory. The CTP_IN also monitors the trigger inputs using scalers that integrate over all bunches.
+
+The CTP core module (CTP_CORE) receives and synchronizes the trigger inputs from the PITbus. It combines them with internal triggers to build trigger items according to the LVL1 trigger menu and forms the L1A. The CTP_CORE generates dead-time in order to prevent the detector front-end buffers becoming full. The CTP_CORE sends the trigger results to the COMbus. It also sends information to the RoIB of the LVL2 trigger system and to the ROS of the data acquisition system. The CTP_CORE is described in some detail.
+
+The CTP monitoring module (CTP_MON) [12] receives and synchronizes the trigger inputs from the PITbus. It decodes and selects the trigger inputs to be monitored. The CTP_MON scales trigger information on a bunch-by-bunch basis.
+
+The CTP output module (CTP_OUT) receives timing and trigger signals from the COMbus and fans them out to the sub-detector LTs. The CTP_OUT also receives busy signals and calibration requests from the LTs. It masks and monitors the busy signals, and provides them the to the COMbus. It provides the calibration requests to the CALbus.
+
+The CTP calibration module (CTP_CAL) time-multiplexes the calibration requests on the CALbus and sends them to the CTP_IN. The sub-detectors are allocated LHC orbits during which they may issue calibration requests on a round-robin basis. The CTP_CAL also contains other external inputs for beam pick-up monitors and test triggers which are sent via cable to the CTP_IN.
+
+## IV CTP Core Module
+
+The CTP core module (CTP_CORE) receives and synchronizes the trigger inputs from the PITbus. It combines them with the internal triggers. All trigger inputs are combined using several look-up tables (LUT's) to form up to 256 trigger conditions. The trigger conditions are combined using content-addressable memories (CAMs) to form trigger items. The CAMs are ternary CAMs, i.e., they allow to match "0", "1" or "don't care" and contain a 256-bit word each. All the LUT's and the CAMs are implemented in one Xilinx Stratix Virtex II Pro FPGA (XC2VPC90) [13]. A schematic view of the architecture containing LUT's and CAMs is shown in Fig. 4.
+
+The trigger items at the output of the CAMs, i.e., trigger items before prescaling (TBP), are prescaled by individually-programmable 24-bit down-counters. The result consists of 256 trigger items after prescaling (TAP) which are gated
+
+Fig. 3: CTP Design with its modules, backplanes, and signals.
+
+Fig. 2: Example of an excerpt of a LVL1 Trigger Menu: “MU” stands for multiplicity trigger input for muons, “EM” for multiplicity trigger input for electrons/photons, and “XE” for trigger input for missing transverse energy.
+
+with individually-programmable masks, dead-time and busy signal. The dead-time is the combination of a simple dead-time algorithm and a programmable selection of either of the two complex dead-times (see below). The busy signal is a programmable selection and combination of the busy signals that the CTP_CORE receives from the backplane and the busy signals from the read-out and monitoring blocks, (see below). The result of the masking are 256 trigger items after veto (TAV) which are ORed together to form the L1A.
+
+The 256 TAVs are also presented to eight 256-bit masks in order to generate the 8-bit trigger-type word which accompanies the L1A. A schematic view of the architecture of the prescaling and masking, which is implemented in an Altera Stratix FPGA (EP1S60) [14], is shown in Fig. 5.
+
+The CTP_CORE generates dead-time in order to prevent buffers in the sub-detector front-end electronics becoming full. Two different types of dead-time are generated: the simple dead-time vetoes further L1As for a programmable time after a L1A. The complex dead-time vetoes L1As based on a leaky-bucket algorithm. Every L1A increases the value of a counter while the value is reduced at regular time periods. When the value of the counter reaches a programmable threshold, dead-time is generated. The total number of L1As in a programmable time period is limited by this algorithm. The simple dead-time and two complex dead-times are implemented in the same FPGA together with the prescaling and the masking. Either of the two complex dead-times can be associated to any TAP for inclusion during the masking. In addition, all parameters for the simple and the complex dead-times as well as the busy signal selection are programmable. The dead-time inhibit and busy signals are monitored.
+
+For every L1A data at the different stages of the processing chain are written into FIFOs for eventual read-out to the LVL2 trigger and to the ROS, or for monitoring using data transfer over the VMEbus. The readout and monitoring are implemented in two Altera Stratix FPGAs (EPC1S60) [14]. The readout and monitoring can also generate busy signals which can be taken into account at the masking of the TAPs. The data captured at every L1A include:
+
+* 160 PIT signals and the 12 internal triggers;
+* 256 Trigger items before prescaling (TBP);
+* 256 Trigger items after prescaling (TAP);
+* 256 Trigger items after veto (TAV);
+* 64-bit UTC time stamp from a GPS-linked daughter card with a time stability of \(\sim\)5 ns and high absolute precision.
+
+A schematic overview of the architecture of the readout and monitoring is shown in Fig. 6.
+
+## V CTP in the ATLAS Combined Testbeam
+
+During 2004 the ATLAS beam test activity focused on a test-beam with prototypes and final modules of all sub-detectors, including the trigger and data acquisition system. A sketch of the setup from a mechanical point of view is shown in Fig. 7.
+
+The calorimeters provided beam data to the calorimeter trigger processors, which in turn provided trigger information via two Common Merger Modules (CMM) [2] to the CTP. Similarly, the muon trigger detectors, Resistive Plate Chambers (RPC) for the barrel [3] and Thin-gap Chambers (TGC) for the end-cap [4], provided data to the Muon-CTP-Interface (MUCTPI) [15] which summarized the muon trigger information and sent it to the CTP. In addition, scintillator triggers from the beam instrumentation could also be used in the CTP.
+
+The CTP was used with one CTP_MI, one CTP_IN (out of up to three), one CTP_CORE, one CTP_OUT (of up to four) and one CTP_MON. The CTP_OUT was connected to one LTP from which the L1A and other timing signals were famed out to the sub-detector front-end electronics. An overview of the setup of the LVL1 trigger during the October 2004 run with 25-ns beam is shown in Fig. 8.
+
+A photograph of the CTP in the ATLAS combined testbeam is shown in Fig. 9.
+
+In total, the CTP_IN received 46 bits of trigger information:
+
+* \(4\times 3\) bits of e/g and \(4\times 3\) bits of jet multiplicities;
+
+Fig. 4: The trigger combination in the CTP_CORE.
+
+Fig. 5: Prescaling and masking in the CTP_CORE.
+
+Fig. 6: Readout and monitoring of the CTP_CORE.
+
+* 1 bit total transverse energy;
+* \(6\times 3\) bits of muon multiplicities;
+* \(3\times 1\) bit of scintillator triggers.
+
+The 46 trigger input bits were used to form 18 trigger items in the CTP_CORE. They could be prescaled and masked correctly. The L1A was used as trigger for the readout of the combined sub-detectors. A first preliminary inspection of the data taken by the sub-detectors shows that this worked correctly.
+
+The scintillator triggers were used to perform a first preliminary measurement of the latency of the CTP. The result is shown in Fig. 10 which shows a trace of the scintillator trigger signal, one of the L1A as it comes out of the CTP_CORE front panel, and one trace of the L1A as it comes out of the LTP which is connected to the CTP_OUT. The latency measured, including cable delays and considering the fact that the CTP has not yet been fully optimized with respect to the trigger timing, is about 130 ns. Estimating the cable delays and the trigger timing optimizations, an improvement of at least another 25-ns bunch crossing can be expected. The latency of the CTP can be estimated to be \(100\pm 5\) ns which is perfectly acceptable for the LVL1 trigger.
+
+Fig. 8: LVL1 trigger at the ATLAS combined testbeam.
+
+Fig. 10: Preliminary latency measurement of the CTP.
+
+Fig. 7: Setup of the ATLAS combined testbeam.
+
+Fig. 9: CTP at the ATLAS combined testbeam.
+
+## VI Conclusion
+
+The CTP has been tested during the ATLAS combined testbeam with triggers from detectors using a 25-ns bunch structure particle beam. The CTP_CORE was used during the testbeam to generate triggers for readout based on 46 trigger input bits and 18 trigger items. A first preliminary measurement of the trigger latency shows that the value of the latency is \(100\pm 5\) ns which is in agreement with the target value of 100 ns. Work on the CTP will continue in the laboratory, where the CTP_CORE readout and monitoring functionality will be implemented. The CTP will be available for commissioning of ATLAS in 2005.
+
+## Acknowledgment
+
+The authors would like to thank our colleagues from the calorimeter trigger, barrel muon trigger, end-cap muon trigger, and data acquisition groups for their friendly and competent collaboration without which the work presented in this article would not have been possible.
+
+## References
+
+* [1] "First-Level Trigger Technical Design Report,", ATLAS Collaboration, CERN/LHCC/98-14, June 1998.
+* [2] The ATLAS Level-1 Calorimeter Trigger. [Online]. Available: [http://hepwww.rl.ac.uk/Atlas-L1/Home.html](http://hepwww.rl.ac.uk/Atlas-L1/Home.html)
+* [3] "Slice Test Results of the ATLAS Barrel Muon Level-1 Trigger, The ATLAS Level-1 Barrel Muon Trigger,", [http://sunest.roma1.infn.it/muon11/docs/sublications](http://sunest.roma1.infn.it/muon11/docs/sublications).
+* [4] "The ATLAS Level-1 End-cap Muon Trigger,", [http://atlas.web.cern.ch/Atlas/project/TGC/www/doc/Muon-nEndcap_rev1.pdf](http://atlas.web.cern.ch/Atlas/project/TGC/www/doc/Muon-nEndcap_rev1.pdf).
+* [5] P. B. Amaral _et al._, "The ATLAS local trigger processor," _IEEE Trans. Nucl. Sci._, vol. 52, no. 4, pp. 1202-1206, Aug. 2004.
+* [6] The TTC System. [Online]. Available: [http://ttc.web.cern.ch/TTC/intro.html](http://ttc.web.cern.ch/TTC/intro.html)
+* [7] The ATLAS ROD_BUSY Module. [Online]. Available: [http://edms.cern.ch/item/CERN-000](http://edms.cern.ch/item/CERN-000) 0003 935
+* [8] The ATLAS Dataflow System. [Online]. Available: [http://atlas.web.cern.ch/Atlas/GROUPS/DAQTRIG/dataflow.html](http://atlas.web.cern.ch/Atlas/GROUPS/DAQTRIG/dataflow.html)
+* [9] The ATLAS Online System. [Online]. Available: [http://atlas-onlsw.web.cern.ch/Atlas-onlsw](http://atlas-onlsw.web.cern.ch/Atlas-onlsw)
+* [10] R. Spiwoks, "Data Acquisition for the ATLAS Level-1 Central Trigger Processor,", http://edms/document/312 843.
+* [11] P. B. Amaral _et al._, "The ATLAS Level-1 Central Trigger System," _IEEE Trans. Nucl. Sci._, vol. 52, no. 4, pp. 1217-1222, Aug. 2004.
+* [12] N. Ellis _et al._, "The Central Trigger Processor Monitoring Module (CTP_MON) in the ATLAS Level-1 Trigger System," in _Proc. 9th Workshop Electronics for LHC Experiments_, Amsterdam, The Netherlands, Sep./Oct. 2003, pp. Addendum 1-5.
+* [13] Xilin Corp. [Online]. Available: [http://www.xilinx.com](http://www.xilinx.com)
+* [14] Altera Corp. [Online]. Available: [http://www.altera.com](http://www.altera.com)
+* [15] N. Ellis _et al._, "The ATLAS Level-1 Muon to Central Trigger Processor Interface (MUCTPI)," in _Proc. 8th Workshop Electronics for LHC Experiments_, Colmar, France, Sep. 2002, pp. 227-231.
+* [16] ----, The ATLAS Local Trigger Processor.

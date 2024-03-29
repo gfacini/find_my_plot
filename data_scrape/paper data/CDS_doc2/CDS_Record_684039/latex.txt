@@ -1,0 +1,306 @@
+Implementation of the Message Passing Software Layer over SCI for the ATLAS Second Level Trigger Testbeds
+
+A. Bogaerts
+
+CERN, Geneva, Switzerland
+
+CERN, Geneva, Switzerland
+
+###### Abstract
+
+This document describes how the Message Passing layer of the Reference Software for the Second Level Trigger has been implemented using the Scalable Coherent Interface (SCI [1]) as the underlying networking technology.
+
+Reference Software, Message Passing, Scalable Coherent Interface, SCI, SISCI API
+
+## 1 Introduction
+
+In the Reference Software [2] communication between processes running on different nodes in the system is bases on four technology independent classes:
+
+* a **Buffer** represents a piece of raw memory that the message passing layer can transfer, never interpreting the contents, to other nodes;
+* a **Node** represents a process. Buffers can be sent to or received from nodes. If the environment is multi-threaded, identification of the sending or receiving thread, dispatching of buffers to threads and other related aspects are left to higher software layers. However it is required that in a process only one thread could receive;
+* a **Group** is a set of nodes. Buffers can be sent to all the nodes in a group or received from any node in a group;
+* a **NodeFactory** is used to create an instance of one of the above classes.
+
+Even if for Buffer, Node and Group a default implementation is provided, a specialisation may be needed by a specific communication technology in order to cope with and profit from its characteristics. In particular the SCI implementation specialises all three for several reasons; for example:
+
+* SCI requires that the memory assigned to a receiving buffer be contiguous and locked into physical memory;
+* send and receive operations use the remote shared memory paradigm, typical of SCI. This is hidden inside the SCINode class;
+* the SCIGroup class guarantees that all the members are of type SCINode.
+
+The implementation of the message passing layer over SCI is based on a low-level Application Programming Interface [3] defined within the SISCI project (Standard Software Infrastructure for SCI-based Parallel Systems). However, in order to simplify the interface between the Reference Software, which is an object-oriented environment, and the SISCI API, which is defined in plain C, some object-oriented wrappers have been devised on top of a limited subset of the SISCI API (see Section 11).
+
+Even if SCI allows data transfers both in DMA and in transparent mode (i.e. Programmed I/O to/from remote memory), only the latter is used. Moreover remote read operations are avoided because of their additional latency compared to write operations.
+
+The message passing specification requires that multiple threads can send concurrently but there can be only one receiver thread.
+
+## 2 Basic Communication Protocol
+
+The basic communication protocol of the message passing over SCI is based on the following major points (see Figure 1):
+
+* each node in the system provides a local segment of memory to be mapped by the other nodes. They can then transfer data simply writing into it (e.g. using memcpy());
+* a send operation consists of two steps:
+* transfer of the buffer data starting from a known address falling inside the memory segment on the receiving node;
+* notification of the transfer, consisting in the transfer of the buffer size;
+* a send operation is acknowledged by the receiver with the address to use for a future transfer. The send operation, however, does not wait for the acknowledgment to complete;
+* a receive operation waits (possibly indefinitely) for a transfer notification from another node.
+
+When send() is invoked, if there is no remote address available to transferring the data, the buffer is locally enqueued and the operation is retried later.
+
+To allow some data streaming to a remote node, thus increasing the transfer efficiency, the protocol allows multiple outstanding sends. This implies that multiple send addresses must be available to the sender for the same receiving node.
+
+Control information (notifications and acknowledgments) is written at fixed addresses falling inside the remote memory segment. This implies that the receive operation is not interrupt-driven and relies on an explicit check for a transfer notification.
+
+Figure 1: Basic communication protocol between two nodes.
+
+Since the communication protocol relies on the correct transfer of some control information and given the chance of an error in any of the steps to carry data from one memory to another (e.g. chipsets, PCI buses, SCI interfaces, SCI switch modules), the control word representing a message size is signed with a bit pattern that changes every time; the receiver can then distinguish between, for example, a new message and a retransmission. This, together with the elaborate SCI protocols for safe data transmission, ensures reliable end-to-end message passing.
+
+The fixed addresses used to send control information are uniquely assigned to each remote node before the communication starts. In the current implementation this is done statically, based on information available in the configuration. Alternatively it can be done dynamically using a specific connection protocol.
+
+## 3 Node Factory
+
+In object-oriented terms a factory defines an interface for creating an object, but let subclasses decide which class to instantiate [4]. The NodeFactory is a key element for real independence of the application software from the underlying networking technology since it provides an application with an interface to create a Node, a Buffer or a Group without any knowledge of its implementation. An SCINodeFactory is then responsible for the creation of nodes, buffers and groups of type SCI. The interface provides the following services:
+
+* Node* create_node()
+* Buffer* create_buffer(size_tsize)
+* DynamicGroup* create_group()
+* Group* create_group(string& name)
+
+The difference between a Group and a DynamicGroup is explained in Section 8.
+
+A class diagram for the SCINodeFactory is shown in Figure 2. An instance of SCILocalNode (see Section 4) represents the local resources. The factory keeps also a list of all the nodes that have been created.
+
+To guarantee that only one instance of SCINodeFactory exists, it is implemented according to the Singleton pattern [4].
+
+The initialisation of the communication layer creates by default an SCINodeFactory but alternatively it allows the use of a TCPNodeFactory or a UDPNodeFactory, if so is specified in the configuration (see Section 10).
+
+## 4 Management of Local Resources
+
+As mentioned in Section 2, each node allocates a memory segment that is then mapped by any other node in the system. However, from a logical point of view this memory segment is used both for receiving actual data and for accepting control information. Moreover the segment may be shared between multiple threads.
+
+### The SCILocalNode class
+
+A special class, named SCILocalNode, has been defined in order to:
+
+* hide the internal structure of the memory segment to a client application;
+* guarantee a safe access to the shared resource.
+
+A single instance of SCILocalNode is needed; it is owned by the SCINodeFactory but its services are available also to other classes. Its construction depends on several parameters whose default values can be overridden in the configuration (for this and other configuration dependencies see Section 10). Such parameters are passed to the SCILocalNode constructor via a utility class called SCILocalNodePar. In the following the single instance of SCILocalNode is referred to as "the local node".
+
+Part of the local memory segment is used to accept control information and is divided in a number of slots of a fixed size, called headers. When an SCINode is created it asks the local node for a header on which it will have exclusive access.
+
+The rest of the local memory segment is for receiving data. Also this part is divided in slots of a fixed size. A list of addresses where these slots start are kept by the local node and form a pool; SCIRecvBuffers are created from addresses taken from this pool.
+
+The local node is also responsible for the allocation of SCISendBuffers. According to what is specified in the configuration, these buffers can be either pre-allocated or allocated on demand from the heap.
+
+To summarise, the local node provides the following main services (the name of the corresponding operation is between parenthesis):
+
+* allocation of a buffer to be used to receive data (allocate_recv_buffer()).
+* allocation of a buffer to be used to send data (allocate_send_buffer()).
+* allocation of a header to receive control information (allocate_local_header()).
+
+For each of the allocation services there is a corresponding release() method to return either a buffers address or a header to the appropriate pool or to the heap.
+
+Figure 2: Class diagram for the SCINodeFactory. The NodeFactory keeps a list of created nodes.
+
+## 5 Headers
+
+A header is an area within an SCI memory segment used to exchange control information, i.e. message notifications and acknowledgments. Each remote node, represented in an application by an SCINode, is associated with an SCILocalHeader, which contains sizes of received buffers and addresses (in the form of offsets) within a remote memory segment for future sends, and with an SCIRemoteHeader, which helps transferring sizes of sent buffers and offsets remotely for future receives. An SCILocalHeader is part of the local SCI memory segment and it is allocated through the local node. An SCIRemoteHeader is part of a remote SCI memory segment; however an SCINode can easily construct it since its exact position is known from information contained in the configuration.
+
+Figure 4 shows the class diagram for local and remote headers.
+
+## 6 Buffers
+
+There are two types of buffers to be used with SCI: SCIRecvBuffer for receiving and SCISendBuffer for sending. Both derive from SingleBuffer, which derives from Buffer. A SingleBuffer is a Buffer whose data is contiguous in virtual memory. The distinction between SCIRecvBuffer and SCISendBuffer allows some flexibility in the allocation/ deallocation by the local node, in particular it allows two different allocation policies for SCISendBuffers: the use of a pre-allocated pool or allocation on demand from the heap.
+
+Figure 3: Class Diagram for the (single instance) of SCILocalNode.
+
+SCIRecvBuffers are forced to be in a pool because they have to reside in a special memory segment.
+
+It should be noted that at application level only the type Buffer is visible. The SCI message passing layer must be able to manage situations where, for example, an application gets an SCIRecvBuffer from receive() and passes it straight away to send(). In practice the send() operation relies on the fact that the buffer to be sent is of type SingleBuffer.
+
+Figure 5 shows a class diagram for SCI buffers.
+
+Figure 4: An SCINode uses an SCILocalHeader and an SCIRemoteHeader for local and remote protocol operations respectively. An SCILocalHeader is constructed with the help of the local node.
+
+Figure 5: Class diagram for SCI buffers.
+
+## 7 Nodes
+
+A Node represents a process running on a remote machine with which the application wants to communicate. It mainly allows to send/receive a message to/from the remote process in the form of a Buffer. An SCINode is the specialisation of a Node for applications distributed over an SCI network.
+
+### Construction
+
+The construction of a new SCINode is done by the SCINodeFactory. The initialisation is affected by some configuration parameters which are passed to the constructor through the utility class SCINodePar (for this and other configuration dependencies see Section 10). The factory passes to each SCINode also a reference to the local resources (i.e. to the local node).
+
+The construction of an SCINode consists of several actions:
+
+* allocation of an SCILocalHeader (obtained from the local node);
+* allocation of several SCIRecvBuffers (always obtained from the local node);
+* connection and local mapping of the remote memory segment;
+* connection to the remote application, which means allocating an SCIRemoteHeader in the remote memory segment and using it to transfer the addresses corresponding to the SCIRecvBuffers just allocated, where the remote node can start writing data.
+
+Moreover a buffer queue is created for send buffers which can not be sent immediately (see Section 2, "Basic Communication Protocol").
+
+It is assumed that the constructionto is executed in a single-threaded environment.
+
+A class diagram concerning the context of an SCINode construction is shown in Figure 6.
+
+Figure 6: Class diagram describing the context for the creation of an SCINode.
+
+### Send
+
+The send operation, according to the requirements, must be non-blocking. In order to have a reliable service, buffers which cannot be immediately sent need to be locally queued. To preserve the order of the transfers, queued buffers need to be flushed before a new arrived buffer is transferred. The send operation is then composed of the following steps:
+
+1. if the send queue is not empty try to flush the queue;
+2. if the send queue is now empty try to transfer the new buffer, otherwise append it to the send queue;
+3. if the transfer succeeds release the buffer, otherwise append it to the send queue.
+
+Trying to flush the queue means extracting its elements one by one and transferring them until it is possible.
+
+Transferring a buffer is possible if a remote address where to do a memcpy() is available.
+
+Data transfers and protocol communication are done in a safe way, i.e. they are retried until no errors occur. Checking for errors is done using an SCISequence (see Section 11.4, "Sequences").
+
+Send operation can be done concurrently by multiple threads, so all the above operations are properly protected against race conditions.
+
+A class diagram with the collaborators in a send operation is shown in Figure 7.
+
+### Receive
+
+There are two types of receive operations: blocking and non-blocking. In this implementation the blocking form is implemented as a loop on the non-blocking form.
+
+Figure 7: Class diagram describing the context for a send operation. It is assumed that a Buffer is in reality a SingleBuffer.
+
+The non-blocking receive() is basically implemented as follows:
+
+1. if necessary, try to flush the send queue;
+2. check, through the local header, if a transfer notification (corresponding to the size of the transferred data) has arrived;
+3. if so, allocate another SCIRecvBuffer and pass its address to the sender with the help of the remote header (acknowledgement);
+4. return an SCIRecvBuffer containing the arrived data.
+
+The message passing specification foresees that a single thread can receive, so there is no need of mutual exclusion in steps 2-4 above. Proper synchronisation must be ensured instead in flushing the send queue, since other threads may want to do it during a send operation.
+
+Figure 8 shows a class diagram for the collaborators involved in a receive operation.
+
+## 8 Groups
+
+A Group is a collection of nodes. The original design for Group assumed that the application creates an empty group and then adds some nodes to it as they are dynamically created. But this design did not allow to profit from multicast capabilities that some technologies offer. To accommodate this need Group has become a pure abstract base class and another class, DynamicGroup, has been derived from it to allow insertion/removal of nodes. A static group instead is associated to a set of nodes, identified by a name, right from its creation.
+
+SCIGroup is derived from DynamicGroup. A static group in SCI, if requested, is simply an SCIGroup which some nodes are added to at creation time (such nodes are created if they do not already exist).
+
+Figure 8: Class diagram describing the context for a receive() operation.
+
+The main operations on a group are essentially the same defined for Node: non-blocking send(), non-blocking and blocking receive(). A send() is converted into individual send() to all the nodes belonging to the group. A blocking receive() is implemented as an infinite loop on a non-blocking receive(). A non-blocking receive() is converted into a non-blocking receive() for each of the nodes; to ensure fairness the loop starts every time from a different node.
+
+A class diagram for static and dynamic SCI groups is shown in Figure 9.
+
+## 9 Use of Exceptions
+
+The message passing layer is not designed to be reliable and its interface does not provide any means to check the status of the networking hardware and software. When an unexpected event occurs that does not allow to continue, rather than aborting the process the message passing software raises a C++ exception that upper layers could catch. If they do, some information is available in the exception object to better understand the cause of the problem. An SCIException is directly derived from T2Exception which is the base class for all the exceptions in the Reference Software. It mainly provides a message() method to print the reason of the error.
+
+## 10 Configuration
+
+Creating instances of some of the classes introduced in the previous sections may require reading some parameters from the configuration.
+
+Figure 9: Class diagram for SCI groups. A dynamic group is created empty, whereas the creation of a static group may require the creation of some nodes.
+
+(usually found in network.conf) defines whether communication should occur over UDP, TCP or SCI and which corresponding NodeFactory should be built. If Technology is not specified or if it is different from UDP and TCP, SCI is assumed. The option of specifying a different protocol than SCI must be enabled also at compile time, adding -DUSE_IP to the compilation command.
+
+Other configuration parameters are node-dependent and are specified in a Context called SCI within a node specification, in nodes.conf:
+
+max_outst_buffers maximum number of outstanding sent buffers to a node. This parameter is mainly used by the SCINode representing the sender node on the receiver node to determine how many SCIRecvBuffers it has to allocate to be able to satisfy the requests of the sender. Default is 1. The maximum value for this parameter is 15 (assuming the size of an int is 32 bits) and depends on the size of a header (see below).
+
+recv_seg_id identifier of the SCI memory segment. SCILocalNode uses it for the allocation, whereas SCINode uses it for the connection. Default is 8.
+
+recv_seg_size size of the SCI memory segment. Default is 1 MB.
+
+header_area_size size of the area within the SCI memory segment that should is reserved to headers. Default is 8 KB. The size of a single header is not configurable and is set to 64 bytes.
+
+recv_buffer_no number of receive buffers to obtain from the SCI memory segment. Default is 127.
+
+recv_buffer_size size of a receive buffer. Default is 8 KB.
+
+use_send_pool decides the use of a pool of addresses for send buffers. Default is false. (In the configuration 0 means false, everything else means true.)
+
+send_buffer_no number of send buffers to pre-allocate from the heap, if a send pool is used. Default is 127.
+
+send_buffer_size size of a send buffer, if a pool is used. Default is 8 KB.
+
+Most of the times these parameters are the same for all the nodes in the system, so there is the possibility to specify a single Context, again called SCI, at configuration top level (usually in network.conf). If such context exists values specified there are overridden by those possibly specified at node scope.
+
+Another fundamental parameter is machine-dependent and is specified in a Context called SCI within a machine specification, in machines.conf:
+
+node_id specifies the SCI node identifier. It defaults to an invalid value.
+
+Finally there is a parameter which is mandatory even if not SCI specific:
+
+id specifies the node identifier, according to the Reference Software.
+
+Summarising:
+
+* Technology is used in an initialisation file (SCIInit.cxx) in order to decide which NodeFactory should be used;
+* SCILocalNode uses Id, node_id, max_outst_buffers, recv_seg_id, recv_seg_size, header_area_size, recv_buffer_no, recv_buffer_size, use_send_pool, send_buffer_no and send_buffer_size. These parameters are actually read and checked for consistency in the utility class SCILocalNodePar;
+* SCINode uses Id, node_id, max_outst_buffers and recv_seg_id. These parameters are actually read and checked for consistency in the utility class SCINodePar. Default and invalid values for parameters are defined in a special header file (scidef.h).
+
+## 11 Object-Oriented Interface to the SISCI API
+
+An object-oriented interface has been implemented on top of the SISCI API, a low-level API defined within the SISCI project to ease the access to SCI resources. This object-oriented interface represents the basic services provided by the networking technology and covers only a subset of the original API: virtual devices, local and remote memory segments, sequences, i.e. what is needed for using shared memory. These components are presented in the following paragraphs. From now on the OO interface of the SISCI API is referred to as OOSISCI.
+
+### Virtual devices
+
+A virtual device can be considered as a communication channel with the SCI driver. This channel is open with SCIOpen() and closed when it is not needed any more by calling SCIClose(). In principle one could use the same virtual device for all the subsequent SCI calls but in some occasions it would be useful to have different devices for different purposes. OOSISCI supports both the approaches: there is a statically allocated virtual device (this part is implemented according to the Singleton pattern) but there is also the possibility to create one dynamically.
+
+### Local memory segments
+
+An SCILocalSegment represents a piece of memory allocated according to the SCI constraints on the local node. An SCILocalSegment can be created and destroyed, mapped in the process virtual address space and unmapped, made available and unavailable to remote nodes. An SCILocalSegment is always in one of the following states: destroyed, created, mapped. State changes are possible by means of the above operations. Functions are available to check which is the current state. The design of SCILocalSegment is based on the State pattern [4], as shown in Figure 10: services are actually implemented in the different state objects and an operation on a segment is forwarded to the current state. For example is_created() will return true, whereas is_created() will return false. If the operation implies a transition to another state, the corresponding state object is created and the previous one is destroyed.
+
+SCILocalSegment is actually a subclass of SCIMemorySegment, from which it inherits map(), is_mapped(), unmap(), address() and size().
+
+### Remote memory segment
+
+An SCIRemoteSegment represents a piece of memory residing on a remote node and mapped to the SCI address space. Its design (Figure 11) is very similar to the one used for SCILocalSegment, in that there are states and operations to move between states. The states are: disconnected, connected and mapped. The available operations allow to connect and disconnect, map and unmap into the process address space. Once the segment is mapped one can memcpy() data to it. Also SCIRemoteSegment inherits the mapping operations from SCIMemorySegment.
+
+### Sequences
+
+The purpose of a sequence is to to check for errors that may have occurred in data transfers, to reset error counters and to issue barrier operations. At the moment the SICI API provides only sequences for shared memory. In the same way OOSISCI provides a general SCISequence class from which an SCIMapSequence subclass is derived. The overall design, together with the available services, is shown in Figure 12.
+
+Figure 10: Class diagram for SCILocalSegment. Only the services for creation and destruction are shown, but others are available to map the segment in the process address space and to make it available to remote nodes.
+
+Figure 11: Class Diagram for SCIRRemoteSegment. Only connection services are shown.
+
+Figure 12: Class diagram for SCISequence.
+
+## 12 Performance
+
+Table 1 shows basic performance numbers for the message passing layer based on SCI.
+
+Bandwidth is measured streaming messages to the remote node. Latency is measured as the ping-pong time divided by two. The latency is constant up to 64 bytes because data transfers are always done in multiples of 64 bytes (which is the payload of an SCI packet). Above 128 bytes the latency increases of about 1 us per additional 64 bytes.
+
+## Acknowledgements
+
+This work has been partially funded by the European Union through the SICI Project (Standard Software Infrastructures for SCI-based Parallel Systems), Contract 23174.
+
+## References
+
+* [1] IEEE Computer Society, _IEEE Standard for the Scalable Coherent Interface (SCI)_, IEEE Std 1596-1992 (1993).
+* [2] The Atlas Level 2 Reference Software, ATLAS internal note, ATL-DAQ-2000-019 (2000).
+* [3] F. Giacomini et al., _Low-level SCI Software: Requirements, Analysis and Functional Specification_, Deliverable 1.1.1 of the SICI Project (1998). [http://www.cern.ch/SCI/WP1/](http://www.cern.ch/SCI/WP1/)
+* [4] E. Gamma et al., _Design Patterns_. Elements of Reusable Object-Oriented Software, Addison-Wesley (1994).
+
+\begin{table}
+\begin{tabular}{|r|c|c|} \hline
+**size** & **bandwidth** & **latency** \\
+**(bytes)** & **(MB/s)** & **(μs)** \\ \hline
+**8** & 0.7 & 15 \\ \hline
+**16** & 1.4 & 15 \\ \hline
+**32** & 3.0 & 15 \\ \hline
+**64** & 6.0 & 15 \\ \hline
+**128** & 9.8 & 18 \\ \hline
+**256** & 18 & 19 \\ \hline
+**512** & 28 & 23 \\ \hline
+**1024** & 39 & 29 \\ \hline
+**2048** & 49 & 43 \\ \hline
+**4096** & 56 & 70 \\ \hline
+**8192** & 60 & 125 \\ \hline \end{tabular}
+\end{table}
+Table 1: Bandwidth and latency results for the message passing layer based on SCI.

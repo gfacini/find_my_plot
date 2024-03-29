@@ -1,0 +1,144 @@
+**S-shape correction using a neural network**
+
+J.Schwindling1
+
+Footnote 1: e-mail: jerome@hep.saclay.cea.fr
+
+DAPNIA/SPP
+
+CEA / Saclay
+
+91191 Gif sur Yvette CEDEX
+
+FRANCE
+
+## 1 Introduction
+
+Because of the finite size of the cells (or the strips) of the electromagnetic calorimeter, the energy-weighted barycenter of a cluster is shifted towards the center of a cell, leading to well-known S-shapes in the measurement of the cluster position.
+
+In order to get the full detector resolution in position, a correction must be applied. This note first describes the S-shape correction for the \(\eta\) measurement in sampling 2 of the EM endcaps. A precise measurement of \(\eta\) in the second sampling is of particular importance for the measurement of photon directions, and thus for the search for the Higgs boson in the channel \(H^{\circ}\to\gamma\gamma\). However, the correction for the S-shapes in the endcaps was done quickly at the time of the Calorimeter Performance TDR. These S-shapes are shown for 50 GeV \(E_{T}\) photons between \(\eta=1.5\,\mbox{and}\,\eta=2.3\) (see next section) in figure 1.
+
+Figure 1 shows that the fit of an _atan_ function works, on average, very well. On the test sample (see next section), the resolution after correction by such a function is \((0.398\pm 0.012)\times 10^{-3}\), in rapidity units.
+
+This note describes an alternative way to fit functions, based on a neural network. A neural network is able to easily handle functions of more than one variable and, as will be shown, will lead to a better position resolution.
+
+This successful approach has then also been tried for the correction of the S-shapes in the barrel.
+
+## 2 Event samples
+
+This section describes the event samples used in this study. In order to get rid of the problem of defining the true \(\eta\) position when the particles are non pointing, events were generated with no vertex spread. The S-shape corrections and the resolutions in \(\eta\) are, in the following, determined on such events. At the end, the resolution in \(z_{vertex}\), which is the final goal, is shown for the events generated during summer 1998, with the nominal vertex spread.
+
+Three samples of events were generated for the study in the endcaps:
+
+* a _"training sample"_ of 50 GeV \(E_{T}\) photons, on which the corrections are determined. This sample is summarized in table 1. The total number of events in the training sample is 3604.
+* a _"test sample"_ on which resolutions are measured. This sample is a continuous scan between \(\eta=1.5\) and \(\eta=2.4\) of 894 50 GeV \(E_{T}\) photons.
+* additional samples of 20 GeV \(E_{T}\) photons were also used to check the robustness of the method.
+
+Figure 1: S-shapes in sampling 2 of the EM endcaps for 50 GeV \(E_{T}\) photons.
+
+## 3 Neural Network structure and learning algorithms
+
+The neural network used here is a simple multi-layer perceptron [1], which consists of three layers of neurons.
+
+* the _input layer_ consists of one neuron per variable, and distributes the \(N_{1}\) variables \(V_{i}\) to the hidden layer.
+* the _hidden layer_ consists of \(N_{2}\) neurons. The output of each neuron \(j\) is \[\mbox{\it output}\,_{j}=\frac{1}{1+e^{-\mbox{\it input}\,_{j}}}\quad(\mbox{ \it sigmoid function})\] with \(\mbox{\it input}\,_{j}=\mbox{\it w}_{0\,j}+\sum_{j=1}^{N_{1}}w_{ij}\ V_{i}\).
+* the _output layer_ consists of 1 neuron which computes the linear combination of the outputs of the hidden layer.
+
+It has been shown that such a linear combination of sigmoid functions can approximate any continuous function over a compact set [2]. The neural network is then just a tool to fit such a function over a set of points, more practical in general than \(\mbox{\it Minuit}\).
+
+The weights are initialized at random values between -0.5 and +0.5, and are updated during the learning phase. The learning phase is performed by trying the network on the training set. For each event \(p\) of the training set (a "pattern"), the output \(o_{p}\) of the network is compared to the true answer \(t_{p}\), and the quantity
+
+\[e_{p}=\frac{1}{2}(o_{p}-t_{p})^{2}\]
+
+\begin{table}
+\begin{tabular}{|c|c|} \hline eta & number of \\  & events \\ \hline
+1.5 & 333 \\
+1.55 & 409 \\
+1.6 & 272 \\
+1.65 & 500 \\
+1.7 & 500 \\
+1.9 & 500 \\
+2.1 & 500 \\
+2.3 & 500 \\ \hline \end{tabular}
+\end{table}
+Table 1: Training sample.
+
+is computed. The goal of the learning phase is to minimize \(E=\sum_{p}e_{p}\).
+
+Several methods exist to reach this goal. They all need to compute \(\partial e_{p}/\partial w_{ij}\) (or \(\partial E/\partial w_{ij}=\sum_{p}\partial e_{p}/\partial w_{ij}\)), which is done by _"back propagation of the errors"_.
+
+The learning methods can then be classified in two categories:
+
+* _Stochastic methods_: they consist in updating a little bit the weights after each example towards the minimum of \(e_{p}\). The most popular formula is: \[\Delta w_{ij}(t+1)=-\eta\frac{\partial e_{p}}{\partial w_{ij}}+\epsilon\Delta w _{ij}(t)\] where \(\eta\) is called the "learning rate parameter" or the "step size" (of the order of 0.1 or less), and \(\epsilon\) the "momentum factor" (of the order of 0.1). If there is no correlation between successive examples 2, stochastic learning converges statistically towards a minimum of \(E\)3, but the convergence may become very slow near the minimum. Several ideas have been studied to improve the convergence of this method (such as the _adaptive step size_ method), but they have not been tried, as the following methods appear to be very powerful: Footnote 2: which may require that the examples are presented to the network in a random order.
+* _Global methods with Line Search_: these methods try to minimize directly \(E(w_{ij})=E(\vec{x})\) by standard minimization techniques [3]. The minimization is an iterative process, with each iteration \(i\) of the form:
+* 1) find a direction \(\vec{s}_{i}\)
+* 2) find \(\alpha_{m}\) which minimizes \(E(\vec{x}_{i}+\alpha\vec{s}_{i})\)
+* 3) set \(\vec{x}_{i+1}=\vec{x}_{i}+\alpha_{m}\vec{s}_{i}\) Step 2 is called the _"Line Search"_. It is itself an iterative algorithm, and is called an _exact Line Search_ if it produces the exact value of \(\alpha_{m}\). However, this is in general very time consuming, as it may require a huge number of evaluations of \(E\)4, and an _approximate Line Search_ is adopted. Footnote 3: no method exists to garantee a convergence towards the global minimum of \(E\). Various minimization algorithms differ by the way step 1 is done. The simplest one is the _stepest descent algorithm_, where \(\vec{s}=-\partial E/\partial w_{ij}\). The two other methods which have been tried are the _Conjugate Gradients_ (CG) and the _Broyden, Fletcher, Goldfarb, Shanno_ (BFGS) methods. This last method has the disadvantage of requiring a \(N_{weights}\times N_{weights}\) matrix, which may become impossible for some problems. All these methods are described in detail in [3].
+
+A comparison of the learning speeds of these algorithms is given in figure 2, for the fit described in the next section. As the global minimization methods require more computation, they are slower (about a factor 10) per epoch. However, the CGand BFGS methods require less epochs to converge to a better solution than the stochastic method. For the same CPU time (for example 10 minutes), they lead to a solution 10% better.
+
+The steepest descent method is much slower than the other global techniques because it tends to produce successive direction which oscillate towards the minimum, whereas the CG and BFGS methods try to find directions which converge faster.
+
+## 4 Fit of the S-shape correction
+
+The S-shape corrections of \(\eta\) in sampling 2 of the endcaps depend not only on \(\eta^{*}=mod(\eta,\Delta\eta)\), but also:
+
+* On the shower depth, which gives a different part of the shower seen in sampling 2. The shower depth depends on the material in front of the calorimeter, on the particle energy and fluctuates event by event. It is correlated to \(F_{1}=E_{1}/E_{tot}\). For example, because of the change in the amount of material in front of the calorimeter, \(F_{1}\) is very different for photons at \(\eta=1.5\) and \(\eta=1.55\), as shown in figure 3. This leads to the S-shapes shown in figure 4. Photons at \(\eta=1.55\) are deeper than photons at \(\eta=1.5\), leading to a shower narrower in sampling 2, and thus to steeper S-shapes.
+
+Figure 2: Error as a function of time. The number of epochs is indicated between brackets.
+
+Figure 4: S-shapes for photons at \(\eta=1.5\) and \(\eta=1.55\).
+
+Figure 3: Fraction of energy in sampling 1 for photons at \(\eta=1.5\) and \(\eta=1.55\).
+
+* On \(\eta\), because the physical cell width, as seen from the vertex, decreases as \(\eta\) increases 5, leading to smoother S-shapes at higher rapidities. Footnote 5: \(\ell d\theta\sim d\eta/sinh(\eta)\), and thus is reduced by 2.1/5.5 when going from \(\eta=1.5\) to \(\eta=2.4\)
+* On \(z_{vertex}\), because non-pointing photons lead to wider showers, and thus to smoother S-shapes.
+
+It has been tried to fit the S-shape corrections as a function of \((\eta^{*}\),\(F_{1},\eta)\). A method would consists in fitting first the \(\eta^{*}\) dependence by, for example, an _atan_ formula, as shown in figure 1, and see how the 3 parameters \(P_{1}\), \(P_{2}\) and \(P_{3}\) depend, say, on \(F_{1}\), etc. It appeared that the 3604 events of the training sample are not enough to fit all the 3 parameters. By keeping \(P_{1}\) and \(P_{3}\) fixed, a linear fit to \(P_{2}\) can be found. The corresponding correction leads to a resolution (on the test sample) of \((0.4099\pm 0.0125)10^{-3}\), even slightly worse than the one-variable correction.
+
+A 3-10-1 neural network has then been tried. After 10 000 epochs using the BFGS method, the resolution on the test sample is \((0.338\pm 0.01\,0)10^{-3}\), thus 15% better than the standard method. This improvement can clearly be seen on the distributions of \(\eta_{kinet}-\eta_{corr}\). shown in figure 5.
+
+The robustness of the method has been checked by looking at 20 GeV \(E_{T}\) photons. Figure 6 shows the resolution with the simple _atan_ formula and with the neural network. The neural network performs 10 to 15% better than the one variable correction at all \(\eta\) values.
+
+It has also been checked, although only at the point \(\eta=1.6\), \(E_{T}=20\) GeV, that the neural network method is not more sensitive to electronic noise and pile-up than the _atan_ formula, as shown in table 2.
+
+## 5 Correction of the S-shapes in the barrel
+
+In the barrel, a correction of the S-shapes depending on \(\eta^{*}\) and \(\eta\) is available in the reconstruction code. The correction is done in the following way: an average (over \(\eta\) in the range 0.1 to 1.2) S-shape correction is computed, and the residual modulation measured for 6 \(\eta\) values. The residual modulation is corrected for by using an interpolation between the tabulated values.
+
+\begin{table}
+\begin{tabular}{|c|c|c|} \hline  & _at a n_ & Neural Network \\ \hline no noise & \(0.647\pm 0.043\) & \(0.594\pm 0.033\) \\ with noise and p-up & \(0.669\pm 0.033\) & \(0.635\pm 0.027\) \\ \hline \end{tabular}
+\end{table}
+Table 2: Effect of the electronic noise and pile-up (high luminosity) on the resolution on \(\eta\) (\(\times 10^{-3}\)) for 20 GeV \(E_{T}\) photons at \(\eta=1.6\) (no vertex spread).
+
+Figure 5: \(\eta_{kine}-\eta_{corr.}\) with the neural network correction (full histogram) and the \(at\,an\) correction (dashed histogram).
+
+Figure 6: Resolution on the measurement of \(\eta\) in sampling 2 as a function of rapidity for 20 GeV \(E_{T}\) photons.
+
+This correction has been compared with a _atan_ formula depending only on \(\eta^{*}\), with a 2-4-1 network using the (\(\eta^{*}\), \(\eta\)) information and with a 3-8-1 network using (\(\eta^{*}\), \(\eta\), \(F_{1}\)). A sample of \(5\times 300\) 50 GeV \(E_{T}\) photons generated at \(\eta=0.3\), 0.5, 0.9, 1.1 and 1.3 has been used to fit the _atan_ and to train the neural networks.
+
+The performance of the 4 methods, measured on samples of 20 GeV \(E_{T}\) photons, are shown in figure 7.
+
+The existing correction is better than the one-variable _atan_ correction, comparable to the 2-4-1 network but again worse than the 3-8-1 neural network correction.
+
+## 6 Conclusions
+
+A neural network can be used as a practical tool to fit a continuous function of one or more variables on a set of points, with the advantage of not needing an a priori choice of the function to fit. Global minimization techniques lead to a faster convergence than the traditional stochastic method, with the additional advantage that the learning step is turned into a standard minimization procedure, with, for example, mathematical background about convergence.
+
+Applied to the fit of the S-shape corrections in sampling 2 of the EM endcaps, a 3-10-1 network generates a correction depending on (\(\eta^{*}\),\(F_{1}\),\(\eta\)) which leads to a
+
+Figure 7: Resolution on \(\eta\) at 20 GeV \(E_{T}\) in the barrel (no vertex spread).
+
+resolution 15% better than a simple correction depending only on \(\eta^{*}\). A similar improvement is obtained in the barrel with a 3-8-1 network.
+
+Finally, the resolution on \(z_{vertex}\) for the 20 and 50 GeV \(E_{T}\) photons generated during summer 1998 (with the nominal vertex spread) is shown in figures 8 and 9, and compared to the resolution obtained with the reconstruction code.
+
+## 7 Acknowledgments
+
+This work could not have been done without the help of Bruno Mansoulie who used my neural network code (and found some bugs), understood the importance of the global minimization methods, implemented the line search algorithm used here, first coded the conjugate gradients method and, finally, read the draft of this note.
+
+## References
+
+* [1] a very recent, clear and complete description of the multilayer perceptron is given in: _Multilayer Perceptrons_, L.B. Almeida, in _Handbook of Neural Computation_ (section C.1.2), E.Fiesler and R.Beale (Eds), Institute of Physics Publishing and Oxford University Press (1997)
+* [2] see for example: _Neural Approximation: A Control Perspective_, R.Zbikowski and A.Dzielinski, in _Neural Network Engineering in Dynamic Control Systems_, K.J.Hunt, G.R.Irwin, K.warwick (Eds), Springer (1995)
+* [3] On minimization in general: _Practical Methods of Optimization_, R.Fletcher, second edition, Wiley (1987) On the application to neural networks: _Fast Gradient Based Off-Line Training of Multilayer Perceptrons_, S.McLoone and G.Irwin, in _Neural Network Engineering in Dynamic Control Systems_, K.J.Hunt, G.R.Irwin, K.Warwick (Eds), Springer (1995)

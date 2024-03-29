@@ -1,0 +1,262 @@
+[MISSING_PAGE_FAIL:1]
+
+## 1 Introduction
+
+### Purpose of the document
+
+This document summarises the work performed, within the context of the DAQ-Unit of the DataFlow system in ATLAS DAQ/EF prototype -1 [1] on intra and inter-Input/Output Module (IOM) message passing. This document fulfils the ATLAS DAQ/EF prototype -1 milestone of February '99.
+
+### Overview of the document
+
+The document consists of six sections. In section 2 the background to message passing within the DAQ-Unit is presented in addition to a brief description of the adopted model. The important issues that arose during the implementation, from the perspective of both software and hardware, are presented in section 3. The performance of the current implementation based on measurements made with simple test programs and within the context of the IOM applications is presented in section 4. Section 5 summarises the document and gives an indication of the direction that further studies could take. Section 6 presents the conclusions.
+
+## 2 Model of intra and inter-IOM communications
+
+### Background
+
+This section puts intra and inter-IOM message passing into context. It is not meant to be a complete discussion. More details can be found in the references. Intra and inter-IOM message passing is used in the context of both the Read-Out and Sub-Farm DAQ Crates (see below). For the purpose of this document the Read-Out Crate is used.
+
+The DAQ/EF prototype -1 has been organised into four major subsystems: _DataFlow_[2], _Back-End_[3], _Event Filter_[4]_and Detector Interface_[5]. The DataFlow is the hardware and software elements responsible for: receiving, buffering, distributing event data; providing event data for monitoring; storing event data from the detector. These functions are provided by: the _Front-End DAQ_ for the collection, buffering and forwarding of data fragments from the detector; the _Event Builder_ for the merging of event fragments into full events; the _Sub-Farm DAQ_ for the sending to and retrieving of events from the Event Filter and for sending events to mass storage.
+
+The Front-End DAQ consists of Read-Out Crates (ROCs). A ROC supports the read-out from one or more detector segments and has one or more connections to the Event Builder. ROCs work concurrently and independently of each other. The ROC consists of two elements: the _LDAQ_[6] and the _DAQ-unit_[7]. The latter implements the flow of the event data in the ROC and consists of the following logical components:
+
+1. _IOMs_: these are elements in the DAQ-unit located at the boundaries with other systems _(e.g._ the trigger system) or subsystems (_e.g._ the Event Builder). They provide the means to input, buffer and output data and data control messages. Specific instances of an IOM are the Read-Out buffer (ROB), the Trigger interface (TRG) and the Event Builder InterFace (EBIF).
+
+2. _Data Collection_: event fragments are collected from the ROBs by the EBIF to form a crate fragment. In the case of a ROB consisting of one or more ROB-INs, ROD fragments are collected from the ROB-INs by the ROB host to form a ROB fragment [10].
+3. _IOM communications:_ this element provides the movement of data within an IOM and between IOMs. It covers, within the ROC, the links and protocols used for data collection and the sending and receiving of data control messages. This element is the subject of this document.
+
+A functional view of the ROC DAQ-Unit is shown in Figure 1.
+
+The TRG sends messages to the ROBs and EBIF. In the first case the messages are of two types: those that inform the ROBs to reject one or more ROB fragments (L2R) and those that inform the ROBs to forward data to the Level 2 trigger system (ROI). The message sent to the EBIF, Level 2 Accept (L2A), leads to the Data Collection process. On completion of the latter, a message is sent to the ROBs from the EBIF (Discard). This message causes the ROBs to discard the ROB fragment that was subject to Data Collection. The messages that are exchanged between the different instances of the IOMs fall into two categories: _data control messages_ (L2A, L2R and ROI) and _data_ (Data Collection). The former are small, O(24bytes), while the latter is assumed to have a value of 1 Kbyte. The message characteristics are summarised in Table 1, where N denotes the number of ROBs in a ROC.
+
+\begin{table}
+\begin{tabular}{|l|c|c|} \hline  & Size (bytes) & Relative frequency \\ \hline \hline _L2R_ & _24_ & _N*100_ \\ \hline _ROI_ & _56_ & _N*10_ \\ \hline _L2A_ & _24_ & \(1\) \\ \hline _Discard_ & _24_ & _N*1_ \\ \hline _Data Collection_ & _N*1000_ & \(1\) \\ \hline \end{tabular}
+\end{table}
+Table 1: The ROC DAQ-Unit message characteristics.
+
+Figure 1: Functional view of the Read-Out Crate DAQ-Unit.
+
+The values of relative frequency are canonical values used during the phase of prototyping. In addition, a reference frequency of 1 kHz is used. It has also been assumed that ROI messages are sent to all ROBs within a crate.
+
+The Sub-Farm DAQ also consists of a DAQ-Unit. This specific DAQ-Unit is described elsewhere [8] and is based on the same model as the ROC DAQ-Unit.
+
+The TRG, EBIF and ROB applications are, in light of the performance requirements given in Table 1, implemented as single threaded processes. Requests for I/O, including message passing, are served via polling and not by interrupts and I/O drivers.
+
+The initial implementation of the ROC was foreseen to be based on VMEbus with an additional secondary bus providing broadcast functionality. The latter is important considering the traffic patterns detailed in Table 1. Considered candidate secondary buses were RaceWay [9] and the PCI Vertical InterConnect (PVIC) [11]. Both technologies support broadcast functionality, memory mapped I/O and provide, potentially, bandwidths in excess of 100 Mbytes/s. To date, inter-IOM message passing has been implemented on VMEbus and PVIC.
+
+During the detailed design and implementation of the ROC DAQ-unit, the design and implementation of IOM message passing has evolved to support ROB-INs. Specifically, the use of a PCI local bus for message passing between the host and the ROB-IN CPUs: intra-IOM message passing.
+
+The inter- and intra-IOM communication described above is based on buses. In addition, the IOMs may communicate via Ethernet (TCP/IP). An implementation of the Message Library based on TCP/IP and API compatible with the libraries for VMEbus, PVIC and PCI has been done[14].
+
+### Logical model
+
+Messages are exchanged using a message queue (a circular buffer) and read/write indices. The use of a queue ensures the ordering of messages. The indices indicate where in the queue read and write operations may be performed. To send (receive) a message the sender (receiver) checks the status of the queue by comparing the read and write indices. In this model the sender (receiver) alone is responsible for up-dating the write (read) index. The maximum size of a message is limited by the size of the queue and messages are not required to have fixed lengths.
+
+A message queue and its associated read and write indices allow the transfer of messages in only one direction between two processes and is referred to as a virtual link. Bi-directional communication is achieved with a pair of virtual links, one for each direction. Multi-cast functionality is achieved in software or, when supported, by the implementing bus. In the former case, the same message is sent sequentially to all receivers in the multi-cast group with the consequence that the time to send a message increases with the number of receivers. The message queue may be a resource of the sender or receiver, the choice being an implementation issue relating to performance, see section 2.3.
+
+In implementing the logical model described in section 2.2, there are certain issues which must be taken into account so as to optimise the performance where possible. Some of these issues are discussed here.
+
+The write (read) index must be updated after every message has been sent (received). In addition, the read and write indices need to be accessed to determine whether a message can be sent or received. Given the requirement of no interrupt support, the determination of whether a message may be sent or received may lead to polling of the indices. The accesses to these indices will invariably be performed via single cycle accesses on the implementing bus. Single cycle operations have characteristically low bandwidths, so it is important to limit access to the indices for reasons of performance. This issue has been addressed by having a copy of the read and write indices on both the sender and the receiver and placing the message queue on the receiver side. This is shown schematically in Figure 2.
+
+With this implementation and noting that the sender (receiver) updates only the write (read) index, on both the sender and receiver, it is seen that: there are only two single cycles per message transfer; the receiver (sender) of a message needs only to access its copy of the indices to determine whether a message can be received (sent). Race conditions do not occur when updating the read and write indices as the applications are implemented as a single threaded process.
+
+Messages arrive in the message queue and the receiving application subsequently processes the messages. In the most general case the receiving of a message involves a copy from the message queue into a piece of memory indicated by the receiving application, thus releasing resources of the message queue. However, the memory copy can lead to a performance penalty depending on the demands of the system and depending on whether all the fields of the message have to be accessed. To avoid the memory copy, the implementation of the model allows the receiving application to access the message directly in the message queue. The read index is only up-dated when the receiving application has finished accessing the message.
+
+Figure 2: A schematic diagram of a virtual link.
+
+It should be noted that independently of whether the underlying bus provides multi-cast functionality, the message passing protocol increases with the number of receivers in the multi-cast group. This is because for every message sent the receivers must update the read index, associated to its virtual link, of the sender.
+
+Before a virtual link is operational, the sender and receiver must know about the physical resources associated with it. More specifically, the addresses of the message queue and the read and write indices associated to both sides of the virtual link. This is related to the general issue of name resolution. In the context of the ROC DAQ-Unit message passing, the DAQ-Unit Parameter Buffer [12] is used to map virtual link names onto physical resources. The names of all virtual links in the system are defined, statically, in the Parameter Buffer. System initialisation occurs in two phases. In the first phase the sender and receiver initialise their local resources. For the receiver this means that the message queue and the read and write indices are created and mapped into the implementing bus. The bus addresses are then stored into the Parameter Buffer at a location defined by the name of the virtual link. For the sender, the read and write indices are created and mapped into the implementing bus and their addresses stored in the Parameter Buffer. In the second phase of the initialisation the sender (receiver) accesses the Parameter Buffer of the receiver (sender) to obtain the addresses of the receiver's (sender's) virtual link resources. These resources are subsequently mapped into the sender's (receiver's) address space. In this implementation there is no "special node" used centrally during link initialisation. It should be stressed that the parameter buffer is not part of the message passing implementation, consequently, where appropriate other methods of link initialisation may be used.
+
+More details concerning the requirements, high-level and API of DAQ-Unit message passing can be found elsewhere [13],[14].
+
+### Other models
+
+An alternative approach to intra-crate message passing would have been to adopt an existing standard. At the time of design the only known example was BusNet [15]. The choice of not adopting BusNet was based on several factors:
+
+* BusNet is targeted only at VMEbus.
+* BusNet is aimed at "fully-compatible functional replacement for the physical network-layer of a standard 10 Mbit Ethernet TCP/IP network". That is to say it adheres to network standards and provides high-level network connections over VMEbus, aiming to exploit VMEbus' bandwidth. It was felt that these objectives were incompatible to our traffic requirements: small messages at high rates.
+* BusNet strongly recommends the use of mail box interrupts. Given the current context switching times implied by the use of real-time operating systems and available Single Board Computers (SBCs), this was deemed to be incompatible with our message passing requirements.
+* The model requires a special node within the system, primarily for link initialisation. Though not a fundamental issue, it was felt that the use of a special node may have repercussions with respect to dependencies.
+
+## 3 Implementation
+
+### Software architecture
+
+One of the main guidelines for the implementation of the intra and inter-IOM message passing model described in section 2.2 was to have a clear separation between the hardware and operating system independent functionality and the underlying hardware access libraries and specific OS function calls. This has been achieved by implementing a Message Passing (MP) library organised, see Figure 3, into three layers:
+
+1. The _Generic layer_: Via a defined API [14], this layer provides IOM applications with intra and inter-IOM message passing functionality. It implements the message passing protocol and manages the data structures that describe the virtual links. It also supports the selection of the bus type and transfer mode and performs the single cycle transfers.
+2. The _Interface layer_: The purpose of this layer is to allow the Generic layer to access, in a uniform way, the hardware related functions, provided via the Hardware access layer (see below), independent of the implementing bus. This layer is necessary as the APIs of the libraries which constitute the Hardware access layer, are technology specific. The functions provided by this layer are:
+
+* resource mapping in the implementing bus space,
+* control of the message transfer (_e.g._ via DMA and true or pseudo broadcast),
+* special functions (_e.g._ management of the broadcast address space for PVIC).
+3. The _Hardware access layer_: This layer consists of a number of low level libraries that provide functions such as bus mapping and DMA control. They are directly manipulating the interface logic of the data transfer bus. The common features of these libraries are:
+
+* single task user level code (_i.e._ no drivers),
+* performance optimisation,
+* asynchronous events (_e.g._ end-of-transfer) detected by polling (_i.e._ no interrupts used),
+* minimised operating system dependence.
+
+The DMA controllers of most single board computers support chained block transfers, therefore one can off-load the multiple transmission of a message to this logic and the CPU may continue processing. However, the foreseen message sizes are small, see Table 1. Therefore, the time taken to transfer a message is also small. For this reason the send and receive func
+
+Figure 3: Software layers of the Message Passing implementation.
+
+tions of the Message Passing API are blocking functions, they only return once the transfer has finished. This also simplifies the API and its usage.
+
+The MP library has, currently, only been implemented on the LynxOS operating system. However, the number of operating system specific system calls used has been kept to the minimum and these calls, where possible, have been put into separate libraries, see section 3.2.
+
+### Secondary libraries
+
+Apart from the libraries mentioned above, which are specific to the MP library, there are two additional service libraries that are required by MP library:
+
+1. The _uio package_[16]: This package provides physically contiguous buffers in user space. In order to obtain efficient message passing, it is essential to keep the messages in physically contiguous buffers, especially for DMA transfers.
+2. The _smem package_: Since the hardware libraries, underlying the MP library, directly access the hardware (_e.g._ DMA controllers, mapping tables) there needs to be a mechanism to grant a process access to certain physical addresses. This access is conventionally provided by calls to the operating system. For example, for the LynxOS operating system, this is done via shared memory segments. In order to be operating system independent the smem package defines a thin generic layer on top of these system calls.
+
+### Details of the VMEbus implementation
+
+Messages, if selected to be transferred in DMA mode, are sent in D64 Multiplexed Block Transfer (MBLT) mode and will only work for 8-byte aligned addresses and blocks whose size is a multiple of 8 bytes. This must be taken into account by the application. Where this is not possible, the slower D32 BLT protocol can be used but would require modifications to the interface layer. The smallest entity that can be handled is a (4-byte) word. In all cases write posting and fair arbitration are used to guarantee a maximised and equally distributed VMEbus bandwidth.
+
+Currently, the VMEbus protocol does not support broadcast functionality. However, there is a standard in preparation for a source synchronous transfer protocol (2eSST) over VMEbus which includes broadcast functionality and increased bandwidth [17].
+
+### Details of the PVIC implementation
+
+As for the VMEbus implementation, long messages are transferred by the DMA controller of the PVIC interface and short ones in single cycle mode under control of the CPU of the sender. All messages have to be multiples of 4-byte words and start/end on 4-byte aligned addresses. The main limitation of PVIC is that the number of nodes is limited to 15. So far, we have used PVIC interfaces exclusively on CES SBCs.
+
+The broadcast functionality of PVIC is fully exploited using the low level library controlling the PVIC interface. However, the transmission latency of a message is not independent of the number of receivers since the protocol requires that the sender's read index, per virtual link, be updated by each receiver, with a single cycle, once the message has been received. Whereas the update of the write indices is performed via a broadcast.
+
+The PCI bus, as VMEbus, does not provide a broadcast protocol. Therefore, messages to multiple receivers have to be sent individually. Because the bus mapping is quite simple, for PCI a separate mapping library has not been developed, as for VMEbus and PVIC, but the necessary code has been put directly into the interface layer. Since the PowerPC based host SBC is not equipped with a PCI DMA controller, all block transfers between the SBC memory and the PCI device (PMC) are done via a DMA controller on the PCI device. In the case of the CES MFCC, a DMA library has been developed which allows the host SBC as well as the MFCC to execute block transfers between the host and MFCC system memories under control of either the host CPU or the MFCC CPU. The size and alignment requirements for the messages are the same as for PVIC.
+
+## 4 Performance measurements
+
+This section presents the results of the performance measurements on message passing across three supported buses, VMEbus, PVIC and PCI. For inter-IOM message passing, the hardware consisted of up to seven PowerPC based VMEbus SBCs, the RIO2 8062 [18]. Each module was equipped with a PVIC 8425 PMC [19] to allow communication within the crate via PVIC. For intra-IOM message passing via a PCI local bus, the measurements were performed using a RIO2 8062 and up to two MFCC 8441 PowerPC based PMC modules [20].
+
+The measurements described below all involve transfers of messages between the system memory of a RIO 8062 and one or more RIO8062 or MFCC system memories across different combinations of buses. The bus topologies are shown schematically in Figure 4. It can be seen that, in case of VMEbus and PVIC, three different coupled buses are involved in a data transfer _i.e._ the PowerPC bus, the PCI local Bus and VMEbus or PVIC.
+
+Figure 4: Bus topology in case of IOM message passing over VMEbus, PVIC and PCI bus
+
+The results described in section 4.1 to section 4.3 were obtained with test programs. Messages were transferred across the VMEbus, PCI and PVIC in single cycle and DMA mode. A sender program transmits messages to one or more receivers using the message write function [14] on a broadcast link. In the case of VMEbus and PCI, the receiver program reads the messages using the read function which includes a copy of the message from the circular message buffer to user space. If the sender is slower than the receiver, this does not affect the performance. However, if this is not the case, the memory copy operation adds to the message transfer time. Hence, for PVIC in DMA mode, messages are received using a read function which leaves the message in the circular buffer, see section 4.3.
+
+The measurements are presented in the form of graphs where the time per message is plotted as a function of the message size, up to 1 kbyte. The results are fitted to a straight line whose intercept with the y-axis indicates the overhead per message. The inverse of the slope of the line is the asymptotic bandwidth, obtained with large messages. The message overhead has three components: pure software, protocol overhead involving bus cycles to update the read and write indices and setting up of the DMA transfer.
+
+The message passing library has been integrated in the IOM applications where it is used to transmit data control messages between the IOMs. The results obtained with messages flowing over VMEbus and PVIC, respectively are presented in section 4.4.
+
+The test programs, the Message Passing library and underlying hardware libraries have been compiled with optimisation flags enabled. The use of VMEbus and PCI bus analysers from VMETRO [21] has allowed the results to be cross-checked and enable a detailed understanding of the message passing protocol.
+
+### VMEbus
+
+This section presents the results, obtained using test programs, of inter-IOM message passing over VMEbus in multi-cast mode. Figure 5 shows the performance when messages are sent in VMEbus single cycle mode for one to four receivers and Table 2 lists the corresponding message overheads and bandwidths.
+
+Figure 5: Message passing over VMEbus in single cycle mode with up to four receivers.
+
+The performance decreases inversely to the number of receivers which reflects the fact that VMEbus does not have broadcast functionality. The data rate of 3.3 Mbyte/s for one receiver corresponds to the performance measured elsewhere [22] for memory-to-memory transfers between two RIO2 8062s. The message overhead increases with the number of receivers and is mainly due to the two VMEbus single cycles per receiver associated with the protocol (\(\sim\) 3 usecs).
+
+The corresponding results when messages are sent in DMA mode are shown in Figure 6 and the message overheads and bandwidths can be found in Table 2. Compared to the results for single cycle transfers, the bandwidths are higher by one order of magnitude and the message overheads have increased significantly due to the setting-up of the chained DMA. The performance still decreases with the number of receivers.
+
+Figure 7 compares message transfers in single cycle and DMA mode for one receiver. The DMA transfers are more efficient for message sizes larger than O(32 bytes). A similar number is obtained with more receivers.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|} \hline  & \multicolumn{2}{c|}{Single cycles} & \multicolumn{2}{c|}{DMA} \\ \cline{2-5} \# Receivers & Message overhead (\(\mu\)sec) & Max. bandwidth (Mbyte/s) & Message overhead (\(\mu\)sec) & Max. bandwidth (Mbyte/s) \\ \hline \hline \(1\) & _4.8_ & _3.3_ & _12.3_ & _31.9_ \\ \hline \(2\) & _8.6_ & _1.6_ & _24.0_ & _15.7_ \\ \hline \(3\) & _12.9_ & _1.1_ & _37.0_ & _10.4_ \\ \hline \(4\) & _17.5_ & _0.8_ & _50.0_ & _7.7_ \\ \hline \end{tabular}
+\end{table}
+Table 2: Message overheads and data transfer rates in VMEbus single cycle and DMA mode.
+
+Figure 6: Message passing over VMEbus in DMA mode with up to four receivers.
+
+e test programs, of intra-IOM message passing over PCI in multi-cast mode. Figure 8 shows the performance when messages are sent in PCI single cycle mode for one and two receivers and Table 3 lists the corresponding message overheads and bandwidths.
+
+Figure 8: Message passing over a PCI local bus in single cycle mode between a RIO2 8062 and one or two MFCCs.
+
+Figure 7: Comparison between VMEbus message transfers in single cycle and DMA mode.
+
+The corresponding results when messages are sent in DMA mode are shown in Figure 9 and the message overheads and bandwidths can be found in Table 3. Compared to the results for single cycle transfers, the bandwidths are higher by one order of magnitude and the message overheads have increased significantly due to the setting-up of the DMA. The performance still decreases with the number of receivers. It is observed that the maximum bandwidth achieved is about 57 MByte/s, well below the theoretical value of 132 MByte/s. This is due to to inefficiences of the two PCI bridges, see Figure 4.
+
+Figure 10 compares message transfers in single cycle and DMA mode for one receiver. The DMA transfers are more efficient for message sizes larger than O(32 bytes). A similar number is obtained with more receivers.
+
+\begin{table}
+\begin{tabular}{|c|c|c|c|c|} \hline  & \multicolumn{2}{|c|}{Single cycle} & \multicolumn{2}{|c|}{DMA} \\ \cline{2-5} \# Receivers & Message overhead (\(\updownarrow\)sec) & Max. bandwidth (Mbyte/s) & Message overhead (\(\updownarrow\)sec) & Max. bandwidth (Mbyte/s) \\ \hline \hline \(1\) & _3.3_ & _7.1_ & _6.8_ & _56.8_ \\ \hline \(2\) & _3.8_ & _3.8_ & _11.2_ & _30.1_ \\ \hline \end{tabular}
+\end{table}
+Table 3: Message overheads and data transfer rates in PCI single cycle and DMA mode.
+
+Figure 9: Message passing over PCI in DMA mode with one or two receivers.
+
+### Pvic
+
+This section presents the results, using test programs, of inter-IOM message passing over PVIC in multi-cast mode. Figure 11 shows the performance when messages are sent in PVIC single cycle mode to one or more receivers (up to five) and Table 4 lists the corresponding message overheads and data rates.
+
+The performance is independent of the number of receivers which demonstrates the broadcast functionality of PVIC. Since the number of bus cycles associated with the message passing protocol increases with the number of receivers, a corresponding increase in the message overhead could be expected. To understand why this is not observed, an analys
+
+Figure 11: Message passing over PVIC in single cycle mode with up to five receivers.
+
+Figure 10: Comparison between PCI message transfers in single cycle and DMA mode.
+
+[MISSING_PAGE_FAIL:15]
+
+Figure 13 compares message transfers in single cycle and DMA mode for five receivers. As for VMEbus, it is observed that DMA transfers are more efficient for message sizes larger than about 32 bytes. A similar figure is obtained for other numbers of receivers.
+
+### ROC results
+
+This section presents the results of the ROC IOM applications which employ the message passing library for the exchange of data control messages between IOMs, see section 1. The performance measurements focus on the data flow within the ROC and external I/O is emulated in various ways. The following points can be noted, see [7] for more details:
+
+* The TRG generates data control messages internally according to the traffic pattern indicated in Table 1. A number of L2R messages (ten) are grouped together before being sent to the ROBs in order to improve the message transfer efficiency.
+* The EBIF performs Data Collection over VMEbus but does not output crate fragments to the Event Builder.
+* The ROB generates event fragments internally according to the format specified in [23]. No ROB fragments are transferred to the Level 2 trigger system. To provide synchronisation with the TRG, for each ten events generated, the ROB transmits its current event number over VMEbus to the TRG. The TRG will then only send data control messages corresponding to events where all fragments have been generated by the ROBs.
+
+The TRG and ROB applications, as well as time critical libraries, have been compiled with optimisation enabled and all messages have been exchanged using DMA functionality.
+
+The global performance of the ROC is assessed by measuring the rate of events flowing through the crate. The performance depends strongly on the efficiency of the message passing system and, consequently, provides a measurement of the latter.
+
+The hardware configuration described above has allowed to make measurements with a TRG, EBIF and up to five ROBs connected via VMEbus and PVIC. The event rate in the ROC has been measured as a function of the number of ROBs in the crate in two configurations. In the
+
+Figure 13: Comparison between PVIC message transfers in single cycle and DMA mode.
+
+first configuration, all data transfers are via VMEbus _i.e._ data control messages, data collection and synchronisation messages. In the second configuration, the data control messages are exchanged via the PVIC while data collection and synchronisation are performed on VMEbus. The result is shown in Figure 14.
+
+The performance of the ROC is either CPU or I/O bound. In the first configuration, VMEbus only, and for more than one ROB, the TRG is I/O bound. The event rate decreases inversely to the number ROBs and is due to the TRG sending data control messages sequentially to the ROBs. However, in the case of only one ROB, it is the latter which is CPU bound. The ROB can only process events up to a rate of about 190 kHz. When data control messages are sent over PVIC, the event rate is almost independent of the number of ROBs (up to five) which clearly demonstrates the importance of sending data control messages over a bus with broadcast capability. The ROC performance is, in this configuration, determined by the performance of the ROB. The slight decrease in event rate for five ROBs suggests that at this point, the TRG is becoming I/O bound.
+
+## 5 Summary
+
+This document has summarised the work performed, within the context of DAQ-Unit of the DataFlow system in ATLAS DAQ/EF prototype -1, on intra and inter-I/O module message passing. A summary of the design and the initial performance, based on VMEbus, PVIC and PCI implementations, was presented. The performance was measured using test programs and the IOM applications of the Read-Out Crate.
+
+The design is based on a message queue and read and write indices. The communication model is connection oriented, asynchronous and blocking. Multi-cast functionality, when not supported by the implementing bus, is achieved by a software layer on top of the point-to-point layer. A layered software architecture has been used to separate the generic aspects from the technology specific aspects. This approach has also allowed the operating system aspects to be
+
+Figure 14:The ROC event rate with up to five ROBs.
+
+restricted to specific layers to reduce porting effort. The latter has also been addressed by minimising the use of operating system calls.
+
+Within the context of the IOM applications, an event rate of nearly 200 kHz has been obtained within the Read-Out Crate, with the caveat that there is no I/O with a detector, the Event Builder or trigger system. A system of up to five ROBs, with message passing performed over PVIC, was not limited by the inter-IOM message passing but by the Read-Out Buffer application.
+
+To date, the PVIC interfaces have been used only in conjunction with RIO2 8062. There is, however, no reason why they should not work on other single board computers.
+
+## 6 Conclusions
+
+The results, specifically in the case of inter-IOM message passing, have shown the importance to message passing of having broadcast functionality supported by the implementing bus. However, even with this functionality it has been shown, using test programs, that the message passing time increases with the number of receivers. This is due to the message passing protocol overheads increasing by a bus write cycle per receiver.
+
+Today, a Read-Out Crate based only on the VMEbus is not a solution to achieve the required data rates, due to bandwidth limitations and the lack of broadcast functionality. The combination of VMEbus and a secondary bus providing broadcast functionality, _i.e._ PVIC, is a viable solution for inter-IOM message passing, if the bandwidth of the system bus of single board computers allows it. If, in the context of the Read-Out Crate, external I/O is performed, todays single board computers do not provide the required system bus bandwidth. There are, however, strong indications that this issue will be addressed by the next generation of single board computers, due to be available in the next 18 months.
+
+The combination of the next generation of single board computers and 2eSST should allow inter-IOM message passing, within a Read-Out Crate, to be performed, using only VMEbus, at the rates required by the ATLAS experiment.
+
+## References
+
+* [1] G. Ambrosini et. al., The ATLAS DAQ and Event Filter Prototype "-1" Project, presented at Computing in High Energy Physics 1997, Berlin, Germany. [http://atddoc.cern.ch/Atlas/](http://atddoc.cern.ch/Atlas/) Conferences/CHEP/ID388/ID388.ps.
+* [2] The DataFlow for the ATLAS DAQ/EF Prototype -1, [http://atddoc.cern.ch/Atlas/Notes/](http://atddoc.cern.ch/Atlas/Notes/) 069/Note069-1.html
+* [3] The DAQ/EF prototype -1 Back-End, [http://atddoc.cern.ch/Atlas/DaqSoft/Welcome.html](http://atddoc.cern.ch/Atlas/DaqSoft/Welcome.html)
+* [4] The DAQ/EF prototype -1 Event Filter, [http://atddoc.cern.ch/Atlas/EventFilter/main.html](http://atddoc.cern.ch/Atlas/EventFilter/main.html)
+* [5] The Detector Interface Group, [http://atddoc.cern.ch/Atlas/DetfeIf/Welcome.html](http://atddoc.cern.ch/Atlas/DetfeIf/Welcome.html)
+* [6] The LDAQ ATLAS DAQ prototype -1, [http://atddoc.cern.ch/Atlas/Notes/040/Note040-1.html](http://atddoc.cern.ch/Atlas/Notes/040/Note040-1.html)
+* [7] The Read-Out Crate in ATLAS DAQ/EF prototype -1. _CERN-EP/99-xxx_, in preparation.
+* [8] the Sub-Farm DAQ for ATLAS DAQ prototype -1, [http://atddoc.cern.ch/Atlas/Notes/044/](http://atddoc.cern.ch/Atlas/Notes/044/) Note044-1.html.
+* [9][http://www.mc.com/raceway](http://www.mc.com/raceway)
+* [10]Intelligent I/O processors in the DAQ-Unit of ATLAS DAQ/EF prototype -1, [http://atddoc.cern.ch/Atlas/Notes/065/Note065-1.html](http://atddoc.cern.ch/Atlas/Notes/065/Note065-1.html)
+* [11]PCI Vertical InterConnect (PVIC). Product catalogue, Creative Electronics Systems, Geneva, Suisse.
+* [12]The Parameter Buffer API, [http://atddoc.cern.ch/Atlas/Notes/064/Note064-1.html](http://atddoc.cern.ch/Atlas/Notes/064/Note064-1.html)
+* [13]Inter and Intra-IOM Message Passing in the DAQ-Unit, [http://atddoc.cern.ch/Atlas/Notes/](http://atddoc.cern.ch/Atlas/Notes/) 063/Note063-1.html
+* [14]The DAQ-Unit Message Passing API, [http://atddoc.cern.ch/Atlas/Notes/091/Note091-1.html](http://atddoc.cern.ch/Atlas/Notes/091/Note091-1.html)
+* [15]Summary and Introduction to the BusNet Standard, VITA 19.0-1997.
+* [16]Lynx-OS Installation & Configuration for the CES PowerPC based systems. Creative Electronic Systems, Geneva, Suisse.
+* [17]VITA 1.5, 2eSST, draft 1.5, [http://www.vit.com/vso/draftstd/2eSSTd1.5.pdf](http://www.vit.com/vso/draftstd/2eSSTd1.5.pdf)
+* [18]RIO2 806x. Product catalogue, Creative Electronics Systems, Geneva, Suisse.
+* [19]PVIC PMC. Product catalogue, Creative Electronics Systems, Geneva, Suisse.
+* [20]MFCC. Product catalogue, Creative Electronics Systems, Geneva, Suisse.
+* [21]PBTM-315 PMC Analyzer and the VBT-321 Advanced VMEbus tracer, VMETRO, Oslo, Norway.
+* [22][http://www.cern.ch/ESS/OS/reports/PPC-EVAP.PS](http://www.cern.ch/ESS/OS/reports/PPC-EVAP.PS)
+* [23]The Event Format in ATLAS DAQ/EF prototype -1, [http://atddoc.cern.ch/Atlas/Notes/](http://atddoc.cern.ch/Atlas/Notes/) 050/Note050-1.html

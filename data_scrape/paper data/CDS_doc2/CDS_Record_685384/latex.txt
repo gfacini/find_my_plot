@@ -1,0 +1,461 @@
+###### Abstract
+
+A proposal is made for a thin interface layer between the Dataflow framework and the Level-2 event selection framework. After consideration of the Dataflow and the Level-2 Trigger requirements, we determine that both frameworks can be interfaced by means of a Finite State Machine, defining a clear boundary between the HLT data collection and the HLT event selection software. A prototype for this interface - the Steering Controller - is developed based on LHCb's Gaudi framework, which is also the basis for the ATLAS Event Filter and offline frameworks. The implications of choosing these "off-the-shelf" software components, both in terms of performance and architecture, are the subject of this note.
+
+June 24, 2002
+
+**Use of Gaudi in the LVL2 Trigger:**
+
+**The Steering Controller**
+
+**S. Gonzalez, W. Wiedenmann**
+
+University of Wisconsin
+
+**A. Radu**
+
+Bern University
+
+## 1 Introduction
+
+Given the large selectivity of the ATLAS trigger (\(\approx 1/10^{7}\)) and the rare nature of most interesting signatures at the LHC, it is essential to understand the efficiencies at each step of the event selection process. One straightforward way of achieving this is by sharing the event selection code between the online (where events are actually selected) and the offline (where trigger physics performance is evaluated) environments.
+
+The ATLAS Level-2 Trigger [1] is mostly a software trigger. In the present view [2], the trigger's primary function of online event selection will be accomplished with software components developed in the ATLAS offline framework. The implications of re-using offline components in the Level-2 trigger is the subject of this note.
+
+The ATLAS trigger selection software (hereafter referred to as "PESA software") is being developed in the offline framework Athena [3], which is based on LHCb's Gaudi [4] framework. This implies that, presently, the PESA software follows the Gaudi/Athena architecture of data and algorithm separation, inter-algorithm communication via a store, and use of common services. This is achieved by implementing the basic Gaudi/Athena interfaces in the existing code.
+
+The suitability of Athena for the Event Filter has been studied before [5]; here we concentrate on the design and technical aspects of following a similar model for the Level-2 trigger.
+
+In Sections 1 to 3 of this note, the HLT and its requirements are reviewed. The next two sections introduce the concept of the Steering Controller, including its design, and aprototype implementation. After a presentation and discussion of measurement results, the implications to the HLT are discussed and conclusions are drawn.
+
+## 2 Event Selection in the High Level Trigger
+
+The ATLAS trigger is based on three levels of online selection: Level-1 [6], Level-2, and Event Filter (EF). The Level-1 trigger is implemented in hardware; the last two levels are primarily software triggers and are considered as a single logical unit (High Level Trigger, HLT).
+
+The Level-2 trigger is guided by Region of Interest (RoI) information received from the Level-1 trigger. Each RoI contains the type and \((\eta,\phi)\) range of the high \(p_{\rm T}\) candidate objects identified by the LVL1 trigger. In this way, typically only \(\approx\)4% of the full-granularity event data need to be transferred from the Readout Buffers to the Level-2 processing units (L2PU). The data are held in the ROBs until the Level-2 trigger takes the decision to accept or reject the event.
+
+Fast feature-extraction algorithms are performed at Level-2, combining information from all sub-detectors in a sequential manner. The algorithms will be a very restricted set, mostly developed by the Level-2 community but re-using common offline tools, when appropriate. The Level-2 event selection software will run inside the L2PU [7] and will be controlled by the Data Collection software.
+
+If the event is accepted at Level-2, the data are then moved to the Event Builder, where event fragments are combined into a full event that is then transferred to the EF farms. Here, more complex offline-like algorithms are used to provide a further rate reduction and possibly event classification. The EF will thus inherit both the framework and the algorithms from the offline environment. The EF will also use the latest calibration and alignment data. While the Level-2 reconstructs localized regions, the baseline for the EF is a full event reconstruction. In the present view, the EF is based on the offline framework Athena.
+
+Since the main purpose of HLT Software is event selection, the PESA software has to run efficiently and reliably in the online environment. In addition, critical selection components must be transferable to the offline environment for development and testing purposes. By providing a common code base for the online and the offline software, the HLT guarantees the consistency of trigger performance evaluations and TDAQ performance. It also provides a "physicist-friendly" environment for trigger algorithm development.
+
+The working model of a common online/offline software environment can be established by carefully defining a common interface layer between the HLT selection software and the HLT Dataflow software. This interface, which manages the event selection, is called the "PESA Steering Controller" (PSC).
+
+## 3 Requirements
+
+The HLT event selection software must satisfy the PESA requirements [2] and must also be compatible with the requirements of the Dataflow software [8]. It is therefore important to derive a first design of the Steering Controller from the most important requirements of both sub-systems.
+
+In the following, only requirements that have important architectural implications are considered. It is assumed that any other requirement not explicitly mentioned here can be satisfied by further development of the framework.
+
+### Data Collection sub-system
+
+The Data Collection component relevant for event selection in the Level-2 trigger is the "Level-2 Processing Unit" (L2PU). Dataflow and trigger processing within the L2PU are controlled with a Finite State Machine (FSM), as illustrated in Figure 1. The PESA event selection software resides within the L2PU. The interface between the L2PU and the PESA software is a thin layer that \(-\) for the moment \(-\) we will label as the "PESA Steering Controller" (PSC).
+
+Since the PSC is the dataflow control of the PESA selection software, it must satisfy the following Data Collection requirements:
+
+* The PSC has to map to the FSM of the L2PU;
+* All algorithms and services have to be configured and initialized before the event loop so that all external database accesses occur during the configuration phase (Only access to local copies of necessary databases is possible during event processing);
+* The event loop is controlled by the L2PU;
+* The LVL1-Result is given to the worker thread as an argument (The PSC then makes this available for the algorithms);
+* The PSC returns the LVL2 result, from which the Level-2 decision can be derived;
+* The PSC must support multiple threads;
+* Each thread processes a different event;
+* The total time budget for event processing is \(\approx\)10 ms, _i. e._, the PSC overhead should be small (\(\ll\)10 ms.)
+
+Figure 1 shows an important aspect of the L2PU: The PESA event selection software will be executed in multiple "worker threads", each thread handling one event at a time in parallel. An additional "input thread" (not shown in the figure) handles event flow via a shared event queue. Each worker thread is effectively isolated during event processing and thus access to external databases is only possible during configuration time.
+
+### PESA sub-system
+
+The detailed requirements of the PESA selection software can be found in [2] and the resulting conceptual design can be found in [9]. Here, only the requirements relevant for the proper integration with the L2PU are discussed.
+
+Developers of Level-2 algorithms may come from the detector or reconstruction communities - they thus need a "user-friendly" framework where to develop their algorithms.
+
+In addition, studies have already shown [10] that great cost savings can be obtained with the proper global optimization of the trigger. Having a single common framework where the three trigger levels can be cross-optimized greatly facilitates this task.
+
+The requirements of the PESA selection software on the PSC can be summarized in the following points:
+
+* It should be possible to develop algorithms in Athena and move them transparently to the L2PU environment;
+* The PSC is available in offline as an algorithm development environment;
+* The PSC allows the re-use of code components and interface definitions developed in offline (e.g., EDM, Storegate) thus providing an homogeneous environment for L2/EF/Offline.
+* The PSC hides the details of running the algorithms in multiple threads from the algorithm developer (_e.g._, it should be possible to move configuration definitions transparently from offline development environment to online environment).
+* Inside the HLT, it should be possible to move algorithms from the Level-2 to the Event Filter.
+
+The PESA-sw uses several external services, via well-defined interfaces, to allow an easy migration between the online and the offline environments. Examples of services that have to be provided are access to meta-data (e.g. calibration and alignment constants), the use of configuration data, and the interaction with the run control.
+
+Having a single framework for trigger development (offline) and deployment (online) allows great flexibility in the event selection process. This flexibility, in turn, gives the trigger
+
+Figure 1: The Level-2 processing unit Finite State Machine. All algorithms and services are created at initialization time. The Level-2 selection code is executed in parallel by multiple worker threads.
+
+the ability to cope with changes in background and luminosity conditions by, for example, moving resources between the Level-2 and Event Filter levels.
+
+## 4 First Design of the PESA Steering Controller
+
+Given the requirements of Sections 3.1 and 3.2, the PSC can be seen as a thin interface between the dataflow software and the PESA software. The key of the PSC design is to place this interface where the functionality of both frameworks can be cleanly separated. One such location is the FSM.
+
+The PSC can be seen as a local "state-aware" replica of the Data Collection's FSM ("AppControl"). It provides the means of forwarding state changes from the Dataflow software to the PESA software and can also be used to pass the Level-1 and Level-2 results between the frameworks.
+
+Figure 2 is a sequence diagram illustrating the interactions of the PSC with the Data Collection and the PESA software. The figure shows three states: Configure, Run, and
+
+Figure 2: A sequence diagram of the Steering Controller. The DC components are in gray; The rest are PESA components. During the configuration phase, all external configuration databases are accessed. The PESA selection software is created and configured at this time.
+
+End-of-Run1. The figure is an "online" view of the PSC. In an offline view, the Dataflow components would have to be substituted with offline services and a controlling main program.
+
+Footnote 1: The state names and definitions are not important for this discussion. They can always be mapped to attain the required functionality.
+
+During the CONFIG phase, a "Configuration Manager" obtains configuration and conditions information from the external databases via an HLT-Online interface. This component then proceeds to configure the PESA selection software and all required components. During the RUN phase, the PSC receives an "executeEvent" directive with a LVL1Result as an argument (actually the ROIBuilder/L2Supervisor Level-1 information). The PSC then returns (after execution of the PESA selection software) with the LVL2Result directly to the Data Collection software.
+
+An important aspect of this approach is that the Level-2 event handling (_i. e._, event loop) is managed entirely by the Data Collection framework. The PSC then does not need to interact with such DataCollection components as the input thread, the LVL2Supervisor, or with the pseudoROS. As the figure shows, the actual requests of data fragments are hidden behind the DataManager.
+
+During the EOR, the PSC terminates the algorithms. At this stage, run summary information can be produced for the selection process.
+
+Figure 2 can be mapped into Figure 1 by realizing that the components in solid black and within the gray region in Figure 2 will run inside the Worker Thread of Figure 1.
+
+## 5 From Design to First Prototype
+
+A prototype of the PSC design, described in Section 4, was developed as a feasibility study of the requirements described in Section 3. The aim of the study was to understand the technical and performance implications of such a choice, while providing a "proof-of-principle" first implementation. The prototype is based on an integration of the present DataCollection software, the Gaudi kernel, and a few Gaudi/Athena algorithms and services.
+
+There are some key questions that must be addressed by this prototype. The first point to be addressed is whether it is possible to implement the PSC by using the Gaudi interfaces (_i. e._, Gaudi base libraries). If confirmed, then the next point to be addressed is whether it is possible to create and run a reduced Gaudi framework in the L2PU in a multi-threaded environment. Finally, the performance implications of this scheme must be understood.
+
+A detailed user's guide and reference to the Steering Controller prototype, including a description of the Gaudi modifications, is included in Appendix A.
+
+### Assumptions
+
+The PSC of Figure 2 was developed from a set of requirements derived from the Data Collection and PESA software. In this work, an additional set of requirements was assumed in order to better define the development of the prototype. It is assumed that Level-2algorithms are specially developed and optimized for speed and efficiency. They are not "genuine" offline algorithms2. This means that:
+
+Footnote 2: To be more precise, one can say that the QA for Level-2 algorithms is different (and more strict) than for offline algorithms.
+
+* Level-2 algorithms may not use all services available in an offline implementation of the framework;
+* The framework may offer a restricted set of interfaces to the algorithms, namely only those that are necessary to achieve the Level-2 event selection;
+* Level-2 algorithms shall be thread-safe;
+* Dedicated, "light", implementations of framework services may be necessary at Level-2 in order to achieve the performance requirements.
+
+In order to have the necessary functionality for the trigger, the PSC prototype must include a minimal set of framework services and features. Modularity of the PSC can be achieved by adding any additional required services via configuration. In addition, all algorithms and services that are common between online and offline must not be "thread-aware" to ensure full transparency for developers. For example, there should not be explicit use of mutexes or other locking mechanisms in the offline code. The L2PU takes care of this worker-thread management.
+
+### The Re-use of Gaudi
+
+The idea behind using Gaudi for the PSC is simple: By using the "kernel" of the offline framework, all interfaces and services available in the ATLAS offline and Event Filter are immediately available at Level-2. In this way, there is a unified chain of event reconstruction and selection from the Level-2 trigger to the the offline analysis.
+
+In order to factor out experiment dependencies, the experiment-neutral Gaudi is an external package for Athena. Athena-specific services and algorithms are then concrete implementations of the basic Gaudi interfaces. For example, StoreGate [11] is a special implementation of the event data service, which needs a special Gaudi application manager.
+
+In the prototype developed for this study, the Level-2 Processing Unit uses the GaudiKernel and GaudiSvc libraries from the Gaudi package. In order to map the L2PU FSM to Gaudi, modified implementations of "Application Mgr" and "EventLoopMgr" had to be introduced to GaudiSvc (see Section 5.4). In addition, both GaudiSvc and GaudiKernel had to be modified to introduce transparent support for multi-threading (see Section 5.3).
+
+### Multi-threading
+
+The use of multiple threads to process events is a fundamental aspect of the Level-2 trigger. This processing model minimizes overheads from context-switching, given that event processing times in the Level-2 are of order 10 ms. The technical aspects of multi-threading in the L2PU are handled by the Data Collection software itself, including creation and deletion of threads and any locking mechanism that may be required.
+
+This processing model matches well with the requirement (see Section 5.1) that the PESA software should not be thread-aware. Nevertheless, the software must still be thread-safe [12].
+
+In terms of thread-safety, two types of components can be identified: thread-local and global. In general, the framework (or any of its components) reads and/or writes to thread-local components - therefore they must be thread-safe. A global component is one where accesses are read-only, so that no thread conflicts can arise.
+
+Thread-safety has been implemented by using Gaudi's name-based object and service bookkeeping system. Copies of components that need to be thread safe are created in each worker thread with different labels. The labels incorporate the threadID of the worker thread obtained from the thread package of the Data Collection software. All thread-specific instances of services and algorithms are then distinguished by type (class name) and (generic name)__(thread ID). For example, in order to create and run an algorithm of type "TriggerSteering" and generic name "TrigStr" for two threads, the algorithms TriggerSteering/TrigStr__00 and TriggerSteering/TrigStr__01 are created in threads 00 and 01, respectively.
+
+The number of threads created by the Data Collection software is transferred to the Gaudi ApplicationMgr, which transparently creates the number of required copies. All other instances of the algorithms are created automatically since the thread ID is "inherited" by the algorithms from the EventLoopMgr. The same configuration file (jobOption.txt) can therefore be used in the online and the offline environments.
+
+When running in the offline environment, the thread ID string collapses to a null string. This allows the same modified Gaudi code to be used transparently in the online and offline environments. More details can be found in Appendix A.
+
+Figure 3: The prototype setup. A modified version of Gaudi is shared by the online and the offline environments. The libraries containing the event selection algorithms are linked to the offline within the L2PU.
+
+### Mapping the Finite State Machine
+
+As mentioned in Section 4, the actual interface between the Data Collection and the L2PU-resident Gaudi is the Finite State Machine. The DataCollection controls the Gaudi application manager by changing states. The following is a list of the L2PU states (so far) implemented in the PSC:
+
+* **Configure**: Initializes the basic Gaudi framework within the L2PU and configures and initializes all requested services and algorithms. For every thread, an instance of a Gaudi EventLoopMgr is created, configured, and initialized. The EventLoopMgr then creates and configures for its threads all requested algorithms. Thread-specific services, (_e.g._, histogramming services and event data services) are created and configured by the AppMgr before the EventLoopMgr is configured. All configuration information is also read at this time (at the moment the configuration database is just the Athena jobOptions file).
+* **Start**: Inside each worker thread a copy of the EventLoopMgr starts execution. The EventLoopMgr is called with the Level-1 Result as an argument. This, in turn, triggers a clearing and initialization of the event store (Gaudi TES). The Level-1 result is then stored as the root object of the event store so that the Level-2 algorithms can have access to it. Finally, EventLoopMgr__(thread ID)-->executeEvent() executes all algorithms requested for the event.
+* **UnConfigure**: All PESA algorithms are finalized and run summary information is generated.
+* **Terminate**: All PESA code and the Gaudi application manager are terminated.
+
+### Features of the prototype
+
+In order to build a realistic prototype, many of the Athena/Gaudi services normally available in the offline were implemented in the online environment. As mentioned before, the same, albeit modified, Gaudi base libraries were used for online and offline running.
+
+The Gaudi services MsgSvc, IncidentSvc, AuditorSvc, and HistogramSvc have been incorporated into the prototype and have been tested. The Gaudi Transient Event Store (TES) has also been included, together with "SimpleStore" [13].
+
+A few algorithms have been implemented and tested in the prototype. The "HelloWorld" example from the Athena tutorial [14] was the first to be tested. The "TriggerBenchmark" algorithm, which stores \(n\) different object types in the store and reads them back [5], has also been implemented and tested with the Gaudi TES. In addition, a steering example, the so-called "April prototype" [15], has been imported directly from the offline trigger repository into the L2PU. It has been configured to run a relatively complex example with dummy algorithms (see next section). The dummy algorithms also have the capability of "burning" CPU cycles in order to emulate the latency profile of a real algorithm.
+
+The prototype runs both in the offline environment and in the multi-threaded online environment. All services and algorithms are configurable via the Athena jobOptions file.
+
+Performance Measurements
+
+### Test Setup
+
+After developing the prototype on a Pentium III machine running Redhat Linux 6.1, the code was ported to a dual CPU machine with Athlon 1800 MP processors3 and 1 GB of memory. The dual CPU machine was running Redhat Linux 7.2 (kernel 2.4.9smp). In order to maintain compatibility with the offline code, both the Data Collection and the Gaudi kernel were recompiled with gcc version 2.95.2. The dataflow software release used was version D C-00-00-04 and the offline release used was 3.0.0 with Gaudi 0.8.5.
+
+Footnote 3: Equivalent to an Intel processor of 1.8 GHz.
+
+The data collection software can be configured to run in either a single-node or in a multi-node system. The single node system starts a ROS emulator, a Level-2 supervisor, and a L2PU in the same node, while the multi-node system distributes these applications over a configurable number of nodes. The prototype was successfully run in both configurations, however, all results are quoted for the single-node system described above in order to avoid limitations due to the network bandwidth.
+
+Both a debug and optimized versions of the code were built, however, all results are quoted for the optimized build.
+
+### Results
+
+The prototype was tested for stability by running it over long periods of time. For example, the PSC ran with the "April prototype" for over 50 hours in a single CPU machine in three threads. All other configurations of the prototype were equally stable. A problem was found in the dual-CPU machine: The prototype routinely encountered an exception after about two hours of running. This was identified as a thread-safety problem in the ostream method of the system base libraries. The PSC prototype was also run with multiple threads and was thus proven to be thread-safe.
+
+Measurements were also carried out on the PSC's performance. PESA code is run in the L2PU as additional payload, which allows simple measurement of additional overhead due to the PSC. The PSC prototype was run in different configurations in order to understand the overhead contributions of a few basic components. The components considered were:
+
+* The DC software;
+* The PSC itself;
+* Access to the Gaudi TES;
+* The "April prototype".
+
+Table 1 summarizes the results for the different configurations tested. All quoted numbers were obtained with the optimized code. The performance is quoted in terms of rate, where the rate was determined by the number of events that the Level-2 Supervisor was able to handle. The measured rate was given by the DC software itself.
+
+The measurements were based on runs of at least two minutes, providing enough events to ensure negligible statistical uncertainties. When performing rate or latency measurements on a PC, OS-related operations or other resident processes can introduce biases in the timing measurements. In this study, it was verified that run-to-run variations were less than 1.5% 4.
+
+Footnote 4: Here, “run-to-run” means that the same prototype configuration was used repeatedly. This number also includes statistical effects.
+
+Since we are interested in measuring the overheads introduced by Gaudi into the L2PU, the Data Collection software was configured to run without any ROS emulator access. This configuration prevents the introduction of latencies due to messaging and data transmission. In addition, the prototype was configured to run with only one thread, so that the measured latencies would not need to be corrected for thread-shared CPU cycles.
+
+#### 6.2.1 PSC Framework overhead
+
+The first measurement performed was of the rate capability of the DC framework itself without any PSC components. The measured latency was \(43\mu\)s per event. After adding the Gaudi-based PSC, the latency increased to \(56\mu\)s, which corresponds to an overhead contribution from the PSC alone of \(1\,3\mu\)s per event.
+
+The Gaudi-based PSC tested here includes the interface itself and a trivial "HelloWorld" algorithm taken from the Athena tutorial example[14]. At this level, the Gaudi overhead contribution to the Level-2 trigger can be deduced to be at the level of \(\approx 1/10^{3}\).
+
+The HelloWorld algorithm was outfitted with a "CPU burner", which is basically a calibrated execution loop that mimics real algorithm CPU consumption. In order to test that
+
+Figure 4: Measured latency with three different configurations of the prototype. A CPU burning algorithm was used in the dummy algorithm to test the scalability of the overheads. See text for more details.
+
+the system is well-behaved for large latencies, the prototype was run in various configurations and as a function of "burn time". Figure 4 shows that the measured rate matches well with the burn time. The figure shows the results for three threads.
+
+#### 6.2.2 TES Access overhead
+
+The PSC receives the Level-1 result by argument in the L2PU. This result must somehow be made available to the algorithms (to seed the processing). One possibility is that the PSC writes the Level-1 result directly to the Transient Event Store (TES), making it the "root" (top hierarchy) object of the event. This method was tested in the PSC prototype by writing the (dummy) Level-1 result into the Gaudi TES before event processing for every event. The additional overhead of this operation is, as seen from Table 1, \(9\mu\)s per event.
+
+The "TriggerBenchmark" algorithm (described in Section 5.5) was used to study the store/retrieve access times to the Gaudi TES. The algorithm was configured to store and retrieve from the TES a variable number of objects. Five different object types were used. The results are also included in Table 1; the overheads range from \(\approx 1\,2\mu\)s to \(\approx 17\mu\)s for a combined write and read operation for less than 100 objects. The overhead dependency on multiplicity can be understood from the tree structure of the TES, for which a top-level access yields an exponential access time dependence [5].
+
+#### 6.2.3 Execution in a "try-catch" clause
+
+Executing the PESA algorithms inside a "try-catch" clause would be an effective way to implement exception handling and error recovery in a multi-threaded environment. Gaudi, by default, executes all algorithms in a try-catch clause. By removing these statements, it was determined that algorithm execution within a try-catch reduced the achievable rate by \(\approx\)2%.
+
+Given the advantages of using try-catch, especially in a development environment, all results quoted here include this 2% penalty.
+
+#### 6.2.4 The April prototype
+
+The April Steering Prototype, described in [15], was successfully integrated into the PSC. The aim of the prototype was to integrate and test the algorithm steering mechanism and the trigger configuration code. By bringing together this prototype with the PSC, a more realistic algorithm environment could be tested for the online event selection software.
+
+The steering prototype consisted of several packages:
+
+* TrigConfig: Creates trigger menu tables and sequence tables, which are needed by the Steering package;
+* TrigSimpleStore: Provides a store for run-related data;
+* TrigStore: Provides storage and navigation for event-related data;* TrigSteerExample2: Executes the HLT selection strategy based on sequential processing steps.
+
+The April prototype was fully developed in the offline environment and then ported into the online environment (L2PU) with minor modifications. A few changes were required to make the prototype thread-safe. The successful integration of the Steering prototype shows that the PESA software development model (develop offline and deploy in online) is a sound one.
+
+The measured overhead of the April steering prototype, as seen from Table 1, was \(240\mu\)s per event.
+
+## 7 Lessons from the Integration Exercise
+
+The work leading to this note was, effectively, an integration exercise between two very different systems: the Data Collection and the Offline. While integrating these two systems, some technical problems were encountered that, while solvable, made solving the important problems more difficult than necessary.
+
+Most of the problems encountered revolved around the setting up of a common software environment. In the future, if the present view of a common software framework still holds, it will be essential to have a fully integrated Data Collection, Offline, and Online packages. Particular difficulties encountered with the prototype were (in order of importance):
+
+1. The use of different CMT [16] versions made building the code difficult; a non-standard solution had to be implemented. (This is now solved with a CMT upgrade to v10 for the dataflow.)
+2. The use of different naming conventions and policy packages
+3. The use of release scripts that override CMT-set environment variables and options was a particular problem with the DC software.
+4. Having different compiler versions for different packages forced a full recompilation of all software. There must be ATLAS-wide agreement on a single compiler version. This facilitates software component re-use.
+
+\begin{table}
+\begin{tabular}{|l|c|c|} \hline Prototype configuration & Measured rate & Overhead / event \\ \hline \hline L2PU & 23184 Hz & 43\(\mu\)s \\ \hline L2PU +PSC+HelloWorld & 17861 Hz & 56\(\mu\)s \\ \hline L2PU +PSC+HelloWorld+L1\(\rightarrow\)TES & 15323 Hz & 65\(\mu\)s \\ \hline L2PU +PSC+L1\(\rightarrow\)TES+TriggerBenchMark(\(N_{\mathrm{obj}}\) = 5) & 7071 Hz & 141\(\mu\)s \\ \hline L2PU +PSC+L1\(\rightarrow\)TES+TriggerBenchMark(\(N_{\mathrm{obj}}\) = 10) & 5218 Hz & 192\(\mu\)s \\ \hline L2PU +PSC+L1\(\rightarrow\)TES+TriggerBenchMark(\(N_{\mathrm{obj}}\) = 50) & 1333 Hz & 750\(\mu\)s \\ \hline L2PU +PSC+L1\(\rightarrow\)TES+TriggerBenchMark(\(N_{\mathrm{obj}}\) = 100) & 545 Hz & 1830\(\mu\)s \\ \hline L2PU +PSC+L1\(\rightarrow\)TES+April prototype & 3309 Hz & 302\(\mu\)s \\ \hline \end{tabular}
+\end{table}
+Table 1: Measurement results for different configurations of the prototype.
+
+5. Debugging the system is very difficult in the online environment. More debugging control should be given to the user. (This has already been improved in the DC software.)
+6. It was very difficult to configure the DC software to run in a multi-node system. No working examples were available at the time of this study. (This situation has improved.)
+
+Many of the above points have been improved significantly since this study was performed.
+
+Another lesson learned from the prototype is that working with multiple repositories (DC, offline, online) is, in principle, not a problem. As long as CMT is used uniformly across all packages, it is trivial to set up CMT "glue" packages that seamlessly integrate the repositories.
+
+## 8 Implications for the High Level Trigger and Athena/Gaudi
+
+The Steering Controller design proposed in this note addresses many of the requirements outlined in [2] while re-using elements of the Gaudi framework. This prototyping work has effectively been a successful test of the PESA sw development model, namely:
+
+* All test algorithms were compiled, linked, and run with modified Gaudi in the offline environment;
+* The same algorithms were then run in the L2PU without recompilation (libraries were only included in the search path for L2PU);
+* The same jobOptions file for algorithm configuration was used for offline and online running.
+
+The success of this development model implies that ATLAS will be able to use the same event selection code in the HLT online trigger and in the offline event reconstruction. This will allow a straightforward determination of efficiencies for physics analyses, an important consideration in the high rejection environment of the LHC. The Level-2 trigger is then the first step in the ATLAS event reconstruction.
+
+The prototype has shown that it is necessary to distinguish, from a Level-2 perspective, between thread-aware and global services. Global services run in a single thread and are read-only, _e.g._, a configuration database. Thread-aware services have read/write accesses, _e.g._, histogramming and messaging.
+
+A feature of the prototype is the ability to individually configure worker threads. This feature allows the possibility of having different worker threads performing dedicated tasks.
+
+The adoption of Gaudi in the Level-2 trigger also sets important constraints on systems beyond the HLT and event beyond ATLAS. Since Gaudi is external to ATLAS, a collaborative effort must be established with the Gaudi development team to ensure that Gaudi remains compatible with the goals of the HLT in all of the future development cycles. The same applies to the ATLAS-specific services provided by Athena: A close collaboration must be established and maintained with the ATLAS Architecture team. This collaboration should culminate with delivery of an "Athena-light" version, which contains the services and components appropriate for the trigger. These and similar recommendations can be found (for the EF/HLT) in [5].
+
+## 9 Summary and Outlook
+
+### Conclusions
+
+The work described in this note has shown that re-using Gaudi in the Level-2 trigger is not only possible, but desirable.
+
+Given that the Event Filter will use [5] Athena as an event selection framework, the benefits of using Gaudi at the Level-2 are twofold. First, a unified framework provides a coherent method for evaluating the physics performance of the ATLAS trigger, which is really the first step in event reconstruction. Second, such a framework provides a fast and straightforward turn-around for algorithm developers, which will be crucial in the challenging LHC environment. These benefits also minimize the required investments of manpower.
+
+Gaudi (and Athena) can be matched to the strict boundary conditions of the online environment and the Level-2 event selection framework. By limiting the control interface between the DataCollection and the PESA software to the Steering Controller, an implementation of the PSC with Gaudi can be realized. The requirements for L2PU and PESA can be simultaneously fulfilled.
+
+Multi-threaded running of the Gaudi framework via the PSC in the Level-2 online environment has been demonstrated. Timing measurements show an acceptable overhead of \(13\mu\)s per event, which is well within the tight time budget for online running.
+
+### Next Steps
+
+In the near future, the work described here must be better integrated with the dataflow software. This includes access to configuration databases, integration with online messaging, and loading the ROS emulator with realistic byte-stream data. The common Gaudi base libraries must be provided for offline and online running with minimal implementations of the required services suitable for online. The design ideas presented here must also be reconciled and integrated into the present HLT software design document.
+
+On a longer time-scale, the HLT community must form a close collaborative relationship with both the Gaudi and A-team communities. Such cooperation is essential for this model to work in the future.
+
+## 10 Acknowledgments
+
+We wish to thank A.Bogaerts, A.Dos Anjos, P.Werner, and H.Zobernig for their help and encouragement.
+
+The PSC prototype user's guide and reference
+
+### Modified Gaudi
+
+For the present prototype mainly two packages of the Gaudi distribution5 were modified. The first,GaudiKernel, was modified in order to implement multi-threading capabilities in base classes that are then used by concrete implementations of algorithms and services. The second, GaudiSvc, was modified so that the "Gaudi Application Manager" ( ApplicationMgr ) and "Event Loop Manager" ( EventLoopMgr ) could be adapted to the needs of the Level-2 environment. A diagram of these Gaudi components can found in Figure 5.
+
+Footnote 5: This description refers to Gaudi version 0.8.5, which was used for the prototype.
+
+The support for multi-threading is based on the Gaudi architecture, which allows the unique creation and identification of every service and algorithm by type and name (e.g. <service type>/<service name>). This allows also for the creation of multiple instances of, for example, the same service type with different service names. For \(n\) threads therefore \(n\) copies of the relevant services and algorithms are created with the naming scheme <type>/<generic name>_threadID. Each worker thread then runs the copies with its "threadID".
+
+The creation of the services has to be directly requested in the ApplicationMgr. Two types of services have to be distinguished, services which exist only in one instance, e.g. some meta-data services like the magnetic field data service, and services which have to be thread aware and exist in multiple instances like the "Event Data Service (event store)". In order to transparently create the necessary instances of the services, the ApplicationMgr has to know the number of worker threads the L2PU will be running. This number is derived from the configuration of the L2PU and made available to Gaudi as "Property" _NoOfThreads_ via a "setProperty" method. In the "offline" environment _NoOfThreads_ is 0, whereas in the "online" environment _NoOfThreads_ is greater than 0. The ApplicationMgr was modified to create all necessary basic thread aware services in _NoOfThreads_ copies. In order to allow additional thread-aware services to be specified by a user, the configuration syntax of the jobOptions file was extended. The necessary multiple copies of an additional thread aware service are created automatically by the ApplicationMgr, if the service is specified in the job options file as
+
+<service type>/<generic service name>_M
+
+The __M is automatically replaced by the appropriate thread identifiers. In the offline environment (_NoOfThreads_ = 0) the extension is ignored. The EventLoopMgr, which creates, configures and initializes all algorithms, is one of the basic thread-aware services that is created by the ApplicationMgr. Since the EventLoopMgr knows its threadID, it can pass it on to the algorithms and sub-algorithms created by it. The EventLoopMgr was therefore modified to create the thread specific algorithm instances transparently form their generic names specified in the job options file. This approach allows the use of the same configuration job option file in the offline and online environment.
+
+The algorithm and service base classes were modified so that they first receive their appropriate configuration settings specified with their generic name in the job options file. It is however possible to overwrite these settings with ones which are specified with the thread specific name. This makes it possible to run algorithms and services with different settings in different threads. This option was found useful for, _e.g._, debugging purposes.
+
+### Interface to L2PU
+
+The "Final State Machine" (FSM) of the Gaudi Application Mgr is mapped onto the FSM of the L2PU processing unit. This constitutes also the interface of the PSC to the Data Collection software. In the following, the different states and corresponding actions of the PSC are described. The corresponding code fragments inside the L2PU are shown in italics.
+
+#### a.2.1 Instantiation of L2PU
+
+An instance of the Gaudi ApplicationMgr is created.
+
+ DEBUG("--->CreatePesAApplicationManager");  //Createaninstanceofamapplicationmanager  m_pesAsppMgr=Gaudi::createApplicationMgr();
+
+#### a.2.2 LVL2PU::act_config():
+
+The Gaudi ApplicationMgr is configured and initialized. All services and algorithms are created, configured and initialized. A failure of any one of these steps will also cause a failure of the configure step of the L2PU.
+
+ //configurePesa DEBUG("--->ConfigurePesaPropertyManager");  StatusCodesc :  SmartIF<IProperty>propMgr(IDID_IProperty,m_pesaAppMgr);  SmartIF<IPpMgrUI>appMgr(ID_IAppMgrUI,m_pesaAppMgr);  if(!appMgr.isValid()||!propMgr.isValid()){  ev=Status::ErrorReturn(PU_FIND_DBJ_FAIL,0);  FATAL(ev,"FatalerrorwhilecreatingtheApplicationMgr");  exit(EXIT_FAILUHE);  }  //Gettheinputconfigurationfilefromarguments(defaultingto"jobOptions.txt")  std::stringopts="jobOptions.txt";  propMgr->setProperty("JobOptionsPath",opts);
+
+ //TellGaudihowmanythreadswillbecreated  ostrstreamgandi_n0OfThreads;  gandi_n0OfThreads<<LVL2PU::getConfig().getN0OfThreads()<<endl;  propMgr->setProperty("N0OfThreads",gaudi_n0OfThreads.str());  gandi_n0OfThreads.freeze(0);
+
+ //Configuretheapplicationmanager  sc=appMgr->configure();  DEBUG("--->ConfigureApplicationMgr:"<<appMgr->stateName()  <("Status:"<<sc.getCodes());  if(sc.isFailure()){  ev=Status::ErrorReturn(PU_FIND_DBJ_FAIL,0);FATAL(ev,"---) Fatal error while configuring the ApplicationMgr ");  exit(EXIT_FAILURE);  }
+
+ // Initialize the application manager  sc = appMgr->initialize():  DEBUGI("---) Initialize ApplicationMgr : " << appMgr->stateName()  << " Status : " << sc.getCode();  if( sc.isFailure() ) {  ev = Status::ErrorReturn(PU_FIND_DBJ_FAIL, 0);  FATAL(ev,"---) Fatal error while initializing the ApplicationMgr ");  exit(EXIT_FAILURE);  }
+
+Next, the L2PU creates the worker threads. Each worker thread gets connected to an instance of the EventLoopMgr.
+
+ char locatorname[100];  sprint(locatorname,"%s%.2u","EventLoopMgr _\_".threadID);  std::stringnameEventLoopMgr = locatorname;  DEBUGI("---) Thread : " << m_threadID << " - Name for  EventLoopManager : " + nameEventLoopMgr );  StatusCode sc :  m_processingMgr = 0 ;  SmartIFISvLocator>svLoc( CID_ISvLocator, m_pesalppMgr );  if(svLoc.isValid()) {  sc = svLoc->service( nameEventLoopMgr, m_processingMgr);  if(!sc.isSuccess() ) {  DEBUGI("MSG::FATAL Error retrieving Processing manager:") ;  m_processingMgr = 0 ;  }
+
+#### a.2.3 LVL2PU::act_run():
+
+An instance of the Gaudi EventLoopMgr->executeEvent(void* par) method with all its algorithms is executed for each new event inside each worker thread of the L2PU. The Level-1 result is passed as an argument to Gaudi and is stored inside the transient event store from where the Gaudi algorithms can access it.
+
+ // ExecuteEvent from the application manager  StatusCode sc ;  if ( 0!= m_processingMgr ) {  SmartIF<IFEventProcessor>processor(IID_IFventProcessor, m_processingMgr);  if (processor.isValid() ) {  DEBUGI("---) Executing WorkerThread---) " << m_threadID);  sc = processor->executeEvent(lresult);  if ( sc.isFailure() ) {  DEBUGI("Fatal error for executeEvent in the ApplicationMgr " << m_threadID);  }  else {  DEBUGI("---) executeEvent ApplicationMgr : no valid event processor " << m_threadID);} } }
+
+#### a.2.4 LVL2PU::act_unconfig():
+
+The Gaudi ApplicationMgr is finalized and terminated. In the finalize step all algorithms and services are finalized and eventual summary information produced by the algorithms during the run is collected.
+
+ StatusCodesc :  SmartIF<IProperty>propMgr (ID_IProperty,m_pesAppMgr );  SmartIF<IAppMgrU>appMgr (ID_IAppMgrU,m_pesAppMgr );  if(!appMgr.isValid()||!propMgr.isValid()) {  ev=Status::ErrorReturn(PU_FIND_OB_FAIL,0);  FATAL(ew,"Fatal error while unconfig the ApplicationMgr ");  exit(EXIT_FAILUBE); }
+
+ // Finalize the application manager  sc = appMgr->finalize();
+
+ DEBUG1("--->Finalize ApplicationMgr : " << appMgr->stateName() <<"Status : " <<sc.getCode());  if(sc.isFailure()){  ev=Status::ErrorReturn(PU_FIND_OB_FAIL,0);  FATAL(ew,"--->Fatal error while finalizening the ApplicationMgr ");  exit(EXIT_FAILUBE); }
+
+ // Terminate the application manager  sc = appMgr->terminate();  DEBUG1("--->TerminateApplicationMgr : " << appMgr->stateName() <<"Status : " <<sc.getCode());
+
+ if(sc.isFailure()){  ev=Status::ErrorReturn(PU_FIND_OB_FAIL,0);  FATAL(ew,"--->Fatal error while terminating the ApplicationMgr ");  exit(EXIT_FAILUBE);  }
+
+### Developing new Applications
+
+The development of new software components for the Level-2 trigger can take place in the same setup and the same directory structure that is used for development in the offline environment. The underlying Gaudi base libraries are the same as those used in the online environment but with the modifications to support multiple threads. This setup is implemented by overwriting the ExternalComponents package of the Athena setup, which essentially overwrites the standard path for the Atlas default Gaudi installation.
+
+The algorithm developer can then use the same interfaces as in the offline setup. However, the algorithms have to be thread safe and will have access only to a limited subset of services which are appropriate for the Level-2 environment. This implies that a genuine offline algorithm won't necessarily run in the online environment, however a Level-2 algorithm should be always runnable in the offline setup.
+
+With the typical sequence of commands the software gets configured, compiled and linked and the shared libraries are produced. The software can then be run with the usual command athena jobOptions.txt.
+
+### Running Applications in the L2PU
+
+For running the software developed in the offline environment it is only necessary to copy the jobOptions file to the run directory of the L2PU unit and to include the previously compiled shared libraries in the search path for shared libraries of the L2PU. This can be achieved during configuration with CMT by making the offline development area available as an external package to the data collection software.
+
+### Example jobOptions.txt File with extended Configuration Syntax
+
+The jobOptions file below from the so called "AprilPrototype" shows the new extended syntax for automatically creating multiple instances of thread-aware services.
+
+MessageSrc.OutputLevel = 7; ApplicationMgr.EvtMax = 50; ApplicationMgr.DLLs ++ { "TrigSimpleStore" }; ApplicationMgr.ExtSvc += { "TrigSimpleStoreSvc_M" }; ApplicationMgr.DLLs ++ { "TrigStore" }; ApplicationMgr.ExtSvc += { "TrigStoreSvc_M" }; ApplicationMgr.DLLs ++ { "TrigConfig" }; ApplicationMgr.TopAlg += {"HLT::TriggerConfig/TriggerConfig"}; TriggerConfig.OutputLevel = 3; TriggerConfig.sequenceListFileLocation = "sequencelist.xml"; TriggerConfig.signatureListFileLocation = "signaturelist2.xml"; TriggerConfig.trigConfigElVector = "storeLocationL2"; TriggerConfig.trigConfigEFvector = "storeLocationEF";
+
+StepHandler.trigConfigVector = "storeLocationEF"; ApplicationMgr.DLLs += { "TrigSteerExample2" }; ApplicationMgr.TopAlg += {"StepController" }; StepController.lvlResult = "LVL1EM LVL1MU";
+
+The __M indicates that for each thread an instance of the services "TrigSimpleStoreSvc" and "TrigStoreSvc" should be created. The same jobOptions file can be used in the offline environment where the __M extension is ignored.
+
+In the online environment it is further possible to pass thread specific configuration options to the services and algorithms. An example is shown below for the Athena "Hello World" example.
+
+[MISSING_PAGE_EMPTY:22]
+
+### Installing and running the prototype
+
+An up-to-date README file describing how to install, build, and run the prototype described in this note can be found in [17]. The latest prototype software, and all necessary components, can also be obtained from [17].
+
+The following is the procedure to follow when installing and running the PSC prototype on a single node system:
+
+1. Choose an installation directory with sufficient space (\(>\)1.5 Gb). This directory is subsequently called <top_directory>.
+2. cd <top_directory>
+3. Download from the directory Distribution/<platform> the files:  Gaudi.tgz  Lv12Setup.tgz  Lv12.tgz  Pesa.tgz  cmtLv12setup.tgz  scripts.tgz
+4. Unpack in <top_directory> the downloaded files with:  tar -zxf <download_dir>/*.tgz This will create the directories:.cmtLv12setup/ Gaudi/ scripts/ Pesa/ Lvl2setup/ Lvl2/
+5. cd <top_directory>/.cmtLv12setup/ and edit the requirements file. Set the cmt macro ww_lvl2_top to your <top_directory>  macro ww_lvl2_top "<top_directory>"
+6. Join this requirements file with your top requirements (i.e. ~/requirements) file in your home directory. An example can be found in the tar file cmtdir.tgz available from the download area.
+7. In order to run the HelloWorld example, follow the sequence below:  a) cd <top_directory>/Lvl2/DataCollection/Psc-00-00-04/12pu/v1rOp15/run  ln -s Pesa_HelloWorldOptions.txt jobOptions.txt  b) Start a new window for the L2 Processing Unitcd ^/  source <top_directory>/scripts/L2PUS setup.cmd -t HelloWorld at the FSM command prompt do: > load > config > start
+**c)**: Start a new window for the ROS Emulator cd ^/  source <top_directory>/scripts/ROSsetup.cmd at the FSM command prompt do: > load > config > start
+**d)**: Start a new window for the L2 Supervisor cd ^/  source <top_directory>/scripts/L2SVsetup.cmd at the FSM command prompt do: > load > config > start
+
+Events should now be processed by the L2PU (window started under point b). To see any eventual debug output, set the MsgSvc.output level in the jobOptions.txt file to the appropriate level.
+
+In order to see the multiple threads executing, start a new window and run "top". The FSMs can be stopped by typing at the command prompt:
+
+ > stop > unconfig > unload
+
+The above shutdown procedure should be done first for the L2 Supervisor L2SV, then for the ROS Emulator, and finally for the L2 Processing Unit L2PU.
+
+The above method will start the software compiled with the debug option. To run everything in optimized mode add as option -o to the above commands:source <top_directory>scripts/L2PUSetup.cmd -o -t HelloWorld source <top_directory/scripts/ROSsetup.cmd -o source <top_directory/scripts/L2SVsetup.cmd -o
+
+In order to run the other provided examples create first the appropriate soft link in
+
+<top_directory>/Lvl2/DataCollection/Psc-00-00-04/12pu/v1r0p15/run
+
+for the jobOptions.txt file and then run
+
+source <top_directory>/scripts/L2PUSetup.cmd -t <example name>
+
+The other examples are (corresponding jobOptions file in parenthesis):
+
+**HelloWorld** (Pesa_HelloWorldOptions.txt): Hello World example
+
+**ByteStream** (ReadByteStreamEvent_JobOptions.txt): Simple job to read from ByteStream events
+
+**Store** (TrigBench.txt): Store and retrieve events from TES
+
+**Hist** (Pesa_HistNtupOptions.txt): Simple example for histogramming
+
+**AprilPrototype** (AllSteering.txt): "April Prototype"
+
+## References
+
+* [1]_The HLT/DAQ/DCS Technical Proposal_, CERN/LHCC/2000-17 (March 2000)
+* [2]PESA SW group, _PESA High Level Trigger selection software requirements_, ATL-DAQ-2001-005 (September 2001)
+* [3][http://atlas.web.cern.ch/GROUPS/SOFTWARE/O0/architecture](http://atlas.web.cern.ch/GROUPS/SOFTWARE/O0/architecture)
+* [4][http://proj-gaudi.web.cern.ch/proj-gaudi](http://proj-gaudi.web.cern.ch/proj-gaudi)
+* [5]C.Bee _et al_, _HLT Validation of Athena_, ATLAS-DAQ-2002-005 (January 2002).
+* [6]_First-Level Trigger Technical Design Report_, CERN/LHCC/98-14 (June 1998)
+* [7]A.Bogaerts, F.Wickens _LVL2 Processing Unit Application Design_ DataCollection Note 019 (June 2001)
+* [8][http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/DataFlow](http://atlasinfo.cern.ch/Atlas/GROUPS/DAQTRIG/DataFlow) /DataCollection/DataCollection.html
+* [9]PESA SW Group, _HLT Software High-Level Design Document_ (in preparation)
+* [10]J. Baines _et al_, _First Study of the LVL2-EF boundary in the high-\(p_{\perp}\) electron n/photon High Level Trigger_, ATL-DAQ-2000-045 (March 2000)* [11] P.Calafiura _et al._, _StoreGate: A Data Model for the ATLAS Software Architecture_ (CHEP2001)
+* [12][http://rabello.home.cern.ch/rabello/work/cern/threads/index.html](http://rabello.home.cern.ch/rabello/work/cern/threads/index.html)
+* [13] R.Hauser (Private Communication)
+* [14][http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/00/architecture/General](http://atlas.web.cern.ch/Atlas/GROUPS/SOFTWARE/00/architecture/General) /Tutorial/index.html
+* [15] G.Comune _et al._, _April prototype for the HLT selection software_ (in preparation)
+* [16] C.Arnault, http:\www.cmsite.org
+* [17][http://www-wisconsin.cern.ch/~wiedenma/PSC](http://www-wisconsin.cern.ch/~wiedenma/PSC)
