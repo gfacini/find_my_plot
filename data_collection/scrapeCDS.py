@@ -17,10 +17,7 @@ Usage:
     python cds_scrape.py --base_url <CDS Base URL> --depth <Depth> --output_dir <Output Directory>
 """
 
-import os
-import re
-import subprocess
-import shutil
+import os, glob, re, subprocess, shutil
 from bs4 import BeautifulSoup
 import PyPDF2
 import requests
@@ -414,7 +411,8 @@ def main():
     parser.add_argument("--collection", type=str, help="CDS Collection i.e. 'ATLAS Papers'", required=True)
     parser.add_argument("--depth", type=int, help="Depth to scrape.", required=True)
     parser.add_argument("--output_dir", type=str, help="Directory to store output.", required=True)
-    parser.add_argument("--run_nougat", action='store_true', help="Flag to control execution of nougat on the PDFs.")
+    parser.add_argument("--run_nougat", action='store_true', help="Flag to control execution of nougat on the PDFs from search results.")
+    parser.add_argument("--pdf_nougat", action='store_true', help="Flag to control execution of nougat on a set of PDFs.")
 
     args = parser.parse_args()
     print("Running scrapeCDS.py with args:")
@@ -422,12 +420,30 @@ def main():
     print(f"\t depth       : {args.depth}")
     print(f"\t output_dir  : {args.output_dir}")
     print(f"\t run_nougat  : {args.run_nougat}")
+    print(f"\t pdf_nougat  : {args.pdf_nougat}")
 
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    # Call the write_to_db function with the additional flags
-    write_to_db(args.collection, args.depth, args.output_dir, args.run_nougat, True)
+    if args.pdf_nougat:
+        # Pattern to match PDF files within cds_data/*/*/*.pdf
+        pattern = f"{args.output_dir}/{args.collection}/CDS_*/*.pdf"
+
+        # Use glob.glob to find all files matching the pattern
+        pdf_files = glob.glob(pattern)
+        
+        # Loop through the found PDF files
+        for pdf_file in pdf_files:
+            output_dir = os.path.dirname(pdf_file)
+            last_page_num_References = find_key_in_pdf(pdf_name, "References")
+            last_page_num_acknowledgement = find_key_in_pdf(pdf_name, "ACKNOWLEDGMENT")
+            page_to_stop = min_of_list([last_page_num_References, last_page_num_acknowledgement])
+            extract_text(file, output_dir, page_to_stop)
+
+    else:
+        # Call the write_to_db function with the additional flags
+        write_to_db(args.collection, args.depth, args.output_dir, args.run_nougat, True)
+
 
 
 
