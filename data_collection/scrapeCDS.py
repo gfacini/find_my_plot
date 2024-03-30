@@ -202,7 +202,7 @@ def get_modification_date(url):
     if modification_div:
         return modification_div.get_text(strip=True).split("last modified")[-1].strip()
     else:
-        return None
+        return "2001-01-01" # dummy date
 
 def extract_text(file, output_directory, page_to_stop):
     """
@@ -275,7 +275,7 @@ def get_paper_links(url):
     return paper_links, paper_titles
 
 
-def write_to_db(collection, depth, db_dir, run_nougat, overwrite=False):
+def write_to_db(args, overwrite=False):
     """
     Scrapes CDS documents based on a base URL and depth, downloads PDFs, extracts metadata, and saves data to a database.
 
@@ -287,8 +287,36 @@ def write_to_db(collection, depth, db_dir, run_nougat, overwrite=False):
         overwrite (T/F): overwrite existing files, but only if the pdf has been updated
     """
 
+    # input args
+    collection  =  args.collection
+    start       =  args.start
+    depth       =  args.depth
+    count       =  args.count
+    db_dir      =  args.output_dir
+    run_nougat  =  args.run_nougat
+
     # build url to get 10 results per results page
     base_url = "https://cds.cern.ch/search?cc=" + collection.replace(" ","+") + "&rg=10" + "m1=a&jrec={page_index}"
+    print(base_url)
+
+    if count:
+        #base_url = base_url + "&of=id"
+        url = base_url.format(page_index="1")
+        response = requests.get(url)
+        number_of_records = -1
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+# Find the specific <td> element that contains the number
+            td_with_number = soup.find('td', class_='searchresultsboxheader', align='center')
+            if td_with_number:
+                # Within this <td>, find the <strong> tag that contains the number
+                strong_tag = td_with_number.find('strong')
+                if strong_tag:
+                    number_of_records = strong_tag.text.strip().replace(',', '')  # Remove commas for clean number extraction
+
+            print(f"Records: {number_of_records}")
+
+        return 
 
     # output directory
     base_dir = db_dir + "/" + collection.replace(" ","_")
@@ -296,10 +324,12 @@ def write_to_db(collection, depth, db_dir, run_nougat, overwrite=False):
         os.mkdir(base_dir)
 
     fail_file = open(base_dir+"/failed_list.txt", 'a')
+    total = 0
 
     get_more = True # flag to control if go to next results page or not
-    result_page = 0 
+    result_page = start
     while get_more:
+
         if depth >= 0 and result_page > depth:
             print("Reached depth. Ending the scraping process.")
             break
@@ -407,19 +437,25 @@ def write_to_db(collection, depth, db_dir, run_nougat, overwrite=False):
         result_page = result_page + 1
         # end while
 
+    print(f"Total entries: {total}")
+
     fail_file.close()
 
 def main():
     parser = argparse.ArgumentParser(description="Scrapes CDS documents and processes them.")
     parser.add_argument("--collection", type=str, help="CDS Collection i.e. 'ATLAS Papers'", required=True)
+    parser.add_argument("--start", type=int, default=0, help="Start to scrape.", required=False)
     parser.add_argument("--depth", type=int, help="Depth to scrape.", required=True)
+    parser.add_argument("--count", action='store_true', help="Count titles", required=False)
     parser.add_argument("--output_dir", type=str, help="Directory to store output.", required=True)
     parser.add_argument("--run_nougat", action='store_true', help="Flag to control execution of nougat on the PDFs.")
 
     args = parser.parse_args()
     print("Running scrapeCDS.py with args:")
     print(f"\t collection  : {args.collection}")
+    print(f"\t start       : {args.start}")
     print(f"\t depth       : {args.depth}")
+    print(f"\t count       : {args.count}")
     print(f"\t output_dir  : {args.output_dir}")
     print(f"\t run_nougat  : {args.run_nougat}")
 
@@ -427,7 +463,8 @@ def main():
         os.makedirs(args.output_dir)
 
     # Call the write_to_db function with the additional flags
-    write_to_db(args.collection, args.depth, args.output_dir, args.run_nougat, True)
+    write_to_db(args, True)
+    #args.collection, args.start, args.depth, args.output_dir, args.run_nougat, True)
 
 
 
