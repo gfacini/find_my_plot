@@ -135,8 +135,8 @@ def download_pdf(url, paper_folder, overwrite=False):
         str : plot location will be URL for experiment page that holds all PDFs, URL to CDS if all listed there, or None if noe of those are satisfied
         
     """
-    print("Downloading document")
-    print(f"\t url: {url}")
+    print("\tParsing CDS Record")
+    print(f"\turl: {url}")
     #print(f"\t out: {paper_folder}")
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
@@ -152,7 +152,7 @@ def download_pdf(url, paper_folder, overwrite=False):
     pdf_url = meta_tag['content']
     pdf_name = pdf_url.split("/")[-1][:-4] # cut off .pdf
     full_path = f"{paper_folder}/{pdf_name}.pdf"
-    print(f"\t out: {full_path}")
+    print(f"\tout: {full_path}")
    
     # get technical report
     # sometimes there are multiple
@@ -167,7 +167,7 @@ def download_pdf(url, paper_folder, overwrite=False):
         if overwrite: # clean the existing pdf
             os.remove(full_path)
         else: # don't overwrite so return name and proceed
-            print("PDF exists, and not overwriting")
+            #print("PDF exists, and not overwriting")
             return full_path, tech_report_num, plot_loc
 
     response_pdf = requests.get(pdf_url) # get the pdf
@@ -175,7 +175,7 @@ def download_pdf(url, paper_folder, overwrite=False):
         with open(full_path, 'wb') as f:
             f.write(response_pdf.content)
             f.close()
-            print("Wrote file")
+            print("\tWrote PDF")
     else:
         print(f'Failed to download PDF from {pdf_url}')
         return None, tech_report_num, plot_loc
@@ -271,6 +271,22 @@ def get_paper_links(url):
     
     return paper_links, paper_titles
 
+def get_total_records(url):
+    """
+    get the total number of records from the CDS querry
+    """
+    response = requests.get(url)
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.content, 'html.parser')
+        # Find specific <td> element that contains the number
+        td_with_number = soup.find('td', class_='searchresultsboxheader', align='center')
+        if td_with_number:
+            # Within this <td>, find the <strong> tag that contains the number
+            strong_tag = td_with_number.find('strong')
+            if strong_tag:
+                return strong_tag.text.strip().replace(',', '')  # Remove commas for clean number extraction
+    return -1
+
 
 def write_to_db(args, overwrite=False):
     """
@@ -296,23 +312,10 @@ def write_to_db(args, overwrite=False):
     base_url = "https://cds.cern.ch/search?cc=" + collection.replace(" ","+") + "&rg=10" + "m1=a&jrec={page_index}"
     print(base_url)
 
+    number_of_records = get_total_records(base_url.format(page_index="1"))
+    print(f"Records: {number_of_records}")
+
     if count:
-        #base_url = base_url + "&of=id"
-        url = base_url.format(page_index="1")
-        response = requests.get(url)
-        number_of_records = -1
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-# Find the specific <td> element that contains the number
-            td_with_number = soup.find('td', class_='searchresultsboxheader', align='center')
-            if td_with_number:
-                # Within this <td>, find the <strong> tag that contains the number
-                strong_tag = td_with_number.find('strong')
-                if strong_tag:
-                    number_of_records = strong_tag.text.strip().replace(',', '')  # Remove commas for clean number extraction
-
-            print(f"Records: {number_of_records}")
-
         return 
 
     # output directory
@@ -331,7 +334,7 @@ def write_to_db(args, overwrite=False):
             print("Reached depth. Ending the scraping process.")
             break
 
-        print("Results page "  + str(result_page) + " (depth= " + str(depth) + ")")
+        print(f"Results page {result_page} (Tot,Depth) = ({number_of_records}, {depth})")
 
         # so depth is n, then i is 1, 11, ..., 10*(n-1) + 1
         page_index = result_page * 10 + 1
@@ -350,7 +353,7 @@ def write_to_db(args, overwrite=False):
 
         for link, title in zip(links, titles):
 
-            print("\nwork on link " + link)
+            print("\n\twork on link " + link)
             folder_name = url_to_folder_name(link)
             last_modification_date = get_modification_date(link)
 
@@ -367,16 +370,14 @@ def write_to_db(args, overwrite=False):
                             saved_date = line.split(":")[1].strip()  # Extract the date part and strip whitespace
                             break  # Exit the loop once the date is found
                 if saved_date is not None:
-                    print("Saved date:", saved_date)
+                    #print("Saved date:", saved_date)
 
                     # Convert both date strings to datetime objects
                     saved_date_dt = datetime.strptime(saved_date, "%Y-%m-%d")
                     new_date_dt = datetime.strptime(last_modification_date, "%Y-%m-%d")
 
                     # Now can compare, if new date later, need to updated
-                    if saved_date_dt < new_date_dt:
-                        print(f"PDF has been updated! Overwrite set to {overwrite}")
-                    else:
+                    if saved_date_dt == new_date_dt:
                         updated = False
 
             # Get the PDF
@@ -386,11 +387,10 @@ def write_to_db(args, overwrite=False):
 
             if pdf_name == None:
                 fail_file.write(link + "\n")
-                print("\n fail to read " + link + "\n")
+                print("\tFail to read " + link + "\n")
                 continue
 
             if updated or overwrite:
-                print("\tWriting metadata")
                 meta_info = open(paper_folder + "/meta_info.txt", 'w')
                 meta_info.write("PAPER NAME : ")
                 meta_info.write(title.replace("\n", "")+"\n")
@@ -405,6 +405,7 @@ def write_to_db(args, overwrite=False):
                 meta_info.write("\n")
                 meta_info.write(f"PLOT LOC: {plot_loc}\n")
                 meta_info.close()
+                print("\tWrote metadata")
 
             mmd_update = run_nougat # start with if user asked to run_nougat
             # if it exits, check overwrite and updated
@@ -425,7 +426,7 @@ def write_to_db(args, overwrite=False):
                     extract_text(pdf_name, paper_folder + "/", page_to_stop)
                 except:
                     fail_file.write(link + "\n")
-                    print("\n fail to read " + link + "\n")
+                    print("\tFail to read " + link + "\n")
     
             # add flag to remove pdf
             #if os.path.exists(pdf_name):
@@ -442,9 +443,9 @@ def main():
     parser = argparse.ArgumentParser(description="Scrapes CDS documents and processes them.")
     parser.add_argument("--collection", type=str, help="CDS Collection i.e. 'ATLAS Papers'", required=True)
     parser.add_argument("--start", type=int, default=0, help="Start to scrape.", required=False)
-    parser.add_argument("--depth", type=int, help="Depth to scrape.", required=True)
+    parser.add_argument("--depth", type=int, default=-1, help="Depth to scrape. Default: -1 (all)")
     parser.add_argument("--count", action='store_true', help="Count titles", required=False)
-    parser.add_argument("--output_dir", type=str, help="Directory to store output.", required=True)
+    parser.add_argument("--output_dir", type=str, default="cds_data/", help="Directory to store output. Defaut: cds_data")
     parser.add_argument("--run_nougat", action='store_true', help="Flag to control execution of nougat on the PDFs from search results.")
     parser.add_argument("--pdf_nougat", action='store_true', help="Flag to control execution of nougat on a set of PDFs.")
 
@@ -457,22 +458,26 @@ def main():
 
     if args.pdf_nougat:
         # Pattern to match PDF files within cds_data/*/*/*.pdf
-        pattern = f"{args.output_dir}/{args.collection}/CDS_*/*.pdf"
+        pattern = f"{args.output_dir}/{args.collection.replace(' ','_')}/CDS_*/*.pdf"
+        print(pattern)
 
         # Use glob.glob to find all files matching the pattern
         pdf_files = glob.glob(pattern)
+
+        print(f"Number of pdfs: {len(pdf_files)}")
         
         # Loop through the found PDF files
         for pdf_file in pdf_files:
             output_dir = os.path.dirname(pdf_file)
-            last_page_num_References = find_key_in_pdf(pdf_name, "References")
-            last_page_num_acknowledgement = find_key_in_pdf(pdf_name, "ACKNOWLEDGMENT")
+            last_page_num_References = find_key_in_pdf(pdf_file, "References")
+            last_page_num_acknowledgement = find_key_in_pdf(pdf_file, "ACKNOWLEDGMENT")
             page_to_stop = min_of_list([last_page_num_References, last_page_num_acknowledgement])
-            extract_text(file, output_dir, page_to_stop)
+            extract_text(pdf_file, output_dir, page_to_stop)
+            break
 
     else:
         # Call the write_to_db function with the additional flags
-        write_to_db(args, True)
+        write_to_db(args, False)
 
 
 
