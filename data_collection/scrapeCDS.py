@@ -201,30 +201,37 @@ def get_modification_date(url):
     else:
         return "2001-01-01" # dummy date
 
-def extract_text(file, output_directory, page_to_stop):
+def extract_text(in_file, output_directory, page_to_stop):
     """
     Uses the nougat tool to extract text from a PDF file.
 
     Args:
-        file (str): The full path of the PDF file.
+        in_file (str): The full path of the PDF file.
         output_directory (str): The directory where the extracted text should be saved.
         page_to_stop (int): The last page number to include in the extraction.
     """
-    cmd = ["nougat", file, "-o", output_directory]
+    cmd = ["nougat", in_file, "-o", output_directory]
     if page_to_stop != -1:
         cmd += ["-p", f"1-{page_to_stop}"]
 
-    try:
-        process = subprocess.Popen(cmd)
-        process.wait()
-        # rename? no - pdf name corresponds to the arXiv
-        if process.returncode == 0:
-            #os.rename(output_directory + file_dir + ".mmd", output_directory + "document.mmd")
-            print("NOUGAT ended successfully")
-        else:
-            print(f"Process ended with an error code: {process.returncode}")
-    except Exception as e:
-        print("An error occurred during text extraction:", e)
+    file_path = 'run_nougat.sh'
+    with open(file_path, 'a') as file:
+         if page_to_stop != -1:
+             file.write(f"nougat {in_file} -o {output_directory}/ -o 1-{page_to_stop}\n")
+         else:
+             file.write(f"nougat {in_file} -o {output_directory}/\n")
+     
+#    try:
+#        process = subprocess.Popen(cmd)
+#        process.wait()
+#        # rename? no - pdf name corresponds to the arXiv
+#        if process.returncode == 0:
+#            #os.rename(output_directory + file_dir + ".mmd", output_directory + "document.mmd")
+#            print("NOUGAT ended successfully")
+#        else:
+#            print(f"Process ended with an error code: {process.returncode}")
+#    except Exception as e:
+#        print("An error occurred during text extraction:", e)
 
 def find_key_in_pdf(file, keyword):
     """
@@ -468,12 +475,16 @@ def main():
         
         # Loop through the found PDF files
         for pdf_file in pdf_files:
+            print(f"FILE {pdf_file}")
+            mmd_file = pdf_file.replace(".pdf",".mmd")
+            if os.path.exists(mmd_file):
+                print(f"\t file exists. skip \n \t\t {mmd_file}")
+                continue 
             output_dir = os.path.dirname(pdf_file)
             last_page_num_References = find_key_in_pdf(pdf_file, "References")
             last_page_num_acknowledgement = find_key_in_pdf(pdf_file, "ACKNOWLEDGMENT")
             page_to_stop = min_of_list([last_page_num_References, last_page_num_acknowledgement])
             extract_text(pdf_file, output_dir, page_to_stop)
-            break
 
     else:
         # Call the write_to_db function with the additional flags
