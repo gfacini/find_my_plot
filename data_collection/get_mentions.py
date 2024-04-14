@@ -43,7 +43,6 @@ figIdentifier = "Figure "
 tableIdentifier = "Table "
 LATEX_FILE = "latex.txt"
 META_FILE = "meta_info.txt"
-FIGURE_FILE = "figures_and_tables.json"
 
 def snipSentence(line, m):
     sentenceBefore = line[:m.start()].split(". ")[-1]
@@ -89,53 +88,58 @@ def process_directories(dataDir, outputDir, outputFile):
             # maintain folder structure but lose collection information
             outputDir = outputDir + f
 
-        # Skip if is not a directory
-        if not os.path.isdir(folderDir):
-            continue
-        
-        # Attempt to read the latex and metadata files, skip the folder if either file is missing
-        try:
-            latexLinesList = getLinesFromFile(folderDir, LATEX_FILE)
-        except FileNotFoundError:
-            logging.error(f"{LATEX_FILE} not found in: {folderDir}")
-            continue
+        process_directory(folderDir, outputDir, outputFile)
 
-        try:
-            metaLinesList = getLinesFromFile(folderDir, META_FILE)
-        except FileNotFoundError:
-            logging.error(f"{META_FILE} not found in: {folderDir}")
-            continue
 
-        # Extract the paper name from the metadata file
-        paperName = extractPaperName(metaLinesList)
-
-        # Extract the URL from the last line of the metadata file
-        atlusUrl = max(metaLinesList[-1].split(), key=len)
-
-        # Extract mentions of figures and tables from the latex file
-        figMentionDic   = extractImageNamesAndMentions(latexLinesList, figPattern, figIdentifier)
-        tableMentionDic = extractImageNamesAndMentions(latexLinesList, tablePattern, tableIdentifier)
-
-        # Combine figure and table mentions into a single dictionary
-        combinedMentionDic = {**figMentionDic, **tableMentionDic}
-
-        # Compile the data for each figure/table into a list of dictionaries
-        figures = []
-        for key, mentions in combinedMentionDic.items():
-            figures.append({
-                "name": key, 
-                "mentions": mentions, 
-                "atlusUrl": atlusUrl, 
-                "paper": f, 
-                "paperName": paperName
-            })
-
-        # Define the path and name for the output JSON file
-        outputFilePath = os.path.join(folderDir, FIGURE_FILE)
+def process_directory(folderDir, outputDir, outputFile):
+    # Skip if is not a directory
+    if not os.path.isdir(folderDir):
+        return
     
-        # Write the compiled data to the output JSON file
-        with open(outputFilePath, "w", encoding="utf-8") as outfile:
-            json.dump(figures, outfile, indent=4, ensure_ascii=False)
+    # Attempt to read the latex and metadata files, skip the folder if either file is missing
+    try:
+        latexLinesList = getLinesFromFile(folderDir, LATEX_FILE)
+    except FileNotFoundError:
+        logging.error(f"{LATEX_FILE} not found in: {folderDir}")
+        return
+
+    try:
+        metaLinesList = getLinesFromFile(folderDir, META_FILE)
+    except FileNotFoundError:
+        logging.error(f"{META_FILE} not found in: {folderDir}")
+        return
+
+    # Extract the paper name from the metadata file
+    paperName = extractPaperName(metaLinesList)
+
+    # Extract the URL from the last line of the metadata file
+    atlusUrl = max(metaLinesList[-1].split(), key=len)
+
+    # Extract mentions of figures and tables from the latex file
+    figMentionDic   = extractImageNamesAndMentions(latexLinesList, figPattern, figIdentifier)
+    tableMentionDic = extractImageNamesAndMentions(latexLinesList, tablePattern, tableIdentifier)
+
+    # Combine figure and table mentions into a single dictionary
+    combinedMentionDic = {**figMentionDic, **tableMentionDic}
+
+    # Compile the data for each figure/table into a list of dictionaries
+    figures = []
+    for key, mentions in combinedMentionDic.items():
+        figures.append({
+            "name": key, 
+            "mentions": mentions, 
+            "atlusUrl": atlusUrl, 
+            "paper": os.path.basename(folderDir), 
+            "paperName": paperName
+        })
+
+    # Define the path and name for the output JSON file
+    outputFilePath = os.path.join(folderDir, outputFile)
+    
+    # Write the compiled data to the output JSON file
+    with open(outputFilePath, "w", encoding="utf-8") as outfile:
+        json.dump(figures, outfile, indent=4, ensure_ascii=False)
+    
 
 def ensure_trailing_slash(path):
     return path if path.endswith("/") else path + "/"
@@ -149,7 +153,7 @@ def main():
     parser.add_argument('outputDir', type=str, help='Output directory for the generated data',
                         default=None, nargs='?')
     parser.add_argument('outputFile', type=str, help='Output file for the generated data',
-                        default='generated-data.json', nargs='?')
+                        default='figures_and_tables.json', nargs='?')
 
     args = parser.parse_args()
 
@@ -164,7 +168,7 @@ def main():
         exit(1)
 
     outputDir = args.outputDir
-    if args.outputDir not None:
+    if args.outputDir is not None:
         if not os.path.isdir(args.outputDir):
             logging.info(f"Output directory not found, trying to create: {args.outputDir}")
             try:
