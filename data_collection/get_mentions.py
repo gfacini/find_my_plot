@@ -14,7 +14,8 @@ Usage:
 
 Arguments:
 - dataDir: Directory containing subdirectories for each paper's data, including LaTeX and metadata files.
-- outputDir: Directory where the generated JSON file containing the extracted data will be saved.
+- outputDir: Directory where the generated JSON file containing the extracted data will be saved. If do not give one, the output will go next to the input file
+- outputFile: name of json file with mentions
 
 The script also configures logging to 'log_mentions.txt', capturing important events and errors encountered during execution.
 
