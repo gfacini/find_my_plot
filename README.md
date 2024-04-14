@@ -1,4 +1,27 @@
-# Physics-Project
+# Find My Plot
+
+
+## Setup
+Using python 3.12.2:
+```
+python3 -m venv /storage/path/venv/find_my_plot
+source /storage/path/venv/find_my_plot/bin/activate
+pip3 install -r requirements.txt
+```
+
+To create a conda env:
+```
+conda create -n find_my_plot_env python=3.12.2
+pip3 install -r requirements.txt
+```
+
+
+When returning to area do `source setup.sh` where setup.sh contains the `source /storage/..activate` command above. When done, `deactivate` to exit the virtual environment.
+
+
+## Data collection
+Within [data_collection](./data_collection), scripts are available to collect PDFs, convert to markdown, and build vector database.
+
 Group 17a's repository for the group project.
 
 The following is the full process in which the data processing team converted the data provided in directories into a fully embeded vector database. Ready for vector searches to be run on it.
