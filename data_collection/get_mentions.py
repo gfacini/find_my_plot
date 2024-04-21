@@ -32,6 +32,7 @@ import json
 import logging
 import argparse
 import pypandoc
+import threading
 from datetime import datetime
 from tqdm import tqdm
 from collections import defaultdict
@@ -77,6 +78,23 @@ def extractPaperName(metaLinesList):
             paperNameLines.append(line.strip())
     return ' '.join(paperNameLines) if paperNameLines else None
 
+
+# Wrapper function to run the conversion in a thread
+def convert_latex_to_text_with_timeout(latex_content, timeout=10): # 10 seconds
+    result = [latex_content]  # Using a list to hold the result because lists are mutable
+    def target():
+        result[0] = convert_latex_to_text(latex_content)
+
+    thread = threading.Thread(target=target)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        print(f"Conversion timed out")
+        logging.error(f"Conversion timed out")
+        logging.error(f"\t{latex_content}")
+        thread.join()  # Optionally join the thread to clean up if the process can eventually finish
+    return result[0]
+
 def convert_latex_to_text(latex_content):
     # Convert LaTeX to plain text
     try:
@@ -120,7 +138,7 @@ def preprocess_text(text):
     # Check for double backslashes as a sign of LaTeX
     if "\\" in text: 
         # Call pandoc or handle LaTeX here
-        text = convert_latex_to_text(text)
+        text = convert_latex_to_text_with_timeout(text)
 
         # Remove new lines
         if text is not None:
