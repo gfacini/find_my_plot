@@ -31,12 +31,9 @@ import re
 import json
 import logging
 import argparse
+import pypandoc
 from tqdm import tqdm
 from collections import defaultdict
-
-# Setup logging to file
-logging.basicConfig(filename='log_mentions.txt', level=logging.INFO, 
-                    format='%(asctime)s:%(levelname)s:%(message)s')
 
 figPattern = re.compile(r"[Ff]ig. (\d+)|[Ff]igures* (\d+)")
 tablePattern = re.compile(r"[Tt]able (\d+)")
@@ -78,6 +75,56 @@ def extractPaperName(metaLinesList):
             paperNameLines.append(line.strip())
     return ' '.join(paperNameLines) if paperNameLines else None
 
+def convert_latex_to_text(latex_content):
+    # Convert LaTeX to plain text
+    try:
+        text_output = pypandoc.convert_text(latex_content, 'plain', format='latex')
+        return text_output 
+    except RuntimeError as e:
+        print(f"An error occurred during conversion: {e}") 
+        logging.error(f"An error occurred during conversion: {e}") 
+        return latex_content
+
+def preprocess_text(text):
+    '''
+    Remove basic latex things we don't need pandoc for. If anything left, call pandoc
+    '''
+    # Replace or remove LaTeX-specific sequences
+    replacements = {
+            "\\)": ")",
+            "\\(": "(",
+            "\\rm ": "",        # Remove \rm which is often used for font style in math mode
+            "\\cal ": "",       # Remove \cal which is used for calligraphic style
+            "\\pm": "±",       # Replace \pm with the actual plus-minus symbol
+            #"\\\\": "",         # Remove double backslashes
+            "\\,": "",          # Remove small space often used in LaTeX
+            "\\;": "",          # Remove thicker space often used in LaTeX
+            "\\quad": "  ",     # Replace quad space with two spaces
+            "\\qquad": "    ",  # Replace double quad space with four spaces
+            "\n": " ",          # newline
+            "\r\n": " ",        # other style newline (Windows?)
+            # add more replacements as needed
+            }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    # whole sale delete 
+    # Figures referenced in Tables will cause the table data to be passed through pandoc which chokes on \begin??
+    if "\\begin" in text: text = ""
+
+    # Check for double backslashes as a sign of LaTeX
+    if "\\" in text: 
+        # Call pandoc or handle LaTeX here
+        text = convert_latex_to_text(text)
+
+        # Remove new lines
+        if text is not None:
+            text = text.replace("\n", " ")
+
+    return text
+                
+
 def process_directories(dataDir, outputDir, outputFile):
 
     # Process each subdirectory in the input directory
@@ -93,6 +140,7 @@ def process_directories(dataDir, outputDir, outputFile):
 
 
 def process_directory(folderDir, outputDir, outputFile):
+    logging.info(f"\nProcessing {folderDir}")
     # Skip if is not a directory
     if not os.path.isdir(folderDir):
         return
@@ -125,10 +173,17 @@ def process_directory(folderDir, outputDir, outputFile):
 
     # Compile the data for each figure/table into a list of dictionaries
     figures = []
-    for key, mentions in combinedMentionDic.items():
+    mentions_text = defaultdict(list)
+
+    for key, texts in combinedMentionDic.items():
+        # process texts and fill new dictionary
+        texts_preprocessed = [preprocess_text(text) for text in texts]
+        mentions_text[key] = texts_preprocessed
+        #print(f"Key: {key}, Processed Texts: {texts_preprocessed}")
+        
         figures.append({
             "name": key, 
-            "mentions": mentions, 
+            "mentions": mentions_text, 
             "atlusUrl": atlusUrl, 
             "paper": os.path.basename(folderDir), 
             "paperName": paperName
@@ -154,7 +209,7 @@ def main():
     parser.add_argument('outputDir', type=str, help='Output directory for the generated data',
                         default=None, nargs='?')
     parser.add_argument('outputFile', type=str, help='Output file for the generated data',
-                        default='figures_and_tables.json', nargs='?')
+                        default='figures_and_tables_text.json', nargs='?')
 
     args = parser.parse_args()
 
@@ -162,6 +217,19 @@ def main():
     print(f"\t--dataDir:    {args.dataDir}")
     print(f"\t--outputDir:  {args.outputDir}")
     print(f"\t--outputFile: {args.outputFile}")
+
+    # Setup logging to file
+    logfile_dir = ensure_trailing_slash(args.dataDir) 
+    if args.outputDir is not None:
+        logfile_dir = ensure_trailing_slash(args.outputDir) 
+    logfile = f"{logfile_dir}log_mentions.txt"
+    logging.basicConfig(filename=logfile, level=logging.INFO, 
+            format='%(asctime)s:%(levelname)s:%(message)s')
+
+    logging.info("Running get-metions.py with args:")
+    logging.info(f"\t--dataDir:    {args.dataDir}")
+    logging.info(f"\t--outputDir:  {args.outputDir}")
+    logging.info(f"\t--outputFile: {args.outputFile}")
 
     # Rest of the main function remains the same
     if not os.path.isdir(args.dataDir):
@@ -178,6 +246,9 @@ def main():
                 logging.error(f"Failed to create output directory: {error}")
                 exit(1)
         outputDir = ensure_trailing_slash(outputDir)
+
+    # easiest way to get the acutal pandoc package when cannot do sudo apt-get install pandoc
+    pypandoc.download_pandoc()
 
     process_directories(ensure_trailing_slash(args.dataDir), 
                         outputDir,

@@ -117,6 +117,33 @@ def get_plot_location(soup, url):
 
     return "None"
 
+def check_output_name(paper_folder, original_pdf_name):
+    """
+    ATLAS and CMS papers all don't have unique names
+    Try to flag in the most robust way possible
+    If needs a unique name, the CDS entry number is used
+    """
+    needs_unique_name = False
+    # all the reasons to suspect it does
+    if "ATLAS_Papers" in paper_folder: needs_unique_name = True
+    if "CMS_Papers"   in paper_folder: needs_unique_name = True
+    if "scoap"            in original_pdf_name: needs_unique_name = True
+    if "Publication.pdf"  in original_pdf_name: needs_unique_name = True
+    if "document.pdf"     in original_pdf_name: needs_unique_name = True
+
+    # Negate the False
+    # some papers have journal editions or arxiv number which are unique
+    # some papers have long names that look like hashes, replace those
+    count_digits = sum(c.isdigit() for c in original_pdf_name)
+    if count_digits > 4 and count_digits < 14: needs_unique_name = False
+
+    if not needs_unique_name: return original_pdf_name
+
+    # assume paper_folder has the CDS number in it
+    # Extract the last folder name from the directory path
+    folder_name = os.path.basename(paper_folder) # of the form "CDS_Record_2841130"
+    return (folder_name.replace("CDS_Record_","cds_")).append(".pdf") # just the cds number
+
 
 def download_pdf(url, paper_folder, overwrite=False):
     """
@@ -150,9 +177,12 @@ def download_pdf(url, paper_folder, overwrite=False):
         return None, tech_report_num, plot_loc 
 
     pdf_url = meta_tag['content']
-    pdf_name = pdf_url.split("/")[-1][:-4] # cut off .pdf
-    full_path = f"{paper_folder}/{pdf_name}.pdf"
-    print(f"\tout: {full_path}")
+    #pdf_name = pdf_url.split("/")[-1][:-4] # cut off .pdf
+    original_pdf_name = pdf_url.split("/")[-1]
+    unique_pdf_name = check_output_name(paper_folder, original_pdf_name)
+    #for the pdf name to be unique
+    path_name_pdf = f"{paper_folder}/{unique_pdf_name}.pdf"
+    print(f"\tout: {path_name_pdf}")
    
     # get technical report
     # sometimes there are multiple
@@ -163,16 +193,16 @@ def download_pdf(url, paper_folder, overwrite=False):
     plot_loc = get_plot_location(soup, url)
 
     # check if pdf exists
-    if os.path.exists(full_path):
+    if os.path.exists(path_name_pdf):
         if overwrite: # clean the existing pdf
-            os.remove(full_path)
+            os.remove(path_name_pdf)
         else: # don't overwrite so return name and proceed
             #print("PDF exists, and not overwriting")
-            return full_path, tech_report_num, plot_loc
+            return path_name_pdf, tech_report_num, plot_loc
 
     response_pdf = requests.get(pdf_url) # get the pdf
     if response_pdf.status_code == 200:
-        with open(full_path, 'wb') as f:
+        with open(path_name_pdf, 'wb') as f:
             f.write(response_pdf.content)
             f.close()
             print("\tWrote PDF")
@@ -180,7 +210,7 @@ def download_pdf(url, paper_folder, overwrite=False):
         print(f'Failed to download PDF from {pdf_url}')
         return None, tech_report_num, plot_loc
 
-    return full_path, tech_report_num, plot_loc
+    return path_name_pdf, tech_report_num, original_pdf_name, plot_loc
 
 def get_modification_date(url):
     """
@@ -201,7 +231,7 @@ def get_modification_date(url):
     else:
         return "2001-01-01" # dummy date
 
-def extract_text(in_file, output_directory, page_to_stop):
+def extract_text(in_file, output_directory, page_to_stop, collection):
     """
     Uses the nougat tool to extract text from a PDF file.
 
@@ -214,7 +244,7 @@ def extract_text(in_file, output_directory, page_to_stop):
     if page_to_stop != -1:
         cmd += ["-p", f"1-{page_to_stop}"]
 
-    file_path = 'run_nougat.sh'
+    file_path = f"run_nougat_{collection}.sh"
     with open(file_path, 'a') as file:
          if page_to_stop != -1:
              file.write(f"nougat {in_file} -o {output_directory}/ -o 1-{page_to_stop}\n")
@@ -390,7 +420,7 @@ def write_to_db(args, overwrite=False):
             # Get the PDF
             pdf_overwrite = overwrite 
             if overwrite and not updated: pdf_overwrite = False # don't download if wasn't changed
-            pdf_name, tech_rep_num, plot_loc = download_pdf(link,paper_folder,pdf_overwrite)
+            pdf_name, tech_rep_num, original_pdf_name, plot_loc = download_pdf(link,paper_folder,pdf_overwrite)
 
             if pdf_name == None:
                 fail_file.write(link + "\n")
@@ -408,8 +438,9 @@ def write_to_db(args, overwrite=False):
                 meta_info.write("COLLECTION : ")
                 meta_info.write(collection.replace(" ", "_") + "\n")
                 meta_info.write("TECH REP NUM: ")
-                meta_info.write(', '.join(tech_rep_num))
+                meta_info.write(', '.join(tech_rep_num)) # there might be multiple
                 meta_info.write("\n")
+                meta_info.write(f"ORIGINAL PDF NAME: {original_pdf_name}\n")
                 meta_info.write(f"PLOT LOC: {plot_loc}\n")
                 meta_info.close()
                 print("\tWrote metadata")
@@ -474,17 +505,35 @@ def main():
         print(f"Number of pdfs: {len(pdf_files)}")
         
         # Loop through the found PDF files
+        col_name = args.collection.replace(" ","_")
+        run_file= f"run_nougat_{args.collection.replace(' ','_')}.sh"
         for pdf_file in pdf_files:
             print(f"FILE {pdf_file}")
+            # check if the mmd file exists
             mmd_file = pdf_file.replace(".pdf",".mmd")
             if os.path.exists(mmd_file):
                 print(f"\t file exists. skip \n \t\t {mmd_file}")
                 continue 
+            # check if the file processing already exists in the run script
+            # Initialize a flag to track if the directory name is found
+            unique_directory_name = os.path.basename(os.path.dirname(pdf_file))
+            directory_name_found = False
+            # Open the run_file and search for the directory name in each line
+            if os.path.exists(run_file):
+                with open(run_file, 'r') as file:
+                    for line in file:
+                        if unique_directory_name in line:
+                            directory_name_found = True
+                            break
+                if directory_name_found: 
+                    print(f"\t already set to run on {unique_directory_name}")
+                    continue
+            # process
             output_dir = os.path.dirname(pdf_file)
             last_page_num_References = find_key_in_pdf(pdf_file, "References")
             last_page_num_acknowledgement = find_key_in_pdf(pdf_file, "ACKNOWLEDGMENT")
             page_to_stop = min_of_list([last_page_num_References, last_page_num_acknowledgement])
-            extract_text(pdf_file, output_dir, page_to_stop)
+            extract_text(pdf_file, output_dir, page_to_stop, col_name)
 
     else:
         # Call the write_to_db function with the additional flags
