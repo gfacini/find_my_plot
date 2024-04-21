@@ -106,6 +106,7 @@ def preprocess_text(text):
             "\\qquad": "    ",  # Replace double quad space with four spaces
             "\n": " ",          # newline
             "\r\n": " ",        # other style newline (Windows?)
+            "\\prime": "`",     # pandoc doesn't convert prime? do it by hand
             # add more replacements as needed
             }
 
