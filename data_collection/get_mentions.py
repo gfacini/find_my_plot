@@ -32,11 +32,13 @@ import json
 import logging
 import argparse
 import pypandoc
+from datetime import datetime
 from tqdm import tqdm
 from collections import defaultdict
 
 figPattern = re.compile(r"[Ff]ig. (\d+)|[Ff]igures* (\d+)")
-tablePattern = re.compile(r"[Tt]able (\d+)")
+# don't take lines that end in hline to avoid tables listing tables
+tablePattern = re.compile(r"[Tt]able (\d+)(?!.*\\hline$)")
 figIdentifier = "Figure "
 tableIdentifier = "Table "
 LATEX_FILE = "latex.txt"
@@ -192,6 +194,10 @@ def process_directory(folderDir, outputDir, outputFile):
 
     # Define the path and name for the output JSON file
     outputFilePath = os.path.join(folderDir, outputFile)
+
+    # delete if exists - "w" not working below?
+    if os.path.exists(outputFilePath):
+        os.remove(outputFilePath)
     
     # Write the compiled data to the output JSON file
     with open(outputFilePath, "w", encoding="utf-8") as outfile:
@@ -220,10 +226,9 @@ def main():
     print(f"\t--outputFile: {args.outputFile}")
 
     # Setup logging to file
+    logfile_name = "log_mentions_" + (datetime.now()).strftime("%Y%m%d_%H%M%S") + ".txt"
     logfile_dir = ensure_trailing_slash(args.dataDir) 
     if args.outputDir is not None:
-        logfile_dir = ensure_trailing_slash(args.outputDir) 
-    logfile = f"{logfile_dir}log_mentions.txt"
     logging.basicConfig(filename=logfile, level=logging.INFO, 
             format='%(asctime)s:%(levelname)s:%(message)s')
 
