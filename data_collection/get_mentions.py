@@ -229,6 +229,8 @@ def main():
     logfile_name = "log_mentions_" + (datetime.now()).strftime("%Y%m%d_%H%M%S") + ".txt"
     logfile_dir = ensure_trailing_slash(args.dataDir) 
     if args.outputDir is not None:
+        logfile_dir = ensure_trailing_slash(args.outputDir) 
+    logfile = f"{logfile_dir}{logfile_name}"
     logging.basicConfig(filename=logfile, level=logging.INFO, 
             format='%(asctime)s:%(levelname)s:%(message)s')
 
