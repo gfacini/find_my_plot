@@ -83,6 +83,7 @@ def convert_latex_to_text(latex_content):
     except RuntimeError as e:
         print(f"An error occurred during conversion: {e}") 
         logging.error(f"An error occurred during conversion: {e}") 
+        logging.error(f"\t{latex_content}")
         return latex_content
 
 def preprocess_text(text):
