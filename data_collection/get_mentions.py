@@ -44,6 +44,8 @@ figIdentifier = "Figure "
 tableIdentifier = "Table "
 LATEX_FILE = "latex.txt"
 META_FILE = "meta_info.txt"
+# control
+convert_latex = False
 
 def snipSentence(line, m):
     sentenceBefore = line[:m.start()].split(". ")[-1]
@@ -92,7 +94,7 @@ def convert_latex_to_text_with_timeout(latex_content, timeout=10): # 10 seconds
         print(f"Conversion timed out")
         logging.error(f"Conversion timed out")
         logging.error(f"\t{latex_content}")
-        thread.join()  # Optionally join the thread to clean up if the process can eventually finish
+        thread.join()  # join the thread to clean up if the process can eventually finish
     return result[0]
 
 def convert_latex_to_text(latex_content):
@@ -136,7 +138,7 @@ def preprocess_text(text):
     if "\\begin" in text: text = ""
 
     # Check for double backslashes as a sign of LaTeX
-    if "\\" in text: 
+    if "\\" in text and False: 
         # Call pandoc or handle LaTeX here
         text = convert_latex_to_text_with_timeout(text)
 
@@ -229,20 +231,25 @@ def ensure_trailing_slash(path):
 def main():
     parser = argparse.ArgumentParser(description='Process paper directories.')
 
+    default_output = 'figures_and_tables.json'
+
     # default values assume running from base directory of repo
-    parser.add_argument('dataDir', type=str, help='Input directory containing paper data',
-                        default='paper data\CMS-papers\CDS_doc', nargs='?')
-    parser.add_argument('outputDir', type=str, help='Output directory for the generated data',
-                        default=None, nargs='?')
-    parser.add_argument('outputFile', type=str, help='Output file for the generated data',
-                        default='figures_and_tables_text.json', nargs='?')
+    parser.add_argument('--dataDir', type=str, help='Input directory containing paper data',
+            default='paper data\CMS-papers\CDS_doc')
+    parser.add_argument('--outputDir', type=str, help='Output directory for the generated data',
+            default=None)
+    parser.add_argument('--outputFile', type=str, help='Output file for the generated data',
+            default=default_output)
+    parser.add_argument("--convert_latex", action="store_true", help="Convert latex to text",
+            default=False)
 
     args = parser.parse_args()
 
     print("Running get-metions.py with args:")
-    print(f"\t--dataDir:    {args.dataDir}")
-    print(f"\t--outputDir:  {args.outputDir}")
-    print(f"\t--outputFile: {args.outputFile}")
+    print(f"\t--dataDir:       {args.dataDir}")
+    print(f"\t--outputDir:     {args.outputDir}")
+    print(f"\t--outputFile:    {args.outputFile}")
+    print(f"\t--convert_latex: {args.convert_latex}")
 
     # Setup logging to file
     logfile_name = "log_mentions_" + (datetime.now()).strftime("%Y%m%d_%H%M%S") + ".txt"
@@ -254,11 +261,19 @@ def main():
             format='%(asctime)s:%(levelname)s:%(message)s')
 
     logging.info("Running get-metions.py with args:")
-    logging.info(f"\t--dataDir:    {args.dataDir}")
-    logging.info(f"\t--outputDir:  {args.outputDir}")
-    logging.info(f"\t--outputFile: {args.outputFile}")
+    logging.info(f"\t--dataDir:       {args.dataDir}")
+    logging.info(f"\t--outputDir:     {args.outputDir}")
+    logging.info(f"\t--outputFile:    {args.outputFile}")
+    logging.info(f"\t--convert_latex: {args.convert_latex}")
 
-    # Rest of the main function remains the same
+    # add _text to ouput if converting latex
+    outputFile = args.outputFile
+    if args.convert_latex and outputFile is default_output:
+        outputFile = outputFile.replace('.json','_text.json')
+        print(f"Output file name changed to {outputFile}")
+        logging.info(f"Output file name changed to {outputFile}")
+
+    # check and build directories
     if not os.path.isdir(args.dataDir):
         logging.error(f"Input directory not found: {args.dataDir}")
         exit(1)
@@ -279,7 +294,7 @@ def main():
 
     process_directories(ensure_trailing_slash(args.dataDir), 
                         outputDir,
-                        args.outputFile)
+                        outputFile)
 
 if __name__ == "__main__":
     main()
