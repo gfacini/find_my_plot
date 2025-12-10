@@ -1,6 +1,7 @@
 from flask import Flask, request, render_template, session, redirect, url_for
 import chromadb
 import json
+import os
 from tqdm import tqdm
 
 app = Flask(__name__)
@@ -9,8 +10,11 @@ app.config['SECRET_KEY'] = 'your_secret_key'
 chroma_client = chromadb.Client()
 collection = chroma_client.create_collection(name="PhysicsFigures")
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+db_path = os.path.join(current_dir, './DB.json') #sets database path to current directory with name DB.json
+
 def load_data_into_collection():
-    with open('DB.json', 'r') as file:
+    with open(db_path, 'r') as file:
         data = json.load(file)
 
     batch_size = 40000  
@@ -78,3 +82,49 @@ def play_invisible_atom():
 if __name__ == '__main__':
     load_data_into_collection()
     app.run(debug=True, port=5001)
+
+
+
+
+
+import json
+import re
+
+def load_abbreviations(file_path):
+    """Load abbreviations and their meanings from a JSON file."""
+    with open(file_path, 'r') as file:
+        abbreviations = json.load(file)
+    return abbreviations
+
+def replace_abbreviation(sentence, abbreviations):
+    """Replace abbreviations in a sentence with their meanings."""
+    # Find all abbreviations in the sentence
+    matches = re.findall(r'\b[A-Z]{2,}\b', sentence)
+    
+    # Filter matches to only those in the abbreviations dictionary
+    matches = [match for match in matches if match in abbreviations]
+    
+    # If no matches found, return the original sentence
+    if not matches:
+        return [sentence]
+    
+    # Generate all possible sentences by replacing abbreviations with their meanings
+    sentences = [sentence]
+    for match in matches:
+        new_sentences = []
+        for s in sentences:
+            for meaning in abbreviations[match]:
+                new_sentence = re.sub(r'\b' + match + r'\b', meaning, s)
+                new_sentences.append(new_sentence)
+        sentences = new_sentences
+    
+    return sentences
+ Load abbreviations from the JSON file
+abbreviations = load_abbreviations(abbreviations_file)
+
+# Replace abbreviations in the sentence
+result = replace_abbreviation(sentence, abbreviations)
+
+# Print all possible sentences
+for i, s in enumerate(result, 1):
+    print(f"Sentence {i}: {s}")
